@@ -1,0 +1,8 @@
+* text=auto
+*.md text eol=lf
+*.py text eol=lf
+.agents/skills/** -text whitespace=cr-at-eol
+docs/agents/licenses/** -text whitespace=cr-at-eol
+docs/agents/code-reviewer.md -text whitespace=cr-at-eol
+docs/http/openapi.json -text
+graphify-out/graph.json merge=graphify

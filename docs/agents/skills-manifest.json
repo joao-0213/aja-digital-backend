@@ -1,0 +1,194 @@
+{
+  "skills": [
+    {
+      "name": "database-migrations",
+      "source": "ECC",
+      "version": "2.2.3",
+      "files": [
+        {
+          "path": ".agents/skills/database-migrations/SKILL.md",
+          "sha256": "dad2f1964295eee14a96e06213ce3f60992bbcdc1f37a50c828bbc2e1abd79dd"
+        }
+      ]
+    },
+    {
+      "name": "docker-patterns",
+      "source": "ECC",
+      "version": "2.2.3",
+      "files": [
+        {
+          "path": ".agents/skills/docker-patterns/SKILL.md",
+          "sha256": "c0cedeb9b64d4468f5af3bb0a97659c654f0ceb916acbec867a29dc682dd633f"
+        }
+      ]
+    },
+    {
+      "name": "graphify",
+      "source": "Graphify",
+      "version": "0.9.95",
+      "files": [
+        {
+          "path": ".agents/skills/graphify/.graphify_version",
+          "sha256": "3a4cd70894e54c3e50ffbf7ea2cb473b9d39f339fbc02ba451298eab217496c4"
+        },
+        {
+          "path": ".agents/skills/graphify/references/add-watch.md",
+          "sha256": "1e77351815547334c7e030f018dba513b303d397bf73d11fac47df03ace3b3f4"
+        },
+        {
+          "path": ".agents/skills/graphify/references/exports.md",
+          "sha256": "c39a2f8062be9a5ac319220d6e66ca586ed0b0798292b1321206834be74c1b33"
+        },
+        {
+          "path": ".agents/skills/graphify/references/extraction-spec.md",
+          "sha256": "214c474186ed26f47fafd5be941b29c3524d5e8a362814587f1c5d9883795d7c"
+        },
+        {
+          "path": ".agents/skills/graphify/references/github-and-merge.md",
+          "sha256": "e5ebd90c7686f50363ff7a535556bc2f596d4c47ec1e6c8b95e11e36a0dfea2b"
+        },
+        {
+          "path": ".agents/skills/graphify/references/hooks.md",
+          "sha256": "b9a4e9f66813c6fc720589f1071d1a03c95756ab7101447e14e57291fe7844e5"
+        },
+        {
+          "path": ".agents/skills/graphify/references/query.md",
+          "sha256": "e99011beeff0cf40dc1775b1e0cd2eab0e5f950deeeb8353ae01cbe57adbff00"
+        },
+        {
+          "path": ".agents/skills/graphify/references/transcribe.md",
+          "sha256": "676a1e39aa6d43cdfcc416ec56616e36f7bad74066a82bd33a9485515b9a865c"
+        },
+        {
+          "path": ".agents/skills/graphify/references/update.md",
+          "sha256": "c76b855ef9380d766b1a0b271b49bc7b40cf5b5b72558be1a021f99f9a9ea1cc"
+        },
+        {
+          "path": ".agents/skills/graphify/SKILL.md",
+          "sha256": "8736200e6b7d131d937d8ed4b8d84bf74ef7760aa58de80c9df9f2ba8a67e106"
+        }
+      ]
+    },
+    {
+      "name": "hexagonal-architecture",
+      "source": "ECC",
+      "version": "2.2.3",
+      "files": [
+        {
+          "path": ".agents/skills/hexagonal-architecture/SKILL.md",
+          "sha256": "1579f70e4cd5a2dde39d29a2055d18b39f06b063a308d3b43a498900c99495b7"
+        }
+      ]
+    },
+    {
+      "name": "jpa-patterns",
+      "source": "ECC",
+      "version": "2.2.3",
+      "files": [
+        {
+          "path": ".agents/skills/jpa-patterns/SKILL.md",
+          "sha256": "bcdd45c5e435df259856b20aae47182209b0467b542eacfc7e32bcf452326839"
+        }
+      ]
+    },
+    {
+      "name": "kotlin-patterns",
+      "source": "ECC",
+      "version": "2.2.3",
+      "files": [
+        {
+          "path": ".agents/skills/kotlin-patterns/SKILL.md",
+          "sha256": "e519234772a3697763ad484908d180c4c653439fea75a56c03440c272f9f0896"
+        }
+      ]
+    },
+    {
+      "name": "kotlin-testing",
+      "source": "ECC",
+      "version": "2.2.3",
+      "files": [
+        {
+          "path": ".agents/skills/kotlin-testing/SKILL.md",
+          "sha256": "13e39ad65e86e86c22fbdb6273bdc8d17d3784c221a8f08207a1e9e2e9c29a0a"
+        }
+      ]
+    },
+    {
+      "name": "ponytail",
+      "source": "Ponytail",
+      "version": "5.3.3",
+      "files": [
+        {
+          "path": ".agents/skills/ponytail/SKILL.md",
+          "sha256": "f18008471528f0adde90a560d053f85935eed5cee26c447b7177ad24472bcf32"
+        }
+      ]
+    },
+    {
+      "name": "ponytail-review",
+      "source": "Ponytail",
+      "version": "5.3.3",
+      "files": [
+        {
+          "path": ".agents/skills/ponytail-review/SKILL.md",
+          "sha256": "affa0eedca467b58699fafbea28f6f85352aa3e7f23785964bf42f029a291504"
+        }
+      ]
+    },
+    {
+      "name": "postgres-patterns",
+      "source": "ECC",
+      "version": "2.2.3",
+      "files": [
+        {
+          "path": ".agents/skills/postgres-patterns/SKILL.md",
+          "sha256": "9c8c391ae9e9aa87faa7ca091e1d395c97766df14080d0bfbea8a97721776163"
+        }
+      ]
+    },
+    {
+      "name": "springboot-patterns",
+      "source": "ECC",
+      "version": "2.2.3",
+      "files": [
+        {
+          "path": ".agents/skills/springboot-patterns/SKILL.md",
+          "sha256": "ff1884a8492d078d1bbb35f3ce0a8ae25f1ad95dab8596f4944a7c3110680946"
+        }
+      ]
+    },
+    {
+      "name": "springboot-security",
+      "source": "ECC",
+      "version": "2.2.3",
+      "files": [
+        {
+          "path": ".agents/skills/springboot-security/SKILL.md",
+          "sha256": "566ecf928bf76812d15efd62e2f00841652e1618f0a97d8dda93e1c247a162c5"
+        }
+      ]
+    },
+    {
+      "name": "tdd-workflow",
+      "source": "ECC",
+      "version": "2.2.3",
+      "files": [
+        {
+          "path": ".agents/skills/tdd-workflow/SKILL.md",
+          "sha256": "8887afa786ef30de834e7567115d3df71934b343c3d9d849714f8ea43f979ee0"
+        }
+      ]
+    },
+    {
+      "name": "verification-loop",
+      "source": "ECC",
+      "version": "2.2.3",
+      "files": [
+        {
+          "path": ".agents/skills/verification-loop/SKILL.md",
+          "sha256": "5b06be54d4852f60e6cf1b04c6e9a4748554334eb3e41af6c0959b544e6464ae"
+        }
+      ]
+    }
+  ]
+}
