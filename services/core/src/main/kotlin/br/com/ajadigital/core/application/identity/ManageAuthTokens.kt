@@ -1,0 +1,92 @@
+package br.com.ajadigital.core.application.identity
+
+import br.com.ajadigital.core.domain.identity.User
+import br.com.ajadigital.core.domain.identity.EmailAddress
+import br.com.ajadigital.core.ports.out.AuthTokenIssue
+import br.com.ajadigital.core.ports.out.AuthTokenResult
+import br.com.ajadigital.core.ports.out.IdentityStore
+import br.com.ajadigital.core.ports.out.TokenFailure
+import br.com.ajadigital.core.ports.out.PasswordHasher
+import tools.jackson.databind.ObjectMapper
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.time.Clock
+import java.time.Duration
+import java.time.Instant
+import java.util.Base64
+import java.util.UUID
+
+class AuthTokenInvalid : RuntimeException()
+class AuthTokenExpired : RuntimeException()
+data class TokenCommand(val token: String)
+data class PasswordResetCommand(val token: String, val password: String)
+data class AcceptedResponse(val message: String = "Solicitação recebida. Consulte as instruções disponíveis para continuar.")
+
+class RequestAuthToken(
+    private val store: IdentityStore,
+    private val objectMapper: ObjectMapper,
+    private val clock: Clock,
+    private val encryption: OutboxEncryption,
+) {
+    fun request(emailInput: String, purpose: String): AcceptedResponse {
+        require(purpose == "email_confirmation" || purpose == "password_reset")
+        val email = emailInput.trim()
+        require(EmailAddress.isValid(email))
+        val requestEvent = if (purpose == "email_confirmation") "auth.email_confirmation_request" else "auth.password_reset_request"
+        val identity = store.findLoginIdentity(email.lowercase()) ?: run {
+            store.recordAudit(requestEvent, "accepted")
+            return AcceptedResponse()
+        }
+        if (purpose == "email_confirmation" && identity.user.emailConfirmedAt != null) {
+            store.recordAudit(requestEvent, "accepted")
+            return AcceptedResponse()
+        }
+
+        val now = Instant.now(clock)
+        val id = UUID.randomUUID().toString()
+        val eventId = UUID.randomUUID().toString()
+        val eventType = if (purpose == "email_confirmation") "identity.email-confirmation-requested" else "identity.password-reset-requested"
+        val token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also(SecureRandom()::nextBytes))
+        val payload = objectMapper.writeValueAsBytes(mapOf("recipient" to identity.user.email, "token" to token, "userId" to identity.user.id, "purpose" to purpose))
+        val encrypted = encryption.encrypt(eventId, eventType, 1, payload)
+        store.issueAuthToken(
+            AuthTokenIssue(
+                id, identity.user.id, purpose, sha256(token), identity.user.email, now, now.plus(Duration.ofMinutes(30)),
+                eventId, eventType, encrypted.ciphertext, encrypted.nonce, encrypted.keyId,
+            ),
+        )
+        return AcceptedResponse()
+    }
+
+    fun confirmEmail(token: String): User {
+        require(token.isNotBlank() && token.length <= 256)
+        return store.confirmEmail(sha256(token)).toUserOrThrow()
+    }
+
+    private fun sha256(value: String) = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
+}
+
+class ResetPassword(
+    private val store: IdentityStore,
+    private val passwordHasher: PasswordHasher,
+) {
+    fun reset(command: PasswordResetCommand): AcceptedResponse {
+        require(command.token.isNotBlank() && command.token.length <= 256 && command.password.length in 8..128)
+        val passwordHash = passwordHasher.hash(command.password)
+        when (store.resetPassword(sha256(command.token), passwordHash)) {
+            null -> return AcceptedResponse()
+            TokenFailure.INVALID -> throw AuthTokenInvalid()
+            TokenFailure.EXPIRED -> throw AuthTokenExpired()
+        }
+    }
+
+    private fun sha256(value: String) = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
+}
+
+private fun AuthTokenResult.toUserOrThrow(): User = when {
+    user != null -> user
+    failure == TokenFailure.EXPIRED -> throw AuthTokenExpired()
+    else -> throw AuthTokenInvalid()
+}
