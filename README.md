@@ -1,6 +1,6 @@
 # AJA Digital Backend
 
-Repositório dos serviços Kotlin/Spring Boot do AJA Digital, ainda não implementados. O trabalho está definido em [`ISSUES-BACKEND.md`](ISSUES-BACKEND.md); todas as issues permanecem abertas e nenhuma implementação backend acompanha esta preparação.
+Repositório dos serviços Kotlin/Spring Boot do AJA Digital. B-01 cria a base executável dos serviços, suas fronteiras de dados e o ambiente local. As funcionalidades das issues B-02–B-16 permanecem abertas em [`ISSUES-BACKEND.md`](ISSUES-BACKEND.md).
 
 ## Serviços previstos
 
@@ -8,7 +8,7 @@ Repositório dos serviços Kotlin/Spring Boot do AJA Digital, ainda não impleme
 - [`services/questions/`](services/questions/README.md): acervo e provider interno de snapshots.
 - [`services/email/`](services/email/README.md): worker assíncrono de email.
 
-Comece por [`ARQUITETURA.md`](ARQUITETURA.md), [`AGENTS.md`](AGENTS.md), o cabeçalho B-01 do backlog e os contratos versionados em [`docs/http/`](docs/http/). Ainda não há comandos de build/teste backend: B-01 deve escolher e registrar ferramentas reproduzíveis. Comandos `npm` nos documentos HTTP descrevem somente o simulador frontend.
+Comece por [`ARQUITETURA.md`](ARQUITETURA.md), [`AGENTS.md`](AGENTS.md), o cabeçalho B-01 do backlog e os contratos versionados em [`docs/http/`](docs/http/). Os comandos reproduzíveis de dependências, execução e testes estão em [`docs/backend/local-development.md`](docs/backend/local-development.md). Comandos `npm` nos documentos HTTP descrevem somente o simulador frontend.
 
 As [skills locais](docs/agents/skills.md) preservam a pipeline de execução e incluem as nove orientações técnicas aprovadas. O [Graphify](docs/graphify.md) indexa os contratos e as issues localmente; seus artefatos não são versionados. Veja as [verificações da preparação](docs/setup-validation.md).
 

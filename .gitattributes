@@ -6,3 +6,4 @@ docs/agents/licenses/** -text whitespace=cr-at-eol
 docs/agents/code-reviewer.md -text whitespace=cr-at-eol
 docs/http/openapi.json -text
 graphify-out/graph.json merge=graphify
+*.sh text eol=lf
