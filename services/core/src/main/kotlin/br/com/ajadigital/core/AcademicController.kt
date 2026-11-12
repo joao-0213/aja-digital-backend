@@ -10,8 +10,11 @@ import br.com.ajadigital.core.application.academic.AcademicNotFound
 import br.com.ajadigital.core.application.academic.InvalidAttemptAnswers
 import br.com.ajadigital.core.application.academic.InvalidSubmissionFeedback
 import br.com.ajadigital.core.application.academic.ManageAcademics
+import br.com.ajadigital.core.application.academic.ManageAttendance
+import br.com.ajadigital.core.application.academic.InvalidAttendanceRecords
 import br.com.ajadigital.core.application.academic.ManageSubjects
 import br.com.ajadigital.core.application.academic.ManageTopics
+import br.com.ajadigital.core.ports.out.AttendanceDraft
 import br.com.ajadigital.core.application.academic.InvalidTopicReference
 import br.com.ajadigital.core.application.academic.UnknownPublication
 import br.com.ajadigital.core.application.academic.InvalidAcademicReference
@@ -36,6 +39,9 @@ import org.springframework.transaction.annotation.Transactional
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.node.MissingNode
 import java.util.UUID
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeParseException
 
 @JsonIgnoreProperties(ignoreUnknown = false)
 data class UserCreateRequest(val name: String, val email: String, val role: String)
@@ -79,9 +85,13 @@ data class TopicSolutionRequest(val expectedRevision: JsonNode = MissingNode.get
 data class TopicRevisionRequest(val expectedRevision: Int)
 @JsonIgnoreProperties(ignoreUnknown = false)
 data class TopicVoteRequest(val voted: Boolean)
+@JsonIgnoreProperties(ignoreUnknown = false)
+data class AttendanceCreateRequest(val subjectId: String, val date: String, val time: String, val records: JsonNode)
+@JsonIgnoreProperties(ignoreUnknown = false)
+data class AttendanceEditRequest(val expectedRevision: JsonNode = MissingNode.getInstance(), val records: JsonNode)
 
 @RestController
-class AcademicController(private val auth: AuthenticateStudent, private val academics: ManageAcademics, private val subjects: ManageSubjects, private val topics: ManageTopics) {
+class AcademicController(private val auth: AuthenticateStudent, private val academics: ManageAcademics, private val subjects: ManageSubjects, private val topics: ManageTopics, private val attendance: ManageAttendance) {
     @GetMapping("/api/v1/users")
     fun users(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "id") sort: String, @RequestParam(required = false) role: String?, @RequestParam(required = false) active: Boolean?, @RequestParam(required = false) q: String?) = page(academics.users(actor(cookie), page, pageSize, sort, role, active, q))
     @PostMapping("/api/v1/users")
@@ -211,11 +221,27 @@ class AcademicController(private val auth: AuthenticateStudent, private val acad
     @Transactional
     fun withdrawReply(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @PathVariable replyId: String, @RequestBody body: TopicRevisionRequest) = topics.withdrawReply(actor(cookie), id(id), replyId, body.expectedRevision)
 
+    @GetMapping("/api/v1/attendance")
+    fun attendanceList(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "date") sort: String, @RequestParam(required = false) subjectId: String?, @RequestParam(required = false) studentId: String?, @RequestParam(required = false) from: String?, @RequestParam(required = false) to: String?) = page(attendance.list(actor(cookie), page, pageSize, sort, subjectId, studentId, from, to))
+    @GetMapping("/api/v1/attendance/eligible")
+    fun eligibleAttendance(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam subjectId: String, @RequestParam date: String, @RequestParam time: String, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int) = page(attendance.eligible(actor(cookie), subjectId, date, time, page, pageSize))
+    @GetMapping("/api/v1/attendance/{id}")
+    fun attendanceById(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = attendance.attendance(actor(cookie), id(id))
+    @PostMapping("/api/v1/attendance")
+    @Transactional
+    fun createAttendance(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: AttendanceCreateRequest) = ResponseEntity.status(HttpStatus.CREATED).body(attendance.create(actor(cookie), AttendanceDraft(id(body.subjectId), attendanceDate(body.date), attendanceTime(body.time), records(body.records)), idempotencyKey(key)))
+    @PatchMapping("/api/v1/attendance/{id}")
+    @Transactional
+    fun updateAttendance(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: AttendanceEditRequest) = attendance.update(actor(cookie), id(id), revision(body.expectedRevision), records(body.records))
+
     private fun actor(cookie: String?): AcademicActor = auth.resolve(cookie).let { AcademicActor(it.user.id, it.user.role, it.user.active, it.user.emailConfirmedAt, it.tokenHash) }
     private fun idempotencyKey(value: String?): String = value?.also { require(it.length in 8..128) } ?: throw IllegalArgumentException()
     private fun id(value: String) = value.also { require(it.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"))) }
     private fun text(value: JsonNode) = if (value.isMissingNode) null else value.asText().also { require(value.isTextual) }
     private fun strings(value: JsonNode): List<String>? = if (value.isMissingNode) null else { require(value.isArray && (0 until value.size()).all { value.get(it).isTextual }); (0 until value.size()).map { id(value.get(it).asString()) } }
+    private fun records(value: JsonNode): Map<String, Boolean> = run { require(value.isObject); value.properties().associate { (key, item) -> id(key) to item.booleanValue().also { require(item.isBoolean) } } }
+    private fun attendanceTime(value: String) = value.also { require(it.matches(Regex("^([01][0-9]|2[0-3]):[0-5][0-9]$"))) }.let(LocalTime::parse)
+    private fun attendanceDate(value: String) = try { LocalDate.parse(value) } catch (_: DateTimeParseException) { throw IllegalArgumentException() }
     private fun integer(value: JsonNode) = if (value.isMissingNode) null else value.intValue().also { require(value.isIntegralNumber && value.canConvertToInt()) }
     private fun revision(value: JsonNode) = value.intValue().also { require(value.isIntegralNumber && value.canConvertToInt() && it > 0) }
     private fun page(result: br.com.ajadigital.core.ports.out.AcademicPage) = mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
@@ -223,6 +249,8 @@ class AcademicController(private val auth: AuthenticateStudent, private val acad
 
 @RestControllerAdvice
 class AcademicExceptionHandler {
+    @ExceptionHandler(InvalidAttendanceRecords::class)
+    fun invalidAttendanceRecords() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "Attendance includes a student outside this class session"))
     @ExceptionHandler(InvalidTopicReference::class)
     fun invalidTopicReference() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "Referenced content is not visible in this subject"))
     @ExceptionHandler(InvalidSubmissionFeedback::class)

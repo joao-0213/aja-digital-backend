@@ -9,6 +9,7 @@ import br.com.ajadigital.core.application.identity.RequestAuthToken
 import br.com.ajadigital.core.application.identity.ResetPassword
 import br.com.ajadigital.core.application.identity.UpdateOwnProfile
 import br.com.ajadigital.core.application.academic.ManageAcademics
+import br.com.ajadigital.core.application.academic.ManageAttendance
 import br.com.ajadigital.core.application.academic.ManageSubjects
 import br.com.ajadigital.core.application.academic.ManageContent
 import br.com.ajadigital.core.application.academic.ManageAssessments
@@ -26,6 +27,7 @@ import br.com.ajadigital.core.ports.out.ContentStore
 import br.com.ajadigital.core.ports.out.IdentityStore
 import br.com.ajadigital.core.ports.out.PasswordHasher
 import br.com.ajadigital.core.ports.out.AcademicStore
+import br.com.ajadigital.core.ports.out.AttendanceStore
 import br.com.ajadigital.core.ports.out.IdempotencyStore
 import tools.jackson.databind.ObjectMapper
 import org.springframework.beans.factory.annotation.Value
@@ -95,6 +97,9 @@ class CoreApplication {
 
     @Bean
     fun manageTopics(store: TopicStore, questions: QuestionSnapshotProvider, idempotency: IdempotencyStore, mapper: ObjectMapper) = ManageTopics(store, questions, idempotency, mapper)
+
+    @Bean
+    fun manageAttendance(store: AttendanceStore, idempotency: IdempotencyStore, mapper: ObjectMapper) = ManageAttendance(store, idempotency, mapper)
 
 }
 
