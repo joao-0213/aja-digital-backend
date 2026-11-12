@@ -35,9 +35,21 @@ Set-Location services/core
 .\gradlew.bat bootRun
 ```
 
+Run Questions with the same service token, Core's private session URL, and public file API base:
+
+```powershell
+$env:QUESTIONS_DATABASE_PASSWORD='<local-questions-password>'
+$env:CORE_QUESTIONS_SERVICE_TOKEN='<same-shared-questions-core-token>'
+$env:CORE_INTERNAL_SESSION_URL='http://localhost:8081/internal/v1/session'
+$env:CORE_PUBLIC_API_URL='http://localhost:8081/api/v1'
+$env:API_ALLOWED_ORIGINS='http://127.0.0.1:3000'
+Set-Location services/questions
+.\gradlew.bat bootRun
+```
+
 Core requires both cryptographic secrets from the environment. Use the same outbox key for Core and the Email worker, and the same private service token for Core and the Questions caller. Set `AJA_COOKIE_SECURE=true` when TLS terminates before Core; direct HTTPS requests also set the cookie's Secure flag.
 
-Questions needs `QUESTIONS_DATABASE_PASSWORD` and does not require RabbitMQ. Email needs `EMAIL_DATABASE_PASSWORD`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, the same `CORE_OUTBOX_ENCRYPTION_KEY` as Core, and `EMAIL_DELIVERY_OPERATOR_TOKEN` for its private DLQ redrive operation. Configure `EMAIL_PROVIDER_URL`, `EMAIL_PROVIDER_TOKEN`, and `EMAIL_ACTION_BASE_URL` for the delivery adapter. Core and Questions public routes use `/api/v1`; Core health is `GET /api/v1/health`. Email health is operational at `GET /health`.
+Questions needs `QUESTIONS_DATABASE_PASSWORD`, `CORE_QUESTIONS_SERVICE_TOKEN` (the same value configured in Core), `CORE_INTERNAL_SESSION_URL` (for example `http://localhost:8081/internal/v1/session`), and does not require RabbitMQ. Set `CORE_PUBLIC_API_URL` to Core's public API base (default `http://localhost:8081/api/v1`) so question image references point to Core-owned file content. Its public routes use `/api/v1`; the authenticated snapshot provider is private at `/internal/v1/snapshots`, outside the public OpenAPI. Email needs `EMAIL_DATABASE_PASSWORD`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, the same `CORE_OUTBOX_ENCRYPTION_KEY` as Core, and `EMAIL_DELIVERY_OPERATOR_TOKEN` for its private DLQ redrive operation. Configure `EMAIL_PROVIDER_URL`, `EMAIL_PROVIDER_TOKEN`, and `EMAIL_ACTION_BASE_URL` for the delivery adapter. Core and Questions health are `GET /api/v1/health`; Email health is operational at `GET /health`.
 
 ## Verify
 

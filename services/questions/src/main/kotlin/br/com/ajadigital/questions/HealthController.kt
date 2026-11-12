@@ -13,7 +13,7 @@ class HealthController(
     private val checkServiceHealth: CheckServiceHealth,
     @Value("\${app.version:1}") private val version: String,
 ) {
-    @GetMapping("/health")
+    @GetMapping("/api/v1/health")
     fun health(): ResponseEntity<Any> = if (checkServiceHealth().available) {
         ResponseEntity.ok(mapOf("status" to "ok", "version" to version))
     } else {
