@@ -9,6 +9,8 @@ import br.com.ajadigital.core.application.identity.RequestAuthToken
 import br.com.ajadigital.core.application.identity.ResetPassword
 import br.com.ajadigital.core.application.identity.UpdateOwnProfile
 import br.com.ajadigital.core.application.academic.ManageAcademics
+import br.com.ajadigital.core.application.academic.ManageSubjects
+import br.com.ajadigital.core.ports.out.SubjectStore
 import br.com.ajadigital.core.ports.out.IdentityStore
 import br.com.ajadigital.core.ports.out.PasswordHasher
 import br.com.ajadigital.core.ports.out.AcademicStore
@@ -60,6 +62,9 @@ class CoreApplication {
     @Bean
     fun manageAcademics(store: AcademicStore, mapper: ObjectMapper, clock: Clock, encryption: OutboxEncryption, hasher: PasswordHasher, idempotency: IdempotencyStore) =
         ManageAcademics(store, mapper, clock, encryption, hasher, idempotency)
+
+    @Bean
+    fun manageSubjects(store: SubjectStore, mapper: ObjectMapper, idempotency: IdempotencyStore) = ManageSubjects(store, mapper, idempotency)
 
 }
 

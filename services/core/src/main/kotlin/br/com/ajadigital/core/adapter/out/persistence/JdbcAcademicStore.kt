@@ -54,6 +54,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
 
     @Transactional
     override fun updateUser(id: String, actorId: String, expectedRevision: Int, name: String?, email: String?): Map<String, Any?>? {
+        jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java)
         val current = findUser(id) ?: return null
         val newName = name ?: current["name"] as String
         val newEmail = email ?: current["email"] as String

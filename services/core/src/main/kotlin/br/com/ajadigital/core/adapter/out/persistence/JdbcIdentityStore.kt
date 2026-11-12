@@ -29,6 +29,7 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
 
     @Transactional
     override fun recordLoginFailure(previousTokenHash: String?) {
+        lockAuthInvariant()
         previousTokenHash?.let { jdbc.update("update core.sessions set revoked_at=now() where token_hash=? and revoked_at is null", it) }
         insertAudit("auth.login", "failure")
     }
@@ -70,6 +71,7 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
 
     @Transactional
     override fun rotateSession(record: SessionRecord, previousTokenHash: String?, expectedPasswordHash: String): Boolean {
+        lockAuthInvariant()
         val account = jdbc.query(
             "select password_hash,active from core.users where id=? for update",
             { rs, _ -> rs.getString("password_hash") to rs.getBoolean("active") }, record.user.id,
@@ -100,6 +102,7 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
 
     @Transactional
     override fun revokeSession(tokenHash: String?) {
+        lockAuthInvariant()
         val userId = tokenHash?.let {
             jdbc.query("select user_id from core.sessions where token_hash=?", { rs, _ -> rs.getString(1) }, it).firstOrNull()
         }
@@ -140,6 +143,7 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
 
     @Transactional
     override fun confirmEmail(tokenHash: String): AuthTokenResult {
+        lockAuthInvariant()
         val metadata = jdbc.query(
             "select id token_id,user_id,email_at_issue,expires_at,used_at from core.auth_tokens where token_hash=? and purpose='email_confirmation'",
             { rs, _ -> ConfirmationRow(rs.getString("token_id"), rs.getString("user_id"), rs.getString("email_at_issue"), rs.getTimestamp("expires_at").toInstant(), rs.getTimestamp("used_at")?.toInstant()) }, tokenHash,
@@ -171,6 +175,7 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
 
     @Transactional
     override fun resetPassword(tokenHash: String, passwordHash: String): TokenFailure? {
+        lockAuthInvariant()
         val userId = jdbc.query("select user_id from core.auth_tokens where token_hash=? and purpose='password_reset'", { rs, _ -> rs.getString(1) }, tokenHash).firstOrNull()
             ?: return TokenFailure.INVALID.also { insertAudit("auth.password_reset", "invalid") }
         val user = lockUser(userId) ?: return TokenFailure.INVALID.also { insertAudit("auth.password_reset", "invalid") }
@@ -194,6 +199,7 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
 
     @Transactional
     override fun updateProfile(sessionTokenHash: String, expectedRevision: Int, name: String?): ProfileUpdateResult {
+        lockAuthInvariant()
         val user = jdbc.query(
             """select u.id uid,u.revision,u.created_at,u.updated_at,u.updated_by,u.name,u.email,u.role,u.active,u.email_confirmed_at
                from core.sessions s join core.users u on u.id=s.user_id
@@ -228,6 +234,8 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
     }
 
     private fun currentTime(): java.time.Instant = java.time.Instant.now(clock)
+
+    private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }
 
     private fun requestEvent(purpose: String) = if (purpose == "email_confirmation") "auth.email_confirmation_request" else "auth.password_reset_request"
 

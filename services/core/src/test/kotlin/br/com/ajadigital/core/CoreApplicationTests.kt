@@ -124,6 +124,454 @@ class CoreApplicationTests @Autowired constructor(
     }
 
     @Test
+    fun assignedTeachersCanCollaborateOnSubjectsAndUnassignmentRevokesWrites() {
+        val (adminCookie, _) = adminSession()
+        val (teacherOneCookie, teacherOneId) = userSession("teacher")
+        val (teacherTwoCookie, teacherTwoId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (otherStudentCookie, otherStudentId) = userSession("student")
+        val (outsiderCookie, _) = userSession("student")
+        val classResponse = mvc.post("/api/v1/classes") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "class-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", adminCookie))
+            content = """{"name":"Turma B06","code":"B06-${UUID.randomUUID()}","year":2026,"shift":"Manhã"}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val classId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(classResponse.response.contentAsString).get("id").asText()
+        val now = java.sql.Timestamp.from(mutableClock.instant())
+        listOf(studentId, otherStudentId).forEach { id ->
+            val email = jdbc.queryForObject("select email from core.users where id=?", String::class.java, id)!!
+            jdbc.update("INSERT INTO core.enrollments(id,revision,created_at,updated_at,updated_by,class_id,email,normalized_email,student_id,status,created_by) VALUES(?,1,?,?,?,?,?,?,?,'active',?)", UUID.randomUUID().toString(), now, now, teacherOneId, classId, email, email.lowercase(), id, teacherOneId)
+        }
+
+        val subjectKey = "subject-${UUID.randomUUID()}"
+        val subjectResponse = mvc.post("/api/v1/subjects") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", subjectKey)
+            cookie(Cookie("aja_session", adminCookie))
+            content = """{"classId":"$classId","name":"Matemática","teacherIds":["$teacherOneId","$teacherTwoId"],"color":"violet","description":""}"""
+        }.andExpect {
+            status { isCreated() }
+            jsonPath("$.teacherIds.length()") { value(2) }
+            jsonPath("$.className") { doesNotExist() }
+            jsonPath("$.teachers") { doesNotExist() }
+            jsonPath("$.canManageContent") { doesNotExist() }
+            jsonPath("$.publicationIds") { doesNotExist() }
+            jsonPath("$.hasUpdates") { doesNotExist() }
+        }.andReturn()
+        val subjectId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(subjectResponse.response.contentAsString).get("id").asText()
+
+        val firstModuleKey = "module-${UUID.randomUUID()}"
+        val firstModule = mvc.post("/api/v1/modules") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", firstModuleKey)
+            cookie(Cookie("aja_session", teacherOneCookie))
+            content = """{"subjectId":"$subjectId","title":"Módulo A","description":""}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val secondModule = mvc.post("/api/v1/modules") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "module-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+            content = """{"subjectId":"$subjectId","title":"Módulo B","description":""}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val adminModule = mvc.post("/api/v1/modules") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "module-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", adminCookie))
+            content = """{"subjectId":"$subjectId","title":"Módulo C","description":""}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val json = tools.jackson.databind.json.JsonMapper.builder().build()
+        val firstModuleId = json.readTree(firstModule.response.contentAsString).get("id").asText()
+        val secondModuleId = json.readTree(secondModule.response.contentAsString).get("id").asText()
+        val adminModuleId = json.readTree(adminModule.response.contentAsString).get("id").asText()
+
+        mvc.post("/api/v1/subjects/$subjectId/reorder-modules") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+            content = """{"expectedRevision":3,"items":[{"id":"$secondModuleId","expectedRevision":1},{"id":"$firstModuleId","expectedRevision":1},{"id":"$adminModuleId","expectedRevision":1}]}"""
+        }.andExpect { status { isConflict() } }
+        mvc.get("/api/v1/subjects/$subjectId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.modules.length()") { value(3) }; jsonPath("$.modules[0].id") { value(firstModuleId) } }
+        mvc.post("/api/v1/subjects/$subjectId/reorder-modules") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+            param("page", "2")
+            param("pageSize", "1")
+            content = """{"expectedRevision":4,"items":[{"id":"$secondModuleId","expectedRevision":1},{"id":"$firstModuleId","expectedRevision":1},{"id":"$adminModuleId","expectedRevision":1}]}"""
+        }.andExpect { status { isOk() }; jsonPath("$.page") { value(2) }; jsonPath("$.pageSize") { value(1) }; jsonPath("$.total") { value(3) }; jsonPath("$.items.length()") { value(1) }; jsonPath("$.items[0].id") { value(firstModuleId) } }
+        mvc.get("/api/v1/modules?subjectId=$subjectId&page=1&pageSize=1&sort=order") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.pageSize") { value(1) }; jsonPath("$.total") { value(3) }; jsonPath("$.items.length()") { value(1) } }
+        mvc.get("/api/v1/modules/$firstModuleId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.title") { value("Módulo A") } }
+        mvc.patch("/api/v1/modules/$firstModuleId") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+            content = """{"expectedRevision":2,"title":"Módulo A editado"}"""
+        }.andExpect { status { isOk() }; jsonPath("$.revision") { value(3) }; jsonPath("$.description") { value("") } }
+
+        mvc.patch("/api/v1/subjects/$subjectId") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", adminCookie))
+            content = """{"expectedRevision":5,"teacherIds":["$teacherTwoId"]}"""
+        }.andExpect { status { isOk() }; jsonPath("$.revision") { value(6) }; jsonPath("$.className") { doesNotExist() } }
+        mvc.post("/api/v1/modules") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "module-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherOneCookie))
+            content = """{"subjectId":"$subjectId","title":"Revoked","description":""}"""
+        }.andExpect { status { isForbidden() } }
+        mvc.post("/api/v1/modules") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", firstModuleKey)
+            cookie(Cookie("aja_session", teacherOneCookie))
+            content = """{"subjectId":"$subjectId","title":"Módulo A","description":""}"""
+        }.andExpect { status { isForbidden() } }
+        mvc.get("/api/v1/subjects/$subjectId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.modules.length()") { value(3) }; jsonPath("$.projections.materials.count") { value(0) }; jsonPath("$.subject.teachers.length()") { value(1) }; jsonPath("$.subject.canManageContent") { value(true) } }
+        mvc.get("/api/v1/subjects?classId=$classId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.total") { value(1) }; jsonPath("$.items[0].id") { value(subjectId) } }
+        mvc.get("/api/v1/subjects?classId=$classId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", outsiderCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.total") { value(0) }; jsonPath("$.items.length()") { value(0) } }
+        jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?)", subjectId, "material:observed")
+        val firstVisit = mvc.get("/api/v1/subjects/$subjectId/visits") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.seenAt") { value(null) }; jsonPath("$.publicationIds.length()") { value(1) }; jsonPath("$.hasUpdates") { value(true) } }.andReturn()
+        jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?)", subjectId, "notice:later")
+        mvc.post("/api/v1/subjects/$subjectId/visits") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"publicationIds":["material:observed"]}"""
+        }.andExpect { status { isOk() }; jsonPath("$.seenAt") { exists() }; jsonPath("$.seenPublicationIds[0]") { value("material:observed") }; jsonPath("$.publicationIds.length()") { value(2) }; jsonPath("$.hasUpdates") { value(true) } }
+        val visitPool = Executors.newFixedThreadPool(2)
+        jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?)", subjectId, "material:concurrent-a")
+        jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?)", subjectId, "notice:concurrent-b")
+        try {
+            val concurrentVisits = listOf("material:concurrent-a", "notice:concurrent-b").map { publicationId ->
+                visitPool.submit<Int> {
+                    mvc.post("/api/v1/subjects/$subjectId/visits") {
+                        contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                        header("Origin", "https://aja.example.test")
+                        cookie(Cookie("aja_session", studentCookie))
+                        content = json.writeValueAsString(mapOf("publicationIds" to listOf(publicationId)))
+                    }.andReturn().response.status
+                }
+            }
+            assertEquals(listOf(200, 200), concurrentVisits.map { it.get(10, TimeUnit.SECONDS) })
+        } finally { visitPool.shutdownNow() }
+        mvc.get("/api/v1/subjects/$subjectId/visits") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.seenPublicationIds.length()") { value(3) }; jsonPath("$.seenPublicationIds[0]") { value("material:concurrent-a") }; jsonPath("$.seenPublicationIds[2]") { value("notice:concurrent-b") } }
+        mvc.post("/api/v1/subjects/$subjectId/visits") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"publicationIds":["material:unknown"]}"""
+        }.andExpect { status { isUnprocessableEntity() } }
+        val manyPublications = (1..100).map { "material:batch-$it" } + ("material:" + "x".repeat(130))
+        manyPublications.forEach { jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?)", subjectId, it) }
+        val manyVisit = mvc.post("/api/v1/subjects/$subjectId/visits") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+            content = json.writeValueAsString(mapOf("publicationIds" to manyPublications))
+        }.andExpect { status { isOk() }; jsonPath("$.seenPublicationIds.length()") { value(104) } }.andReturn()
+        mvc.get("/api/v1/subjects/$subjectId/visits") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", otherStudentCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.seenAt") { value(null) }; jsonPath("$.seenPublicationIds.length()") { value(0) }; jsonPath("$.hasUpdates") { value(true) } }
+        assertTrue(firstVisit.response.contentAsString.contains("\"seenAt\":null"))
+
+        mvc.post("/api/v1/classes/$classId/close") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "close-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", adminCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isOk() } }
+        mvc.post("/api/v1/modules") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "module-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+            content = """{"subjectId":"$subjectId","title":"Closed teacher write","description":""}"""
+        }.andExpect { status { isForbidden() } }
+        mvc.post("/api/v1/modules") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "module-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", adminCookie))
+            content = """{"subjectId":"$subjectId","title":"Closed admin write","description":""}"""
+        }.andExpect { status { isForbidden() } }
+        mvc.patch("/api/v1/modules/$firstModuleId") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+            content = """{"expectedRevision":3,"title":"Closed teacher edit"}"""
+        }.andExpect { status { isForbidden() } }
+        mvc.patch("/api/v1/modules/$secondModuleId") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", adminCookie))
+            content = """{"expectedRevision":2,"title":"Closed admin edit"}"""
+        }.andExpect { status { isForbidden() } }
+        mvc.post("/api/v1/subjects/$subjectId/reorder-modules") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+            content = """{"expectedRevision":6,"items":[{"id":"$secondModuleId","expectedRevision":2},{"id":"$firstModuleId","expectedRevision":3},{"id":"$adminModuleId","expectedRevision":2}]}"""
+        }.andExpect { status { isForbidden() } }
+        mvc.post("/api/v1/subjects/$subjectId/reorder-modules") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", adminCookie))
+            content = """{"expectedRevision":6,"items":[{"id":"$secondModuleId","expectedRevision":2},{"id":"$firstModuleId","expectedRevision":3},{"id":"$adminModuleId","expectedRevision":2}]}"""
+        }.andExpect { status { isForbidden() } }
+        mvc.get("/api/v1/subjects/$subjectId/visits") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+        }.andExpect { status { isOk() } }
+        mvc.get("/api/v1/subjects/$subjectId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.subject.canManageContent") { value(false) } }
+        mvc.get("/api/v1/subjects?classId=$classId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherTwoCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.items[0].canManageContent") { value(false) } }
+        mvc.get("/api/v1/subjects?classId=$classId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", adminCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.items[0].canManageContent") { value(false) } }
+    }
+
+    @Test
+    fun concurrentModuleCreateAndReorderPreserveOrderAndReturnBoundedPage() {
+        val (adminCookie, adminId) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val classResult = mvc.post("/api/v1/classes") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "class-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", adminCookie))
+            content = """{"name":"Turma concorrente","code":"RACE-${UUID.randomUUID()}","year":2026,"shift":"Manhã"}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val json = tools.jackson.databind.json.JsonMapper.builder().build()
+        val classId = json.readTree(classResult.response.contentAsString).get("id").asText()
+        val subjectResult = mvc.post("/api/v1/subjects") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "subject-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", adminCookie))
+            content = """{"classId":"$classId","name":"Concorrência","teacherIds":["$teacherId"],"color":"blue","icon":"book","description":""}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val subjectId = json.readTree(subjectResult.response.contentAsString).get("id").asText()
+        val now = java.sql.Timestamp.from(mutableClock.instant())
+        repeat(101) { index ->
+            jdbc.update("INSERT INTO core.modules(id,revision,created_at,updated_at,updated_by,subject_id,title,description,order_index) VALUES(?,1,?,?,?,?,?,?,?)", "module-${index.toString().padStart(3, '0')}", now, now, teacherId, subjectId, "Module $index", "", index)
+        }
+        val itemsBefore = jdbc.query("SELECT id,revision FROM core.modules WHERE subject_id=? ORDER BY order_index", { rs, _ -> mapOf("id" to rs.getString(1), "expectedRevision" to rs.getInt(2)) }, subjectId)
+        val held = DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password)
+        held.autoCommit = false
+        held.prepareStatement("SELECT id FROM core.subjects WHERE id=? FOR UPDATE").use { statement ->
+            statement.setString(1, subjectId)
+            statement.executeQuery().use { assertTrue(it.next()) }
+        }
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val create = pool.submit<Int> {
+                mvc.post("/api/v1/modules") {
+                    contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                    header("Origin", "https://aja.example.test")
+                    header("Idempotency-Key", "module-${UUID.randomUUID()}")
+                    cookie(Cookie("aja_session", teacherCookie))
+                    content = """{"subjectId":"$subjectId","title":"Racing module","description":""}"""
+                }.andReturn().response.status
+            }
+            awaitLockWait("core.subjects")
+            val reorder = pool.submit<Int> {
+                mvc.post("/api/v1/subjects/$subjectId/reorder-modules") {
+                    contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                    header("Origin", "https://aja.example.test")
+                    cookie(Cookie("aja_session", adminCookie))
+                    content = json.writeValueAsString(mapOf("expectedRevision" to 1, "items" to itemsBefore))
+                }.andReturn().response.status
+            }
+            awaitLockWaitCount(2)
+            held.commit()
+            assertEquals(201, create.get(10, TimeUnit.SECONDS))
+            assertEquals(409, reorder.get(10, TimeUnit.SECONDS))
+        } finally {
+            runCatching { held.rollback() }
+            held.close()
+            pool.shutdownNow()
+        }
+        assertEquals(102, jdbc.queryForObject("SELECT count(*) FROM core.modules WHERE subject_id=? AND withdrawn_at IS NULL", Int::class.java, subjectId))
+        val allItems = jdbc.query("SELECT id,revision FROM core.modules WHERE subject_id=? AND withdrawn_at IS NULL ORDER BY order_index,id", { rs, _ -> mapOf("id" to rs.getString(1), "expectedRevision" to rs.getInt(2)) }, subjectId)
+        mvc.post("/api/v1/subjects/$subjectId/reorder-modules?page=2&pageSize=100") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", adminCookie))
+            content = json.writeValueAsString(mapOf("expectedRevision" to 2, "items" to allItems))
+        }.andExpect { status { isOk() }; jsonPath("$.page") { value(2) }; jsonPath("$.pageSize") { value(100) }; jsonPath("$.total") { value(102) }; jsonPath("$.items.length()") { value(2) } }
+        val orderedIds = jdbc.query("SELECT id FROM core.modules WHERE subject_id=? AND withdrawn_at IS NULL ORDER BY order_index", { rs, _ -> rs.getString(1) }, subjectId)
+        assertEquals(102, orderedIds.distinct().size)
+        assertTrue(orderedIds.contains("module-100"))
+
+        val heldForTeamUpdate = DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password)
+        heldForTeamUpdate.autoCommit = false
+        heldForTeamUpdate.prepareStatement("SELECT id FROM core.subjects WHERE id=? FOR UPDATE").use { statement ->
+            statement.setString(1, subjectId)
+            statement.executeQuery().use { assertTrue(it.next()) }
+        }
+        val teamPool = Executors.newFixedThreadPool(2)
+        try {
+            val teacherWrite = teamPool.submit<Int> {
+                mvc.post("/api/v1/modules") {
+                    contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                    header("Origin", "https://aja.example.test")
+                    header("Idempotency-Key", "module-${UUID.randomUUID()}")
+                    cookie(Cookie("aja_session", teacherCookie))
+                    content = """{"subjectId":"$subjectId","title":"Concurrent teacher write","description":""}"""
+                }.andReturn().response.status
+            }
+            awaitLockWait("core.subjects")
+            val teamUpdate = teamPool.submit<Int> {
+                mvc.patch("/api/v1/subjects/$subjectId") {
+                    contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                    header("Origin", "https://aja.example.test")
+                    cookie(Cookie("aja_session", adminCookie))
+                    content = """{"expectedRevision":3,"teacherIds":["$teacherId"]}"""
+                }.andReturn().response.status
+            }
+            awaitLockWaitCount(2)
+            heldForTeamUpdate.commit()
+            assertEquals(201, teacherWrite.get(10, TimeUnit.SECONDS))
+            assertEquals(409, teamUpdate.get(10, TimeUnit.SECONDS))
+        } finally {
+            runCatching { heldForTeamUpdate.rollback() }
+            heldForTeamUpdate.close()
+            teamPool.shutdownNow()
+        }
+        assertEquals(103, jdbc.queryForObject("SELECT count(*) FROM core.modules WHERE subject_id=? AND withdrawn_at IS NULL", Int::class.java, subjectId))
+    }
+
+    @Test
+    fun sessionRevocationQueuedBeforeModuleWriteWinsSharedAuthGate() {
+        val adminCookie = adminSession().first
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val classId = createB06Class(adminCookie)
+        val subjectId = createB06Subject(adminCookie, classId, teacherId)
+        val held = DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password)
+        held.autoCommit = false
+        held.createStatement().use { it.execute("SELECT pg_advisory_xact_lock(812734)") }
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val logout = pool.submit<Int> {
+                mvc.post("/api/v1/auth/logout") {
+                    header("Origin", "https://aja.example.test")
+                    cookie(Cookie("aja_session", teacherCookie))
+                }.andReturn().response.status
+            }
+            awaitLockWaitCount(1)
+            val create = pool.submit<Int> {
+                mvc.post("/api/v1/modules") {
+                    contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                    header("Origin", "https://aja.example.test")
+                    header("Idempotency-Key", "module-${UUID.randomUUID()}")
+                    cookie(Cookie("aja_session", teacherCookie))
+                    content = """{"subjectId":"$subjectId","title":"Revoked while queued","description":""}"""
+                }.andReturn().response.status
+            }
+            repeat(80) { if (!create.isDone) Thread.sleep(25) }
+            assertFalse(create.isDone, "Module write must wait for the auth invariant gate held by the earlier revocation")
+            awaitLockWaitCount(2)
+            held.commit()
+            assertEquals(204, logout.get(10, TimeUnit.SECONDS))
+            assertEquals(403, create.get(10, TimeUnit.SECONDS))
+        } finally {
+            runCatching { held.rollback() }
+            held.close()
+            pool.shutdownNow()
+        }
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.modules WHERE subject_id=? AND title='Revoked while queued'", Int::class.java, subjectId))
+    }
+
+    @Test
+    fun moduleWriteThatOwnsAuthGateCommitsBeforeQueuedLogout() {
+        val adminCookie = adminSession().first
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val classId = createB06Class(adminCookie)
+        val subjectId = createB06Subject(adminCookie, classId, teacherId)
+        val held = DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password)
+        held.autoCommit = false
+        held.prepareStatement("SELECT id FROM core.classes WHERE id=? FOR UPDATE").use { statement ->
+            statement.setString(1, classId)
+            statement.executeQuery().use { assertTrue(it.next()) }
+        }
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val create = pool.submit<Int> {
+                mvc.post("/api/v1/modules") {
+                    contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                    header("Origin", "https://aja.example.test")
+                    header("Idempotency-Key", "module-${UUID.randomUUID()}")
+                    cookie(Cookie("aja_session", teacherCookie))
+                    content = """{"subjectId":"$subjectId","title":"Write before logout","description":""}"""
+                }.andReturn().response.status
+            }
+            awaitLockWaitCount(1)
+            val logout = pool.submit<Int> {
+                mvc.post("/api/v1/auth/logout") {
+                    header("Origin", "https://aja.example.test")
+                    cookie(Cookie("aja_session", teacherCookie))
+                }.andReturn().response.status
+            }
+            awaitLockWaitCount(2)
+            held.commit()
+            assertEquals(201, create.get(10, TimeUnit.SECONDS))
+            assertEquals(204, logout.get(10, TimeUnit.SECONDS))
+        } finally {
+            runCatching { held.rollback() }
+            held.close()
+            pool.shutdownNow()
+        }
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.modules WHERE subject_id=? AND title='Write before logout'", Int::class.java, subjectId))
+        mvc.post("/api/v1/modules") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "module-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"subjectId":"$subjectId","title":"After logout","description":""}"""
+        }.andExpect { status { isUnauthorized() } }
+    }
+
+    @Test
     fun teacherProvisioningAndEmailConfirmationActivatePendingEnrollmentAtomically() {
         val adminCookie = adminSession().first
         val classResult = mvc.post("/api/v1/classes") {
@@ -1457,12 +1905,34 @@ class CoreApplicationTests @Autowired constructor(
     @Test
     fun migrationsAreRepeatable() {
         flyway.migrate()
-        assertEquals(7, jdbc.queryForObject("select count(*) from core.flyway_schema_history where success", Int::class.java))
+        assertEquals(8, jdbc.queryForObject("select count(*) from core.flyway_schema_history where success", Int::class.java))
     }
 
     private fun assertPrivilegeDenied(action: () -> Unit) {
         val error = assertThrows(DataAccessException::class.java, action)
         assertTrue(generateSequence(error as Throwable?) { it.cause }.filterIsInstance<SQLException>().any { it.sqlState == "42501" })
+    }
+
+    private fun createB06Class(adminCookie: String): String {
+        val result = mvc.post("/api/v1/classes") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "class-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", adminCookie))
+            content = """{"name":"B06 gate","code":"G-${UUID.randomUUID()}","year":2026,"shift":"Noite"}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        return tools.jackson.databind.json.JsonMapper.builder().build().readTree(result.response.contentAsString).get("id").asText()
+    }
+
+    private fun createB06Subject(adminCookie: String, classId: String, teacherId: String): String {
+        val result = mvc.post("/api/v1/subjects") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "subject-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", adminCookie))
+            content = """{"classId":"$classId","name":"Gate subject","teacherIds":["$teacherId"],"color":"blue","icon":"book","description":""}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        return tools.jackson.databind.json.JsonMapper.builder().build().readTree(result.response.contentAsString).get("id").asText()
     }
 
     private fun awaitLockWait(queryFragment: String) {
@@ -1485,6 +1955,19 @@ class CoreApplicationTests @Autowired constructor(
             }
         }
         assertTrue(false, "Expected request to wait for a PostgreSQL row lock; active queries: $active")
+    }
+
+    private fun awaitLockWaitCount(expected: Int) {
+        repeat(100) {
+            val waiting = DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
+                connection.prepareStatement("select count(*) from pg_stat_activity where wait_event_type='Lock' and query not ilike '%pg_stat_activity%'").use { statement ->
+                    statement.executeQuery().use { result -> result.next(); result.getInt(1) }
+                }
+            }
+            if (waiting >= expected) return
+            Thread.sleep(25)
+        }
+        assertTrue(false, "Expected $expected simultaneous PostgreSQL lock waiters")
     }
 
     private fun latestOutboxPayload(eventType: String): String {
