@@ -15,11 +15,13 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 import org.springframework.context.annotation.Bean
+import org.springframework.scheduling.annotation.EnableScheduling
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import org.springframework.security.crypto.password.PasswordEncoder
 import java.time.Clock
 
 @SpringBootApplication
+@EnableScheduling
 class CoreApplication {
     @Bean
     fun checkServiceHealth(probe: HealthProbe) = CheckServiceHealth(probe)

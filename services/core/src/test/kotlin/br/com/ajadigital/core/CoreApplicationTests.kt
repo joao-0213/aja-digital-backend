@@ -16,6 +16,11 @@ import org.springframework.test.web.servlet.MvcResult
 import jakarta.servlet.http.Cookie
 import org.springframework.dao.DataAccessException
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.amqp.rabbit.core.RabbitTemplate
+import org.springframework.amqp.core.BindingBuilder
+import org.springframework.amqp.core.Declarables
+import org.springframework.amqp.core.QueueBuilder
+import org.springframework.amqp.core.TopicExchange
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.flywaydb.core.Flyway
 import org.testcontainers.postgresql.PostgreSQLContainer
@@ -43,7 +48,11 @@ import org.springframework.test.context.DynamicPropertySource
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
 import org.springframework.context.annotation.Primary
+import org.springframework.test.annotation.DirtiesContext
 import org.springframework.boot.test.context.TestConfiguration
+import br.com.ajadigital.core.adapter.out.messaging.OutboxOperationsController
+import br.com.ajadigital.core.adapter.out.messaging.OutboxPublisher
+import br.com.ajadigital.core.adapter.out.messaging.OutboxRedrive
 
 class MutableTestClock : Clock() {
     private val offset = AtomicReference(Duration.ZERO)
@@ -60,17 +69,53 @@ class MutableTestClockConfiguration {
     fun mutableTestClock() = MutableTestClock()
 }
 
+@TestConfiguration
+class EmailQueueTopologyTestConfiguration {
+    @Bean
+    fun emailQueues(exchange: TopicExchange): Declarables {
+        val eventQueue = QueueBuilder.durable("email.identity.events")
+            .withArgument("x-dead-letter-exchange", "")
+            .withArgument("x-dead-letter-routing-key", "email.identity.dlq")
+            .build()
+        val retryQueue = QueueBuilder.durable("email.identity.retry")
+            .withArgument("x-message-ttl", 5000)
+            .withArgument("x-dead-letter-exchange", "")
+            .withArgument("x-dead-letter-routing-key", "email.identity.events")
+            .build()
+        val deadLetterQueue = QueueBuilder.durable("email.identity.dlq").build()
+        return Declarables(
+            eventQueue,
+            retryQueue,
+            deadLetterQueue,
+            BindingBuilder.bind(eventQueue).to(exchange).with("identity.email-confirmation-requested"),
+            BindingBuilder.bind(eventQueue).to(exchange).with("identity.password-reset-requested"),
+        )
+    }
+}
+
 @Testcontainers
 @AutoConfigureMockMvc
-@Import(MutableTestClockConfiguration::class)
+@Import(MutableTestClockConfiguration::class, EmailQueueTopologyTestConfiguration::class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest
 class CoreApplicationTests @Autowired constructor(
     private val jdbc: JdbcTemplate,
     private val flyway: Flyway,
     private val mvc: MockMvc,
+    private val rabbitTemplate: RabbitTemplate,
+    private val outboxPublisher: OutboxPublisher,
     private val passwordEncoder: PasswordEncoder,
     private val mutableClock: MutableTestClock,
 ) {
+    @Test
+    fun outboxOperatorRejectsBlankConfiguredSecret() {
+        assertThrows(IllegalArgumentException::class.java) {
+            OutboxOperationsController(OutboxRedrive(jdbc, mutableClock), " \t")
+        }
+        assertEquals(401, OutboxOperationsController(OutboxRedrive(jdbc, mutableClock), "a-valid-secret")
+            .redrive("not-a-uuid", " \t").statusCode.value())
+    }
+
     @Test
     fun registrationCreatesStudentAndReturnsContractResponse() {
         val email = "student-${UUID.randomUUID()}@example.test"
@@ -105,6 +150,10 @@ class CoreApplicationTests @Autowired constructor(
         assertTrue(payload.contains(email))
         assertEquals(tokenHash, MessageDigest.getInstance("SHA-256").digest(token.toByteArray()).joinToString("") { "%02x".format(it) })
         assertFalse(response.response.contentAsString.contains(token))
+        awaitPublished(eventId)
+        val published = receivePublishedEvent(eventId)
+        assertTrue(published.contains(eventId))
+        assertFalse(published.contains(token))
     }
 
     @Test
@@ -124,6 +173,123 @@ class CoreApplicationTests @Autowired constructor(
         assertEquals(tokensBefore, jdbc.queryForObject("select count(*) from core.auth_tokens", Int::class.java))
         assertEquals(eventsBefore, jdbc.queryForObject("select count(*) from core.outbox_events", Int::class.java))
         assertEquals(0, jdbc.queryForObject("select count(*) from core.users where normalized_email=?", Int::class.java, email))
+    }
+
+    @Test
+    fun failedOutboxEventRedriveRequiresOperatorSecretAndPreservesCiphertext() {
+        val id = UUID.randomUUID().toString()
+        val nonce = ByteArray(12) { 3 }
+        val ciphertext = ByteArray(48) { 9 }
+        jdbc.update(
+            """insert into core.outbox_events(id,event_type,event_version,created_at,key_id,nonce,encrypted_payload,
+               attempt_count,next_attempt_at,last_error,failed_at) values(?, ?, 1, now(), 'fixture-key', ?, ?, 5, now(), 'IOException', now())""",
+            id, "identity.email-confirmation-requested", nonce, ciphertext,
+        )
+
+        mvc.post("/internal/ops/outbox/$id/redrive") {
+            header("Origin", "https://aja.example.test")
+            header("X-AJA-Operator-Token", "wrong-operator-token")
+        }.andExpect { status { isUnauthorized() } }
+        mvc.post("/internal/ops/outbox/$id/redrive") {
+            header("Origin", "https://aja.example.test")
+            header("X-AJA-Operator-Token", "fixture-outbox-operator-token-1234567890")
+        }.andExpect { status { isAccepted() } }
+
+        val row = jdbc.queryForMap("select nonce,encrypted_payload,attempt_count,failed_at from core.outbox_events where id=?", id)
+        assertTrue(nonce.contentEquals(row["nonce"] as ByteArray))
+        assertTrue(ciphertext.contentEquals(row["encrypted_payload"] as ByteArray))
+        assertEquals(0, row["attempt_count"])
+        assertEquals(null, row["failed_at"])
+    }
+
+    @Test
+    fun publisherRepublishesConfirmedEventWhenOutboxMarkingFails() {
+        val id = UUID.randomUUID().toString()
+        val nonce = ByteArray(12) { 5 }
+        val ciphertext = ByteArray(48) { 8 }
+        jdbc.update(
+            """insert into core.outbox_events(id,event_type,event_version,created_at,key_id,nonce,encrypted_payload,next_attempt_at)
+               values(?, 'identity.email-confirmation-requested', 1, now(), 'fixture-key', ?, ?, ?)""",
+            id, nonce, ciphertext, java.sql.Timestamp.from(mutableClock.instant().plusSeconds(30)),
+        )
+        try {
+            DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
+                connection.createStatement().use { statement ->
+                    statement.execute("create sequence core.b03_outbox_failure_once")
+                    statement.execute("grant usage, select on sequence core.b03_outbox_failure_once to core")
+                    statement.execute(
+                        """create function core.b03_fail_outbox_mark_once() returns trigger language plpgsql as ${'$'}${'$'}
+                           begin
+                             if new.id = '$id' and old.published_at is null and new.published_at is not null
+                               and nextval('core.b03_outbox_failure_once') = 1 then
+                               raise exception 'one-shot test failure after broker confirm';
+                             end if;
+                             return new;
+                           end;
+                           ${'$'}${'$'}""",
+                    )
+                    statement.execute(
+                        "create trigger b03_fail_outbox_mark_once before update on core.outbox_events for each row execute function core.b03_fail_outbox_mark_once()",
+                    )
+                }
+            }
+            jdbc.update("update core.outbox_events set next_attempt_at=? where id=?", java.sql.Timestamp.from(mutableClock.instant()), id)
+
+            val publishedBodies = mutableListOf<String>()
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(35)
+            while (publishedBodies.size < 2 && System.nanoTime() < deadline) {
+                val body = rabbitTemplate.receive("email.identity.events", 250)?.body?.let(::String) ?: continue
+                if (Regex(""""id":"([^"]+)"""").find(body)?.groupValues?.get(1) == id) publishedBodies += body
+            }
+
+            assertEquals(2, publishedBodies.size, "Expected redelivery after confirmed publish could not be marked in PostgreSQL")
+            assertEquals(publishedBodies.first(), publishedBodies.last(), "At-least-once retry must preserve the same event id and encrypted payload")
+            assertEquals(true, jdbc.queryForObject("select published_at is not null from core.outbox_events where id=?", Boolean::class.java, id))
+            assertEquals(1, jdbc.queryForObject("select attempt_count from core.outbox_events where id=?", Int::class.java, id))
+        } finally {
+            DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
+                connection.createStatement().use { statement ->
+                    statement.execute("drop trigger if exists b03_fail_outbox_mark_once on core.outbox_events")
+                    statement.execute("drop function if exists core.b03_fail_outbox_mark_once()")
+                    statement.execute("drop sequence if exists core.b03_outbox_failure_once")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun publisherKeepsOutboxPendingUntilEmailQueueIsBound() {
+        val id = UUID.randomUUID().toString()
+        val nonce = ByteArray(12) { 6 }
+        val ciphertext = ByteArray(48) { 7 }
+        val future = java.sql.Timestamp.from(mutableClock.instant().plusSeconds(30))
+        jdbc.update(
+            """insert into core.outbox_events(id,event_type,event_version,created_at,key_id,nonce,encrypted_payload,next_attempt_at)
+               values(?, 'identity.email-confirmation-requested', 1, now(), 'fixture-key', ?, ?, ?)""",
+            id, nonce, ciphertext, future,
+        )
+
+        try {
+            rabbitTemplate.execute { channel ->
+                listOf("email.identity.events", "email.identity.retry", "email.identity.dlq").forEach(channel::queueDelete)
+            }
+            jdbc.update("update core.outbox_events set next_attempt_at=? where id=?", java.sql.Timestamp.from(mutableClock.instant()), id)
+            outboxPublisher.publishAvailable()
+
+            assertEquals(null, jdbc.queryForObject("select published_at from core.outbox_events where id=?", java.sql.Timestamp::class.java, id),
+                "An unroutable publisher-confirmed event must remain pending")
+            assertEquals(1, jdbc.queryForObject("select attempt_count from core.outbox_events where id=?", Int::class.java, id))
+            assertEquals(true, jdbc.queryForObject("select last_error is not null from core.outbox_events where id=?", Boolean::class.java, id),
+                "The broker return must be recorded as an observable publish failure")
+
+            declareEmailQueueTopology()
+            jdbc.update("update core.outbox_events set next_attempt_at=? where id=?", java.sql.Timestamp.from(mutableClock.instant()), id)
+            outboxPublisher.publishAvailable()
+            awaitPublished(id)
+            assertTrue(receivePublishedEvent(id).contains(id), "Event should arrive after Email declares and binds its queue")
+        } finally {
+            declareEmailQueueTopology()
+        }
     }
 
     @Test
@@ -799,7 +965,7 @@ class CoreApplicationTests @Autowired constructor(
     @Test
     fun migrationsAreRepeatable() {
         flyway.migrate()
-        assertEquals(3, jdbc.queryForObject("select count(*) from core.flyway_schema_history where success", Int::class.java))
+        assertEquals(4, jdbc.queryForObject("select count(*) from core.flyway_schema_history where success", Int::class.java))
     }
 
     private fun assertPrivilegeDenied(action: () -> Unit) {
@@ -840,6 +1006,42 @@ class CoreApplicationTests @Autowired constructor(
         return String(decrypt.doFinal(encryptedPayload))
     }
 
+    private fun awaitPublished(eventId: String) {
+        repeat(100) {
+            if (jdbc.queryForObject("select published_at is not null from core.outbox_events where id=?", Boolean::class.java, eventId) == true) return
+            Thread.sleep(50)
+        }
+        assertTrue(false, "Outbox event was not confirmed by RabbitMQ")
+    }
+
+    private fun declareEmailQueueTopology() {
+        rabbitTemplate.execute { channel ->
+            channel.exchangeDeclare("aja.events", "topic", true, false, emptyMap())
+            channel.queueDeclare("email.identity.events", true, false, false, mapOf(
+                "x-dead-letter-exchange" to "",
+                "x-dead-letter-routing-key" to "email.identity.dlq",
+            ))
+            channel.queueDeclare("email.identity.retry", true, false, false, mapOf(
+                "x-message-ttl" to 5000,
+                "x-dead-letter-exchange" to "",
+                "x-dead-letter-routing-key" to "email.identity.events",
+            ))
+            channel.queueDeclare("email.identity.dlq", true, false, false, emptyMap())
+            channel.queueBind("email.identity.events", "aja.events", "identity.email-confirmation-requested")
+            channel.queueBind("email.identity.events", "aja.events", "identity.password-reset-requested")
+        }
+    }
+
+    private fun receivePublishedEvent(eventId: String): String {
+        repeat(40) {
+            val message = rabbitTemplate.receive("email.identity.events", 250) ?: return@repeat
+            val body = String(message.body)
+            if (body.contains(eventId)) return body
+        }
+        assertTrue(false, "Published event was not present in the durable email queue")
+        return ""
+    }
+
     private fun sha256(value: String) = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
 
@@ -850,6 +1052,7 @@ class CoreApplicationTests @Autowired constructor(
         @DynamicPropertySource @JvmStatic fun properties(registry: DynamicPropertyRegistry) {
             registry.add("API_ALLOWED_ORIGINS") { "https://aja.example.test" }
             registry.add("core.outbox.encryption-key") { java.util.Base64.getEncoder().encodeToString(ByteArray(32) { 7 }) }
+            registry.add("core.outbox.operator-token") { "fixture-outbox-operator-token-1234567890" }
             registry.add("core.internal.questions-token") { "fixture-questions-core-token-1234567890" }
             postgres.start()
             rabbit.start()
