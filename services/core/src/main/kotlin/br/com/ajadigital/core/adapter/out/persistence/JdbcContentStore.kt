@@ -264,7 +264,13 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
             "student" -> "a.status='published' AND c.active AND EXISTS(SELECT 1 FROM core.enrollments e JOIN core.users u ON u.id=e.student_id WHERE e.class_id=c.id AND e.student_id=? AND e.status='active' AND u.active AND u.email_confirmed_at IS NOT NULL AND NOT jsonb_exists(e.unassigned_assessment_ids,a.id))"
             else -> "false"
         }
-        val args = listOf(id) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList()) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList())
+        val workAccess = when (role) {
+            "admin" -> "true"
+            "teacher" -> "EXISTS(SELECT 1 FROM core.subject_teachers st JOIN core.users tu ON tu.id=st.teacher_id WHERE st.subject_id=s.id AND st.teacher_id=? AND tu.active AND tu.role='teacher')"
+            "student" -> "x.user_id=f.owner_id AND x.user_id=? AND a.status='published' AND c.active AND EXISTS(SELECT 1 FROM core.enrollments e JOIN core.users u ON u.id=e.student_id WHERE e.class_id=c.id AND e.student_id=x.user_id AND e.status='active' AND u.active AND u.email_confirmed_at IS NOT NULL AND NOT jsonb_exists(e.unassigned_assessment_ids,a.id))"
+            else -> "false"
+        }
+        val args = listOf(id) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList()) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList()) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList())
         return jdbc.queryForObject("""SELECT EXISTS(
             SELECT 1 FROM core.files f WHERE f.id=? AND f.status='attached' AND (
                 f.purpose='question'
@@ -272,6 +278,11 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
                     SELECT 1 FROM core.assessments a JOIN core.modules m ON m.id=a.module_id AND m.withdrawn_at IS NULL
                     JOIN core.subjects s ON s.id=m.subject_id JOIN core.classes c ON c.id=s.class_id
                     WHERE a.id=f.parent_id AND $assessmentAccess
+                ))
+                OR (f.purpose='work' AND EXISTS(
+                    SELECT 1 FROM core.submissions x JOIN core.assessments a ON a.id=x.assessment_id JOIN core.modules m ON m.id=a.module_id AND m.withdrawn_at IS NULL
+                    JOIN core.subjects s ON s.id=m.subject_id JOIN core.classes c ON c.id=s.class_id
+                    WHERE x.assessment_id=f.parent_id AND x.submitted_at IS NOT NULL AND x.attachments @> jsonb_build_array(jsonb_build_object('kind','file','fileId',f.id)) AND $workAccess
                 ))
                 OR EXISTS(SELECT 1 FROM core.materials mt JOIN core.modules m ON m.id=mt.module_id AND m.withdrawn_at IS NULL JOIN core.subjects s ON s.id=m.subject_id WHERE mt.file_id=f.id AND ${subjectAccess("s", role)})
             ))""", Boolean::class.java, *args.toTypedArray()) == true

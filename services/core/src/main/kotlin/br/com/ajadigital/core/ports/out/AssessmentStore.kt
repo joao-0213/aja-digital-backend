@@ -41,6 +41,19 @@ interface AttemptStore {
     fun result(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>?
 }
 
+data class SubmissionAttachment(val kind: String, val name: String, val fileId: String? = null, val url: String? = null)
+data class SubmissionPage(val items: List<Map<String, Any?>>, val page: Int, val pageSize: Int, val total: Long)
+
+interface SubmissionStore {
+    fun create(actorId: String, role: String, sessionHash: String, assessmentId: String, attachments: List<SubmissionAttachment>, key: String, requestHash: String): Map<String, Any?>
+    fun submissions(actorId: String, role: String, sessionHash: String, page: Int, pageSize: Int, sort: String, assessmentId: String?, studentId: String?): SubmissionPage
+    fun submission(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>?
+    fun update(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, attachments: List<SubmissionAttachment>?): Map<String, Any?>?
+    fun submit(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, key: String, requestHash: String): Map<String, Any?>?
+    fun saveFeedback(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, comment: String, grade: java.math.BigDecimal?): Map<String, Any?>?
+    fun publishFeedback(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, key: String, requestHash: String): Map<String, Any?>?
+}
+
 interface QuestionSnapshotProvider {
     fun snapshots(ids: List<String>): List<BankQuestionSnapshot>
 }

@@ -8,6 +8,7 @@ import br.com.ajadigital.core.application.academic.AcademicIdempotencyConflict
 import br.com.ajadigital.core.application.academic.AcademicForbidden
 import br.com.ajadigital.core.application.academic.AcademicNotFound
 import br.com.ajadigital.core.application.academic.InvalidAttemptAnswers
+import br.com.ajadigital.core.application.academic.InvalidSubmissionFeedback
 import br.com.ajadigital.core.application.academic.ManageAcademics
 import br.com.ajadigital.core.application.academic.ManageSubjects
 import br.com.ajadigital.core.application.academic.UnknownPublication
@@ -173,6 +174,8 @@ class AcademicController(private val auth: AuthenticateStudent, private val acad
 
 @RestControllerAdvice
 class AcademicExceptionHandler {
+    @ExceptionHandler(InvalidSubmissionFeedback::class)
+    fun invalidSubmissionFeedback() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "Feedback is invalid"))
     @ExceptionHandler(QuestionSnapshotNotFound::class)
     fun missingSnapshot() = ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("NOT_FOUND", "Resource was not found"))
     @ExceptionHandler(QuestionsUnavailable::class)

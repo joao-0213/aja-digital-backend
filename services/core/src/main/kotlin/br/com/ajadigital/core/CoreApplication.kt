@@ -13,8 +13,10 @@ import br.com.ajadigital.core.application.academic.ManageSubjects
 import br.com.ajadigital.core.application.academic.ManageContent
 import br.com.ajadigital.core.application.academic.ManageAssessments
 import br.com.ajadigital.core.application.academic.ManageAttempts
+import br.com.ajadigital.core.application.academic.ManageSubmissions
 import br.com.ajadigital.core.ports.out.AttemptStore
 import br.com.ajadigital.core.ports.out.AssessmentStore
+import br.com.ajadigital.core.ports.out.SubmissionStore
 import br.com.ajadigital.core.ports.out.QuestionSnapshotProvider
 import br.com.ajadigital.core.ports.out.SubjectStore
 import br.com.ajadigital.core.ports.out.ContentStore
@@ -81,6 +83,9 @@ class CoreApplication {
 
     @Bean
     fun manageAttempts(store: AttemptStore, mapper: ObjectMapper) = ManageAttempts(store, mapper)
+
+    @Bean
+    fun manageSubmissions(store: SubmissionStore, mapper: ObjectMapper) = ManageSubmissions(store, mapper)
 
 }
 

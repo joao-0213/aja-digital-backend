@@ -783,8 +783,10 @@ class CoreApplicationTests @Autowired constructor(
         questionSnapshotProvider.requested.clear()
         val (adminCookie, _) = adminSession()
         val (teacherCookie, teacherId) = userSession("teacher")
+        val (secondTeacherCookie, secondTeacherId) = userSession("teacher")
         val (studentCookie, studentId) = userSession("student")
         val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        jdbc.update("INSERT INTO core.subject_teachers(subject_id,teacher_id) SELECT subject_id,? FROM core.modules WHERE id=?", secondTeacherId, moduleId)
         createB07Enrollment(classId, studentId, teacherId)
         val imageBytes = byteArrayOf(1, 2, 3, 4)
         val questionImageId = "question-image-${UUID.randomUUID()}"
@@ -945,6 +947,658 @@ class CoreApplicationTests @Autowired constructor(
             multipart("/api/v1/files").file(upload).param("purpose", "work").param("parentId", assessmentId)
                 .cookie(Cookie("aja_session", teacherCookie)).header("Origin", "https://aja.example.test").header("Idempotency-Key", "teacher-${UUID.randomUUID()}"),
         ).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound)
+    }
+
+    @Test
+    fun submissionDraftCanBeCreatedForAnAssignedPublishedWork() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (otherTeacherCookie, otherTeacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (peerCookie, _) = userSession("student")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        jdbc.update("INSERT INTO core.subject_teachers(subject_id,teacher_id) SELECT subject_id,? FROM core.modules WHERE id=?", otherTeacherId, moduleId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val assessmentId = createB07Assessment(moduleId)
+        jdbc.update("UPDATE core.assessments SET max_grade=10 WHERE id=?", assessmentId)
+        val fileBytes = "student work".toByteArray()
+        val upload = mvc.perform(multipart("/api/v1/files").file(MockMultipartFile("file", "work.txt", "text/plain", fileBytes))
+            .param("purpose", "work").param("parentId", assessmentId).cookie(Cookie("aja_session", studentCookie))
+            .header("Origin", "https://aja.example.test").header("Idempotency-Key", "upload-${UUID.randomUUID()}"))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isCreated).andReturn()
+        val fileId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(upload.response.contentAsString).get("id").asString()
+        val otherAssessmentId = createB07Assessment(moduleId)
+        mvc.post("/api/v1/submissions") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "wrong-parent-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$otherAssessmentId","attachments":[{"kind":"file","fileId":"$fileId","name":"work.txt"}]}"""
+        }.andExpect { status { isConflict() } }
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.submissions WHERE assessment_id=?", Int::class.java, otherAssessmentId))
+
+        fun post(cookie: String, key: String) = mvc.post("/api/v1/submissions") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", key)
+            cookie(Cookie("aja_session", cookie))
+            content = """{"assessmentId":"$assessmentId","attachments":[{"kind":"file","fileId":"$fileId","name":"work.txt"},{"kind":"link","name":"Research","url":"https://example.test/work"}]}"""
+        }.andReturn()
+
+        val createKey = "submission-${UUID.randomUUID()}"
+        val created = post(studentCookie, createKey)
+        val parsed = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString)
+        val submissionId = parsed.get("id").asString()
+        assertEquals(201, created.response.status)
+        assertEquals(assessmentId, parsed.get("assessmentId").asString())
+        assertTrue(parsed.get("submittedAt").isNull)
+        assertEquals(submissionId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(post(studentCookie, createKey).response.contentAsString).get("id").asString())
+
+        val submitKey = "submit-${UUID.randomUUID()}"
+        val submitBody = """{"expectedRevision":1}"""
+        fun submit(key: String) = mvc.post("/api/v1/submissions/$submissionId/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", key)
+            cookie(Cookie("aja_session", studentCookie))
+            content = submitBody
+        }.andReturn()
+        val submitted = tools.jackson.databind.json.JsonMapper.builder().build().readTree(submit(submitKey).response.contentAsString)
+        val receiptId = submitted.get("receipt").get("id").asString()
+        assertTrue(receiptId.isNotBlank())
+        assertEquals(receiptId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(submit(submitKey).response.contentAsString).get("receipt").get("id").asString())
+        assertEquals("attached", jdbc.queryForObject("SELECT status FROM core.files WHERE id=?", String::class.java, fileId))
+        mvc.get("/api/v1/files/$fileId/content") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() }; content { bytes(fileBytes) } }
+        mvc.get("/api/v1/files/$fileId/content") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+        }.andExpect { status { isOk() }; content { bytes(fileBytes) } }
+        mvc.get("/api/v1/files/$fileId/content") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", peerCookie))
+        }.andExpect { status { isNotFound() } }
+
+        mvc.get("/api/v1/submissions/$submissionId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", peerCookie))
+        }.andExpect { status { isNotFound() } }
+        mvc.get("/api/v1/submissions") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.total") { value(1) }; jsonPath("$.items[0].feedbackDraft") { doesNotExist() } }
+
+        mvc.patch("/api/v1/submissions/$submissionId/feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":2,"comment":"Too high","grade":11}"""
+        }.andExpect { status { isUnprocessableEntity() } }
+        mvc.patch("/api/v1/submissions/$submissionId/feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":2,"comment":"Good evidence","grade":9}"""
+        }.andExpect { status { isOk() }; jsonPath("$.feedbackDraft.grade") { value(9) }; jsonPath("$.feedbackHistory") { isEmpty() } }
+        mvc.get("/api/v1/submissions/$submissionId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.feedbackDraft") { doesNotExist() }; jsonPath("$.feedbackPublished") { value(null) } }
+
+        mvc.post("/api/v1/submissions/$submissionId/publish-feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "publish-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":3}"""
+        }.andExpect { status { isOk() }; jsonPath("$.feedbackHistory.length()") { value(1) } }
+        mvc.patch("/api/v1/submissions/$submissionId/feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":4,"comment":"Revised note","grade":null}"""
+        }.andExpect { status { isOk() }; jsonPath("$.feedbackUpdated") { value(true) } }
+        mvc.get("/api/v1/submissions/$submissionId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.feedbackPublished.grade") { value(9) }; jsonPath("$.feedbackUpdated") { value(true) } }
+        mvc.post("/api/v1/submissions/$submissionId/publish-feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "republish-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":5}"""
+        }.andExpect { status { isOk() }; jsonPath("$.feedbackHistory.length()") { value(2) } }
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val graders = Executors.newFixedThreadPool(2)
+        val gradeEdits = listOf(teacherCookie to "first", otherTeacherCookie to "second").map { (cookie, comment) -> graders.submit<Int> {
+            gate.await()
+            mvc.patch("/api/v1/submissions/$submissionId/feedback") {
+                contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                header("Origin", "https://aja.example.test")
+                cookie(Cookie("aja_session", cookie))
+                content = """{"expectedRevision":6,"comment":"$comment","grade":null}"""
+            }.andReturn().response.status
+        } }
+        gate.countDown()
+        assertEquals(listOf(200, 409), gradeEdits.map { it.get(10, TimeUnit.SECONDS) }.sorted())
+        graders.shutdownNow()
+        mvc.patch("/api/v1/submissions/$submissionId/feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", otherTeacherCookie))
+            content = """{"expectedRevision":6,"comment":"stale","grade":null}"""
+        }.andExpect { status { isConflict() } }
+    }
+
+    @Test
+    fun submissionReceiptSurvivesFreshCoreProcessesAndExpiredIdempotencyRecord() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (secondTeacherCookie, secondTeacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (withdrawnStudentCookie, withdrawnStudentId) = userSession("student")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        jdbc.update("INSERT INTO core.subject_teachers(subject_id,teacher_id) SELECT subject_id,? FROM core.modules WHERE id=?", secondTeacherId, moduleId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val assessmentId = createB07Assessment(moduleId)
+        val (withdrawnClassId, withdrawnModuleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        createB07Enrollment(withdrawnClassId, withdrawnStudentId, teacherId)
+        val withdrawnAssessmentId = createB07Assessment(withdrawnModuleId)
+        val client = HttpClient.newHttpClient()
+        var process: CoreChild? = null
+        try {
+            var child = startCoreProcess()
+            process = child
+            val createKey = "http-submission-${UUID.randomUUID()}"
+            val created = coreHttp(client, child, "POST", "/submissions", studentCookie,
+                """{"assessmentId":"$assessmentId","attachments":[{"kind":"link","name":"Essay","url":"https://example.test/essay"}]}""", createKey)
+            assertEquals(201, created.statusCode(), created.body())
+            val mapper = tools.jackson.databind.json.JsonMapper.builder().build()
+            val id = mapper.readTree(created.body()).get("id").asString()
+            val submitKey = "http-submit-${UUID.randomUUID()}"
+            val submitBody = """{"expectedRevision":1}"""
+            val submitted = coreHttp(client, child, "POST", "/submissions/$id/submit", studentCookie, submitBody, submitKey)
+            assertEquals(200, submitted.statusCode(), submitted.body())
+            val receiptId = mapper.readTree(submitted.body()).get("receipt").get("id").asString()
+            stopCoreProcess(child)
+            process = null
+
+            jdbc.update("UPDATE core.command_idempotency SET created_at=created_at-interval '25 hours',expires_at=expires_at-interval '25 hours' WHERE actor_id=? AND operation='submitSubmission' AND target=? AND idempotency_key=?", studentId, "/submissions/$id/submit", submitKey)
+            child = startCoreProcess()
+            process = child
+            val replayed = coreHttp(client, child, "POST", "/submissions/$id/submit", studentCookie, submitBody, submitKey)
+            assertEquals(200, replayed.statusCode(), replayed.body())
+            assertEquals(receiptId, mapper.readTree(replayed.body()).get("receipt").get("id").asString())
+            val recovered = coreHttp(client, child, "GET", "/submissions/$id", studentCookie)
+            assertEquals(200, recovered.statusCode(), recovered.body())
+            assertEquals(receiptId, mapper.readTree(recovered.body()).get("receipt").get("id").asString())
+            stopCoreProcess(child)
+            process = null
+
+            child = startCoreProcess()
+            process = child
+            val draft = coreHttp(client, child, "PATCH", "/submissions/$id/feedback", teacherCookie,
+                """{"expectedRevision":2,"comment":"Process draft","grade":null}""")
+            assertEquals(200, draft.statusCode(), draft.body())
+            val draftBody = mapper.readTree(draft.body()).get("feedbackDraft")
+            assertEquals(teacherId, draftBody.get("author").get("id").asString())
+            val studentBeforePublish = coreHttp(client, child, "GET", "/submissions/$id", studentCookie)
+            assertEquals(200, studentBeforePublish.statusCode(), studentBeforePublish.body())
+            val studentDraft = mapper.readTree(studentBeforePublish.body()).get("feedbackDraft")
+            assertTrue(studentDraft == null || studentDraft.isNull || studentDraft.isMissingNode)
+            val published = coreHttp(client, child, "POST", "/submissions/$id/publish-feedback", secondTeacherCookie,
+                """{"expectedRevision":3}""", "process-feedback-publish-${UUID.randomUUID()}")
+            assertEquals(200, published.statusCode(), published.body())
+            val publishedBody = mapper.readTree(published.body())
+            assertEquals(secondTeacherId, publishedBody.get("feedbackPublished").get("author").get("id").asString())
+            assertEquals(publishedBody.get("updatedAt").asString(), publishedBody.get("feedbackPublished").get("createdAt").asString())
+            assertEquals(secondTeacherId, publishedBody.get("feedbackHistory").get(0).get("author").get("id").asString())
+            val studentPublished = coreHttp(client, child, "GET", "/submissions/$id", studentCookie)
+            assertEquals(secondTeacherId, mapper.readTree(studentPublished.body()).get("feedbackPublished").get("author").get("id").asString())
+
+            val revisedDraft = coreHttp(client, child, "PATCH", "/submissions/$id/feedback", teacherCookie,
+                """{"expectedRevision":4,"comment":"New private draft","grade":null}""")
+            assertEquals(200, revisedDraft.statusCode(), revisedDraft.body())
+            val closed = coreHttp(client, child, "POST", "/classes/$classId/close", adminCookie,
+                """{"expectedRevision":1}""", "process-class-close-${UUID.randomUUID()}")
+            assertEquals(200, closed.statusCode(), closed.body())
+            val saveAfterClose = coreHttp(client, child, "PATCH", "/submissions/$id/feedback", secondTeacherCookie,
+                """{"expectedRevision":5,"comment":"After closure","grade":null}""")
+            assertEquals(409, saveAfterClose.statusCode(), saveAfterClose.body())
+            val publishAfterClose = coreHttp(client, child, "POST", "/submissions/$id/publish-feedback", secondTeacherCookie,
+                """{"expectedRevision":5}""", "process-closed-publish-${UUID.randomUUID()}")
+            assertEquals(409, publishAfterClose.statusCode(), publishAfterClose.body())
+            val historyAfterClose = coreHttp(client, child, "GET", "/submissions/$id", teacherCookie)
+            assertEquals(200, historyAfterClose.statusCode(), historyAfterClose.body())
+            assertEquals("New private draft", mapper.readTree(historyAfterClose.body()).get("feedbackDraft").get("comment").asString())
+
+            val withdrawnCreated = coreHttp(client, child, "POST", "/submissions", withdrawnStudentCookie,
+                """{"assessmentId":"$withdrawnAssessmentId","attachments":[{"kind":"link","name":"Work","url":"https://example.test/withdrawn"}]}""",
+                "process-withdrawn-create-${UUID.randomUUID()}")
+            assertEquals(201, withdrawnCreated.statusCode(), withdrawnCreated.body())
+            val withdrawnId = mapper.readTree(withdrawnCreated.body()).get("id").asString()
+            val withdrawnSubmitted = coreHttp(client, child, "POST", "/submissions/$withdrawnId/submit", withdrawnStudentCookie,
+                """{"expectedRevision":1}""", "process-withdrawn-submit-${UUID.randomUUID()}")
+            assertEquals(200, withdrawnSubmitted.statusCode(), withdrawnSubmitted.body())
+            val withdrawnDraft = coreHttp(client, child, "PATCH", "/submissions/$withdrawnId/feedback", teacherCookie,
+                """{"expectedRevision":2,"comment":"Before withdrawal","grade":null}""")
+            assertEquals(200, withdrawnDraft.statusCode(), withdrawnDraft.body())
+            jdbc.update("UPDATE core.modules SET withdrawn_at=? WHERE id=?", java.sql.Timestamp.from(mutableClock.instant()), withdrawnModuleId)
+            val withdrawnPublish = coreHttp(client, child, "POST", "/submissions/$withdrawnId/publish-feedback", teacherCookie,
+                """{"expectedRevision":3}""", "process-withdrawn-publish-${UUID.randomUUID()}")
+            assertEquals(404, withdrawnPublish.statusCode(), withdrawnPublish.body())
+            val withdrawnRevision = jdbc.queryForObject("SELECT revision FROM core.submissions WHERE id=?", Int::class.java, withdrawnId)!!
+            val withdrawnSave = coreHttp(client, child, "PATCH", "/submissions/$withdrawnId/feedback", teacherCookie,
+                """{"expectedRevision":$withdrawnRevision,"comment":"After withdrawal","grade":null}""")
+            assertEquals(404, withdrawnSave.statusCode(), withdrawnSave.body())
+            assertEquals(3, withdrawnRevision)
+            assertEquals(0, jdbc.queryForObject("SELECT jsonb_array_length(feedback_history) FROM core.submissions WHERE id=?", Int::class.java, withdrawnId))
+        } finally {
+            process?.let(::stopCoreProcess)
+        }
+    }
+
+    @Test
+    fun preparationReplayRemainsAvailableAfterItsDeadline() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val deadline = mutableClock.instant().plusSeconds(5)
+        val assessmentId = createB07Assessment(moduleId, deadline = deadline)
+        val key = "retry-prep-${UUID.randomUUID()}"
+        val body = """{"assessmentId":"$assessmentId","attachments":[{"kind":"link","name":"Work","url":"https://example.test/work"}]}"""
+        fun prepare() = mvc.post("/api/v1/submissions") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", key)
+            cookie(Cookie("aja_session", studentCookie))
+            content = body
+        }.andReturn()
+        val initial = prepare()
+        assertEquals(201, initial.response.status)
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(initial.response.contentAsString).get("id").asString()
+        mutableClock.advance(Duration.ofSeconds(5))
+        val replay = prepare()
+        assertEquals(201, replay.response.status)
+        assertEquals(id, tools.jackson.databind.json.JsonMapper.builder().build().readTree(replay.response.contentAsString).get("id").asString())
+        mvc.get("/api/v1/submissions/$id") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() } }
+    }
+
+    @Test
+    fun closedClassRejectsFeedbackSaveAndPublication() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val assessmentId = createB07Assessment(moduleId)
+        val created = mvc.post("/api/v1/submissions") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "close-create-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId","attachments":[{"kind":"link","name":"Work","url":"https://example.test/work"}]}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString).get("id").asString()
+        mvc.post("/api/v1/submissions/$id/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "close-submit-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isOk() } }
+        mvc.patch("/api/v1/submissions/$id/feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":2,"comment":"Draft","grade":null}"""
+        }.andExpect { status { isOk() } }
+        mvc.post("/api/v1/classes/$classId/close") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "close-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", adminCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isOk() } }
+
+        val publishStatus = mvc.post("/api/v1/submissions/$id/publish-feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "closed-publish-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":3}"""
+        }.andReturn().response.status
+        val saveStatus = mvc.patch("/api/v1/submissions/$id/feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":3,"comment":"After close","grade":null}"""
+        }.andReturn().response.status
+        assertEquals(409, publishStatus)
+        assertEquals(409, saveStatus)
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.submissions WHERE id=? AND feedback_draft IS NOT NULL AND feedback_published IS NULL", Int::class.java, id))
+    }
+
+    @Test
+    fun withdrawnModuleRejectsFeedbackSaveAndPublication() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val assessmentId = createB07Assessment(moduleId)
+        val created = mvc.post("/api/v1/submissions") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "withdrawn-create-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId","attachments":[{"kind":"link","name":"Work","url":"https://example.test/work"}]}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString).get("id").asString()
+        mvc.post("/api/v1/submissions/$id/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "withdrawn-submit-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isOk() } }
+        mvc.patch("/api/v1/submissions/$id/feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":2,"comment":"Draft before withdrawal","grade":null}"""
+        }.andExpect { status { isOk() } }
+        jdbc.update("UPDATE core.modules SET withdrawn_at=? WHERE id=?", java.sql.Timestamp.from(mutableClock.instant()), moduleId)
+
+        val publishStatus = mvc.post("/api/v1/submissions/$id/publish-feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "withdrawn-publish-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":3}"""
+        }.andReturn().response.status
+        val currentRevision = jdbc.queryForObject("SELECT revision FROM core.submissions WHERE id=?", Int::class.java, id)!!
+        val saveStatus = mvc.patch("/api/v1/submissions/$id/feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":$currentRevision,"comment":"After withdrawal","grade":null}"""
+        }.andReturn().response.status
+        assertEquals(404 to 404, publishStatus to saveStatus)
+        assertEquals(3, currentRevision)
+        assertEquals(0, jdbc.queryForObject("SELECT jsonb_array_length(feedback_history) FROM core.submissions WHERE id=?", Int::class.java, id))
+    }
+
+    @Test
+    fun feedbackPublicationRecordsPublisherAndPublicationTime() {
+        val (adminCookie, _) = adminSession()
+        val (teacherACookie, teacherAId) = userSession("teacher")
+        val (teacherBCookie, teacherBId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherACookie, teacherAId)
+        jdbc.update("INSERT INTO core.subject_teachers(subject_id,teacher_id) SELECT subject_id,? FROM core.modules WHERE id=?", teacherBId, moduleId)
+        createB07Enrollment(classId, studentId, teacherAId)
+        val assessmentId = createB07Assessment(moduleId)
+        val created = mvc.post("/api/v1/submissions") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "author-create-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId","attachments":[{"kind":"link","name":"Work","url":"https://example.test/work"}]}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString).get("id").asString()
+        mvc.post("/api/v1/submissions/$id/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "author-submit-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isOk() } }
+        val draft = mvc.patch("/api/v1/submissions/$id/feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherACookie))
+            content = """{"expectedRevision":2,"comment":"A draft","grade":null}"""
+        }.andExpect { status { isOk() } }.andReturn()
+        val mapper = tools.jackson.databind.json.JsonMapper.builder().build()
+        val draftAt = mapper.readTree(draft.response.contentAsString).get("feedbackDraft").get("createdAt").asString()
+        mutableClock.advance(Duration.ofSeconds(30))
+        val published = mvc.post("/api/v1/submissions/$id/publish-feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "published-by-b-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherBCookie))
+            content = """{"expectedRevision":3}"""
+        }.andExpect { status { isOk() } }.andReturn()
+        val publishedResponse = mapper.readTree(published.response.contentAsString)
+        val feedback = publishedResponse.get("feedbackPublished")
+        assertEquals(teacherBId, feedback.get("author").get("id").asString())
+        assertEquals(publishedResponse.get("updatedAt").asString(), feedback.get("createdAt").asString())
+        assertTrue(Instant.parse(feedback.get("createdAt").asString()).isAfter(Instant.parse(draftAt)))
+        assertEquals(teacherBId, publishedResponse.get("feedbackHistory").get(0).get("author").get("id").asString())
+        assertEquals(feedback.get("createdAt").asString(), publishedResponse.get("feedbackHistory").get(0).get("createdAt").asString())
+    }
+
+    @Test
+    fun submitRechecksDeadlineAfterWaitingForAttachedFileLock() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val deadline = mutableClock.instant().plusSeconds(5)
+        val assessmentId = createB07Assessment(moduleId, deadline = deadline)
+        val file = mvc.perform(multipart("/api/v1/files").file(MockMultipartFile("file", "lock.txt", "text/plain", "file".toByteArray()))
+            .param("purpose", "work").param("parentId", assessmentId).cookie(Cookie("aja_session", studentCookie))
+            .header("Origin", "https://aja.example.test").header("Idempotency-Key", "locked-file-${UUID.randomUUID()}"))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isCreated).andReturn()
+        val fileId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(file.response.contentAsString).get("id").asString()
+        val created = mvc.post("/api/v1/submissions") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "locked-create-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId","attachments":[{"kind":"file","fileId":"$fileId","name":"lock.txt"}]}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString).get("id").asString()
+        val lockConnection = DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password)
+        lockConnection.autoCommit = false
+        lockConnection.prepareStatement("SELECT id FROM core.files WHERE id=? FOR UPDATE").use { statement ->
+            statement.setString(1, fileId)
+            statement.executeQuery().use { it.next() }
+        }
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val submit = executor.submit<Int> {
+                mvc.post("/api/v1/submissions/$id/submit") {
+                    contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                    header("Origin", "https://aja.example.test")
+                    header("Idempotency-Key", "lock-submit-${UUID.randomUUID()}")
+                    cookie(Cookie("aja_session", studentCookie))
+                    content = """{"expectedRevision":1}"""
+                }.andReturn().response.status
+            }
+            awaitLockWait("FROM core.files")
+            mutableClock.advance(Duration.ofSeconds(5))
+            lockConnection.commit()
+            assertEquals(409, submit.get(10, TimeUnit.SECONDS))
+            assertEquals("staged", jdbc.queryForObject("SELECT status FROM core.files WHERE id=?", String::class.java, fileId))
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.submissions WHERE id=? AND receipt_id IS NOT NULL", Int::class.java, id))
+        } finally {
+            runCatching { lockConnection.rollback() }
+            lockConnection.close()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun submitRejectsFileThatExpiresWhileWaitingForItsLock() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val assessmentId = createB07Assessment(moduleId)
+        val file = mvc.perform(multipart("/api/v1/files").file(MockMultipartFile("file", "expires.txt", "text/plain", "file".toByteArray()))
+            .param("purpose", "work").param("parentId", assessmentId).cookie(Cookie("aja_session", studentCookie))
+            .header("Origin", "https://aja.example.test").header("Idempotency-Key", "expiring-file-${UUID.randomUUID()}"))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isCreated).andReturn()
+        val fileId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(file.response.contentAsString).get("id").asString()
+        jdbc.update("UPDATE core.files SET expires_at=? WHERE id=?", java.sql.Timestamp.from(mutableClock.instant().plusSeconds(5)), fileId)
+        val created = mvc.post("/api/v1/submissions") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "expiring-create-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId","attachments":[{"kind":"file","fileId":"$fileId","name":"expires.txt"}]}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString).get("id").asString()
+        val lockConnection = DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password)
+        lockConnection.autoCommit = false
+        lockConnection.prepareStatement("SELECT id FROM core.files WHERE id=? FOR UPDATE").use { statement ->
+            statement.setString(1, fileId)
+            statement.executeQuery().use { it.next() }
+        }
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val submit = executor.submit<Int> {
+                mvc.post("/api/v1/submissions/$id/submit") {
+                    contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                    header("Origin", "https://aja.example.test")
+                    header("Idempotency-Key", "expiring-submit-${UUID.randomUUID()}")
+                    cookie(Cookie("aja_session", studentCookie))
+                    content = """{"expectedRevision":1}"""
+                }.andReturn().response.status
+            }
+            awaitLockWait("FROM core.files")
+            mutableClock.advance(Duration.ofSeconds(5))
+            lockConnection.commit()
+            assertEquals(409, submit.get(10, TimeUnit.SECONDS))
+            assertEquals("staged", jdbc.queryForObject("SELECT status FROM core.files WHERE id=?", String::class.java, fileId))
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.submissions WHERE id=? AND receipt_id IS NOT NULL", Int::class.java, id))
+        } finally {
+            runCatching { lockConnection.rollback() }
+            lockConnection.close()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun emptySubmissionCanBeResumedButCannotBeSent() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val assessmentId = createB07Assessment(moduleId)
+        val created = mvc.post("/api/v1/submissions") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "empty-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId","attachments":[]}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString).get("id").asString()
+        mvc.post("/api/v1/submissions/$id/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "empty-submit-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isConflict() } }
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.submissions WHERE id=? AND submitted_at IS NOT NULL", Int::class.java, id))
+        mvc.patch("/api/v1/submissions/$id") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":1,"attachments":[{"kind":"link","name":"Final","url":"https://example.test/final"}]}"""
+        }.andExpect { status { isOk() }; jsonPath("$.revision") { value(2) } }
+        mvc.post("/api/v1/submissions/$id/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "recovered-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":2}"""
+        }.andExpect { status { isOk() }; jsonPath("$.receipt.id") { exists() } }
+    }
+
+    @Test
+    fun submissionDeadlineIsExclusiveAtCommit() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val deadline = mutableClock.instant().plusSeconds(5)
+        val assessmentId = createB07Assessment(moduleId, deadline = deadline)
+        val created = mvc.post("/api/v1/submissions") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "deadline-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId","attachments":[{"kind":"link","name":"Work","url":"https://example.test/work"}]}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString).get("id").asString()
+        mutableClock.advance(Duration.ofSeconds(5))
+        mvc.post("/api/v1/submissions/$id/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "late-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isConflict() } }
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.submissions WHERE id=? AND receipt_id IS NOT NULL", Int::class.java, id))
+    }
+
+    @Test
+    fun revokedTeacherCannotPublishSubmissionFeedback() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val assessmentId = createB07Assessment(moduleId)
+        val created = mvc.post("/api/v1/submissions") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "revoked-create-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId","attachments":[{"kind":"link","name":"Work","url":"https://example.test/work"}]}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString).get("id").asString()
+        mvc.post("/api/v1/submissions/$id/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "revoked-submit-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isOk() } }
+        mvc.patch("/api/v1/submissions/$id/feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":2,"comment":"Private draft","grade":null}"""
+        }.andExpect { status { isOk() } }
+        jdbc.update("UPDATE core.sessions SET revoked_at=? WHERE token_hash=?", java.sql.Timestamp.from(mutableClock.instant()), sha256(teacherCookie))
+        mvc.post("/api/v1/submissions/$id/publish-feedback") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "revoked-publish-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":3}"""
+        }.andExpect { status { isUnauthorized() } }
+        mvc.get("/api/v1/submissions/$id") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.feedbackPublished") { value(null) }; jsonPath("$.feedbackDraft") { doesNotExist() } }
     }
 
     @Test
@@ -3052,7 +3706,7 @@ class CoreApplicationTests @Autowired constructor(
     @Test
     fun migrationsAreRepeatable() {
         flyway.migrate()
-        assertEquals(12, jdbc.queryForObject("select count(*) from core.flyway_schema_history where success", Int::class.java))
+        assertEquals(13, jdbc.queryForObject("select count(*) from core.flyway_schema_history where success", Int::class.java))
     }
 
     private fun assertPrivilegeDenied(action: () -> Unit) {
