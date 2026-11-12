@@ -7,6 +7,7 @@ interface TopicStore {
     fun authorizeReply(actorId: String, role: String, sessionHash: String, id: String)
     fun create(actorId: String, role: String, sessionHash: String, draft: TopicDraft, idempotencyKey: String, requestHash: String): Map<String, Any?>
     fun topics(actorId: String, role: String, sessionHash: String, page: Int, size: Int, sort: String, classId: String?, subjectId: String?, query: String?, unread: Boolean?, solved: Boolean?): AcademicPage
+    fun dashboardTopics(actorId: String, role: String, sessionHash: String, size: Int): List<Map<String, Any?>>
     fun topic(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>?
     fun reply(actorId: String, role: String, sessionHash: String, id: String, body: String): Map<String, Any?>?
     fun read(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>?

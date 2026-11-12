@@ -19,4 +19,6 @@ interface AnnouncementStore {
     fun announcement(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>?
     fun announcements(actorId: String, role: String, sessionHash: String, page: Int, size: Int, sort: String, classId: String?, subjectId: String?, query: String?): AcademicPage
     fun calendar(actorId: String, role: String, sessionHash: String, page: Int, size: Int, sort: String, from: String?, to: String?, subjectId: String?): AcademicPage
+    fun dashboardAnnouncements(actorId: String, role: String, sessionHash: String, size: Int): List<Map<String, Any?>>
+    fun dashboardUpcoming(actorId: String, role: String, sessionHash: String, from: String, to: String, size: Int): List<Map<String, Any?>>
 }

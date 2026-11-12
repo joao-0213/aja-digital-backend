@@ -65,6 +65,14 @@ class ManageAnnouncements(
         return store.calendar(actor.id, actor.role, actor.sessionTokenHash, page, size, sort, start?.toString(), end?.toString(), subjectId)
     }
 
+    fun dashboardAnnouncements(actor: AcademicActor, size: Int = 5) = requireReader(actor).let {
+        store.dashboardAnnouncements(actor.id, actor.role, actor.sessionTokenHash, size)
+    }
+
+    fun dashboardUpcoming(actor: AcademicActor, from: LocalDate, to: LocalDate, size: Int = 5) = requireReader(actor).let {
+        store.dashboardUpcoming(actor.id, actor.role, actor.sessionTokenHash, from.toString(), to.toString(), size)
+    }
+
     private fun validate(draft: AnnouncementDraft) {
         require(draft.classId.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")))
         require(draft.subjectId == null || draft.subjectId.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")))

@@ -35,6 +35,8 @@ class ManageTopics(private val store: TopicStore, private val questions: Questio
         return mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     }
 
+    fun dashboardTopics(actor: AcademicActor) = readable(actor).let { store.dashboardTopics(actor.id, actor.role, actor.sessionTokenHash, 5) }
+
     fun topic(actor: AcademicActor, id: String) = readable(actor).let { store.topic(actor.id, actor.role, actor.sessionTokenHash, checkedId(id)) ?: throw AcademicNotFound() }
     fun reply(actor: AcademicActor, id: String, body: String, key: String): Map<String, Any?> {
         writable(actor); require(body.isNotBlank() && body.length <= 10000 && key.length in 8..128)

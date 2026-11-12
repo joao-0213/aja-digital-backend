@@ -30,6 +30,8 @@ interface AssessmentStore {
     fun publish(actorId: String, role: String, sessionHash: String, id: String, key: String, requestHash: String, expectedRevision: Int): Map<String, Any?>?
     fun assessment(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>?
     fun assessments(actorId: String, role: String, sessionHash: String, page: Int, pageSize: Int, sort: String, subjectId: String?, moduleId: String?, kind: String?, status: String?): AssessmentPage
+    fun dashboardAssessments(actorId: String, role: String, sessionHash: String, pageSize: Int): AssessmentPage
+    fun pendingStudentCount(actorId: String, sessionHash: String): Int
 }
 
 interface AttemptStore {
@@ -47,6 +49,7 @@ data class SubmissionPage(val items: List<Map<String, Any?>>, val page: Int, val
 interface SubmissionStore {
     fun create(actorId: String, role: String, sessionHash: String, assessmentId: String, attachments: List<SubmissionAttachment>, key: String, requestHash: String): Map<String, Any?>
     fun submissions(actorId: String, role: String, sessionHash: String, page: Int, pageSize: Int, sort: String, assessmentId: String?, studentId: String?): SubmissionPage
+    fun pendingFeedbackCount(actorId: String, role: String, sessionHash: String): Int
     fun submission(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>?
     fun update(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, attachments: List<SubmissionAttachment>?): Map<String, Any?>?
     fun submit(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, key: String, requestHash: String): Map<String, Any?>?

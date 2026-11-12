@@ -1,6 +1,7 @@
 package br.com.ajadigital.core.application.academic
 
 import br.com.ajadigital.core.ports.out.ContentStore
+import br.com.ajadigital.core.ports.out.DashboardContent
 import br.com.ajadigital.core.ports.out.IdempotencyKeyReuse
 import br.com.ajadigital.core.ports.out.IdempotencyStore
 import br.com.ajadigital.core.ports.out.MaterialCreate
@@ -67,6 +68,12 @@ class ManageContent(private val store: ContentStore, private val idempotency: Id
         require(subjectId == null || validId(subjectId)); require(materialId == null || validId(materialId))
         val result = store.progress(actor.id, actor.role, actor.sessionTokenHash, page, size, sort, subjectId, materialId)
         mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
+    }
+
+    fun dashboard(actor: AcademicActor): DashboardContent {
+        reader(actor)
+        require(actor.role == "student") { throw AcademicForbidden() }
+        return store.dashboard(actor.id, actor.role, actor.sessionTokenHash, 100)
     }
 
     fun recordProgress(actor: AcademicActor, materialId: String, completed: Boolean?) : Map<String, Any?> {

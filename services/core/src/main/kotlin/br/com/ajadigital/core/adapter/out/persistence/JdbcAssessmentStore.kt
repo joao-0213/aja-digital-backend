@@ -116,6 +116,13 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     }
 
     override fun assessments(actorId: String, role: String, sessionHash: String, page: Int, pageSize: Int, sort: String, subjectId: String?, moduleId: String?, kind: String?, status: String?): AssessmentPage {
+        return assessmentPage(actorId, role, sessionHash, page, pageSize, sort, subjectId, moduleId, kind, status, false)
+    }
+
+    override fun dashboardAssessments(actorId: String, role: String, sessionHash: String, pageSize: Int): AssessmentPage =
+        assessmentPage(actorId, role, sessionHash, 1, pageSize, "id", null, null, null, "published", true)
+
+    private fun assessmentPage(actorId: String, role: String, sessionHash: String, page: Int, pageSize: Int, sort: String, subjectId: String?, moduleId: String?, kind: String?, status: String?, dashboard: Boolean): AssessmentPage {
         requireSession(actorId, sessionHash)
         val clauses = mutableListOf(accessPredicate(role))
         val args = mutableListOf<Any>()
@@ -135,7 +142,24 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         val ids = rows.map { it["id"] as String }
         val questionsById = if (role == "student") emptyMap() else questionRows(ids)
         val submissions = if (role == "student") emptySet() else hasSubmissions(ids)
-        return AssessmentPage(rows.map { dto(it, actorId, role, sessionHash, questionsById[it["id"] as String].orEmpty(), (it["id"] as String) in submissions) }, page, pageSize, count)
+        val items = rows.map { row ->
+            val item = dto(row, actorId, role, sessionHash, questionsById[row["id"] as String].orEmpty(), (row["id"] as String) in submissions)
+            if (dashboard) item + ("questionCount" to row["questionCount"]) else item
+        }
+        return AssessmentPage(items, page, pageSize, count)
+    }
+
+    @Transactional(readOnly = true)
+    override fun pendingStudentCount(actorId: String, sessionHash: String): Int {
+        requireSession(actorId, sessionHash, "student")
+        val where = accessPredicate("student")
+        return jdbc.queryForObject("""SELECT count(*) FROM core.assessments a
+            JOIN core.modules m ON m.id=a.module_id JOIN core.subjects s ON s.id=m.subject_id JOIN core.classes c ON c.id=s.class_id
+            WHERE $where AND ((a.kind='quiz' AND NOT EXISTS(
+                SELECT 1 FROM core.attempts x WHERE x.assessment_id=a.id AND x.user_id=? AND x.submitted_at IS NOT NULL
+            )) OR (a.kind='work' AND NOT EXISTS(
+                SELECT 1 FROM core.submissions x WHERE x.assessment_id=a.id AND x.user_id=? AND x.submitted_at IS NOT NULL
+            )))""", Int::class.java, actorId, actorId, actorId) ?: 0
     }
 
     private fun dto(row: Map<String, Any?>, actorId: String, role: String, sessionHash: String, loadedQuestions: List<Map<String, Any?>>? = null, loadedHasSubmissions: Boolean? = null): Map<String, Any?> {

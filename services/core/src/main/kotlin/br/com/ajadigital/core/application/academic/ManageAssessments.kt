@@ -82,6 +82,17 @@ class ManageAssessments(private val store: AssessmentStore, private val snapshot
         mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     }
 
+    fun dashboardAssessments(actor: AcademicActor, pageSize: Int = 100): Map<String, Any?> = reader(actor).let {
+        val page = store.dashboardAssessments(actor.id, actor.role, actor.sessionTokenHash, pageSize)
+        mapOf("items" to page.items, "page" to page.page, "pageSize" to page.pageSize, "total" to page.total)
+    }
+
+    fun pendingStudentCount(actor: AcademicActor): Int {
+        reader(actor)
+        require(actor.role == "student") { throw AcademicForbidden() }
+        return store.pendingStudentCount(actor.id, actor.sessionTokenHash)
+    }
+
     private fun draft(body: JsonNode): AssessmentDraft {
         require(body.isObject && fieldNames(body) == createFields)
         val moduleId = text(body, "moduleId").also(::id)

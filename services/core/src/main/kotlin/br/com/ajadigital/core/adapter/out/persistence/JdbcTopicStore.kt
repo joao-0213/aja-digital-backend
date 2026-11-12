@@ -84,6 +84,20 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         return AcademicPage(rows.mapNotNull { topic(actorId, role, sessionHash, it) }, page, size, count)
     }
 
+    override fun dashboardTopics(actorId: String, role: String, sessionHash: String, size: Int): List<Map<String, Any?>> {
+        require(size in 1..10)
+        requireSession(actorId, role, sessionHash)
+        val scope = access("t", role, actorId)
+        return jdbc.query("""SELECT t.id,t.title,s.name subject_name,
+            (SELECT count(*) FROM core.topic_replies r WHERE r.topic_id=t.id AND r.withdrawn_at IS NULL) reply_count
+            FROM core.topics t JOIN core.subjects s ON s.id=t.subject_id
+            WHERE t.withdrawn_at IS NULL AND ${scope.first}
+            ORDER BY t.last_activity_at DESC,t.id LIMIT ?""", { rs, _ ->
+            val id = rs.getString("id")
+            mapOf("id" to id, "title" to rs.getString("title"), "subjectName" to rs.getString("subject_name"), "replyCount" to rs.getInt("reply_count"), "href" to "/forum/topico?id=$id")
+        }, *(scope.second + size).toTypedArray())
+    }
+
     override fun topic(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>? {
         requireSession(actorId, role, sessionHash)
         val row = jdbc.query("SELECT t.*,u.name author_name FROM core.topics t JOIN core.users u ON u.id=t.author_id WHERE t.id=? AND t.withdrawn_at IS NULL AND ${access("t", role, actorId).first}", { rs, _ -> topicRow(rs) }, *(listOf(id) + access("t", role, actorId).second).toTypedArray()).firstOrNull() ?: return null

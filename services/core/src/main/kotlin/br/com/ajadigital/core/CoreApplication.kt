@@ -17,6 +17,7 @@ import br.com.ajadigital.core.application.academic.ManageAttempts
 import br.com.ajadigital.core.application.academic.ManageSubmissions
 import br.com.ajadigital.core.application.academic.ManageAnnouncements
 import br.com.ajadigital.core.application.academic.ManageTopics
+import br.com.ajadigital.core.application.academic.ManageDashboard
 import br.com.ajadigital.core.ports.out.TopicStore
 import br.com.ajadigital.core.ports.out.AttemptStore
 import br.com.ajadigital.core.ports.out.AssessmentStore
@@ -97,6 +98,10 @@ class CoreApplication {
 
     @Bean
     fun manageTopics(store: TopicStore, questions: QuestionSnapshotProvider, idempotency: IdempotencyStore, mapper: ObjectMapper) = ManageTopics(store, questions, idempotency, mapper)
+
+    @Bean
+    fun manageDashboard(academics: ManageAcademics, subjects: ManageSubjects, content: ManageContent, assessments: ManageAssessments, submissions: ManageSubmissions, announcements: ManageAnnouncements, topics: ManageTopics, clock: Clock) =
+        ManageDashboard(academics, subjects, content, assessments, submissions, announcements, topics, clock)
 
     @Bean
     fun manageAttendance(store: AttendanceStore, idempotency: IdempotencyStore, mapper: ObjectMapper) = ManageAttendance(store, idempotency, mapper)

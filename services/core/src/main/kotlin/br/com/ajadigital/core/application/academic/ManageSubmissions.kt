@@ -28,6 +28,11 @@ class ManageSubmissions(private val store: SubmissionStore, private val mapper: 
         return mapOf("items" to found.items, "page" to found.page, "pageSize" to found.pageSize, "total" to found.total)
     }
 
+    fun pendingFeedbackCount(actor: AcademicActor): Int {
+        writer(actor)
+        return store.pendingFeedbackCount(actor.id, actor.role, actor.sessionTokenHash)
+    }
+
     fun submission(actor: AcademicActor, id: String): Map<String, Any?> {
         reader(actor); id(id)
         return store.submission(actor.id, actor.role, actor.sessionTokenHash, id) ?: throw AcademicNotFound()

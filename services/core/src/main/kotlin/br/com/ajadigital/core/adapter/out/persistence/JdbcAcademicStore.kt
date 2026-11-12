@@ -119,6 +119,22 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         return page("SELECT * FROM core.classes$w ORDER BY id${sortDirection(sort)}", "SELECT count(*) FROM core.classes$w", args, page, size) { rs -> classMap(rs, role == "admin" || role == "teacher") }
     }
 
+    override fun dashboardClasses(actorId: String, role: String, pageSize: Int): AcademicPage {
+        require(pageSize in 1..100)
+        val scope = when (role) {
+            "student" -> " AND c.active AND EXISTS(SELECT 1 FROM core.enrollments mine WHERE mine.class_id=c.id AND mine.student_id=? AND mine.status='active')"
+            "teacher" -> " AND false"
+            else -> ""
+        }
+        val args = if (role == "student") arrayOf<Any>(actorId, pageSize) else arrayOf<Any>(pageSize)
+        val items = jdbc.query("""SELECT c.*,
+            (SELECT count(*)::integer FROM core.enrollments e WHERE e.class_id=c.id AND e.status='active' AND e.student_id IS NOT NULL) student_count
+            FROM core.classes c WHERE c.active=true$scope ORDER BY c.id LIMIT ?""", { rs, _ ->
+            classMap(rs, false) + ("studentCount" to rs.getInt("student_count"))
+        }, *args)
+        return AcademicPage(items, 1, pageSize, items.size)
+    }
+
     override fun findClass(id: String, actorId: String, role: String): Map<String, Any?>? {
         val scope = when (role) {
             "student" -> " AND c.active AND EXISTS(SELECT 1 FROM core.enrollments e WHERE e.class_id=c.id AND e.student_id=? AND e.status='active')"
@@ -247,6 +263,9 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
     private data class EnrollmentTransition(val status: String, val revision: Int, val studentId: String?, val classActive: Boolean)
 
     override fun myEnrollments(studentId: String, page: Int, size: Int, sort: String) = listEnrollmentsForStudent(studentId, page, size, false, sort)
+
+    override fun myPendingEnrollmentCount(studentId: String) = jdbc.queryForObject("""SELECT count(*) FROM core.enrollments e
+        WHERE e.status='pending' AND (e.student_id=? OR (e.student_id IS NULL AND e.normalized_email=(SELECT normalized_email FROM core.users WHERE id=?)))""", Int::class.java, studentId, studentId) ?: 0
 
     override fun listStudents(actorId: String, role: String, page: Int, size: Int, sort: String, classId: String?, query: String?, history: Boolean): AcademicPage {
         val predicates = mutableListOf<String>("u.role='student'", "(e.status='active'${if (history) " OR e.status='ended'" else ""})")

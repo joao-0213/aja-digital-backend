@@ -71,6 +71,7 @@ class ManageAcademics(
         requireReader(actor)
         store.listClasses(actor.id, actor.role, checkedPage(page), checkedSize(size), checkedSort(sort), active, q?.trim())
     }
+    fun dashboardClasses(actor: AcademicActor, pageSize: Int = 100) = requireReader(actor).let { store.dashboardClasses(actor.id, actor.role, pageSize) }
     fun classById(actor: AcademicActor, id: String) = requireReader(actor).let { store.findClass(id, actor.id, actor.role) ?: throw AcademicNotFound() }
     fun createClass(actor: AcademicActor, name: String, code: String, year: Int, shift: String, key: String): Map<String, Any?> {
         val admin = requireAdmin(actor, true); require(name.isNotBlank() && code.isNotBlank() && year in 1900..2200 && shift in shifts)
@@ -98,6 +99,11 @@ class ManageAcademics(
     fun myEnrollments(actor: AcademicActor, page: Int, size: Int, sort: String): AcademicPage {
         if (actor.role != "student" || !actor.active || actor.emailConfirmedAt == null) throw AcademicForbidden()
         return store.myEnrollments(actor.id, checkedPage(page), checkedSize(size), checkedSort(sort))
+    }
+
+    fun myPendingEnrollmentCount(actor: AcademicActor): Int {
+        if (actor.role != "student" || !actor.active || actor.emailConfirmedAt == null) throw AcademicForbidden()
+        return store.myPendingEnrollmentCount(actor.id)
     }
     fun students(actor: AcademicActor, page: Int, size: Int, sort: String, classId: String?, q: String?, history: Boolean) = run {
         requireStaffReader(actor)

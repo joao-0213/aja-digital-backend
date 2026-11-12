@@ -71,6 +71,16 @@ class JdbcSubmissionStore(
     }
 
     @Transactional(readOnly = true)
+    override fun pendingFeedbackCount(actorId: String, role: String, sessionHash: String): Int {
+        require(role in setOf("teacher", "admin"))
+        lockAuthInvariant(); requireSession(actorId, sessionHash, role)
+        val where = accessClause(role) + " AND x.feedback_published IS NULL"
+        val args = if (role == "teacher") arrayOf(actorId) else emptyArray()
+        val from = "core.submissions x JOIN core.assessments a ON a.id=x.assessment_id JOIN core.modules m ON m.id=a.module_id JOIN core.subjects s ON s.id=m.subject_id JOIN core.classes c ON c.id=s.class_id"
+        return jdbc.queryForObject("SELECT count(*) FROM $from WHERE $where", Int::class.java, *args) ?: 0
+    }
+
+    @Transactional(readOnly = true)
     override fun submission(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>? {
         lockAuthInvariant(); requireSession(actorId, sessionHash)
         return authorized(actorId, role, sessionHash, id)?.let(::dto)

@@ -15,8 +15,11 @@ interface ContentStore {
     fun updateMaterial(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, title: String?, duration: Double?, content: String?, videoUrl: String?): Map<String, Any?>?
     fun reorderMaterials(actorId: String, role: String, sessionHash: String, moduleId: String, expectedRevision: Int, items: List<Pair<String, Int>>, page: Int, size: Int): AcademicPage?
     fun progress(actorId: String, role: String, sessionHash: String, page: Int, size: Int, sort: String, subjectId: String?, materialId: String?): AcademicPage
+    fun dashboard(actorId: String, role: String, sessionHash: String, progressLimit: Int): DashboardContent
     fun recordProgress(actorId: String, role: String, sessionHash: String, materialId: String, completed: Boolean): Map<String, Any?>?
 }
+
+data class DashboardContent(val progress: List<Map<String, Any?>>, val completedMaterials: Int, val totalMaterials: Int, val resume: Map<String, Any?>?)
 
 data class DownloadedFile(val name: String, val mime: String, val bytes: ByteArray, val inline: Boolean)
 data class MaterialCreate(val moduleId: String, val title: String, val kind: String, val duration: Double, val content: String, val fileId: String?, val videoUrl: String?)

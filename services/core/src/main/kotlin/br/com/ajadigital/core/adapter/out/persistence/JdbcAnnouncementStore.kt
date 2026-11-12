@@ -145,6 +145,57 @@ class JdbcAnnouncementStore(
         return AcademicPage(ordered.drop((page - 1) * size).take(size), page, size, ordered.size)
     }
 
+    override fun dashboardAnnouncements(actorId: String, role: String, sessionHash: String, size: Int): List<Map<String, Any?>> {
+        require(size in 1..10)
+        requireReaderSession(actorId, role, sessionHash)
+        val args = (accessArgs(actorId, role) + listOf<Any>(size)).toTypedArray()
+        return jdbc.query("""SELECT a.*,u.name author_name FROM core.announcements a JOIN core.users u ON u.id=a.created_by
+            WHERE a.withdrawn_at IS NULL AND ${access("a", role)}
+            ORDER BY a.created_at DESC,a.id LIMIT ?""", { rs, _ -> dto(row(rs) + mapOf("authorName" to rs.getString("author_name"))) }, *args)
+    }
+
+    override fun dashboardUpcoming(actorId: String, role: String, sessionHash: String, from: String, to: String, size: Int): List<Map<String, Any?>> {
+        require(size in 1..10)
+        requireReaderSession(actorId, role, sessionHash)
+        val announcementArgs = (accessArgs(actorId, role) + listOf<Any>(from, to, size)).toTypedArray()
+        val announcements = jdbc.query("""SELECT a.* FROM core.announcements a
+            WHERE a.withdrawn_at IS NULL AND a.occurrence IS NOT NULL AND ${access("a", role)}
+              AND a.occurrence->>'date' BETWEEN ? AND ?
+            ORDER BY a.occurrence->>'date', (a.occurrence->>'allDay')::boolean DESC, a.occurrence->>'time', a.id LIMIT ?""", { rs, _ ->
+            val announcement = row(rs)
+            val occurrence = announcement["occurrence"] as? Map<*, *> ?: emptyMap<String, Any?>()
+            calendarItem(announcement["id"] as String, announcement["title"] as String, occurrence, announcement["body"] as String,
+                announcement["subjectId"] as String?, "announcement", "/avisos?id=${announcement["id"]}")
+        }, *announcementArgs)
+
+        val assessmentArgs = mutableListOf<Any>()
+        val assessmentAccess = when (role) {
+            "admin" -> "true"
+            "teacher" -> "EXISTS(SELECT 1 FROM core.subject_teachers st JOIN core.users tu ON tu.id=st.teacher_id WHERE st.subject_id=s.id AND st.teacher_id=? AND tu.active AND tu.role='teacher')".also { assessmentArgs += actorId }
+            else -> "EXISTS(SELECT 1 FROM core.enrollments e JOIN core.users su ON su.id=e.student_id WHERE e.class_id=s.class_id AND e.student_id=? AND e.status='active' AND su.active AND su.email_confirmed_at IS NOT NULL AND c.active AND NOT jsonb_exists(e.unassigned_assessment_ids,a.id))".also { assessmentArgs += actorId }
+        }
+        assessmentArgs += from
+        assessmentArgs += to
+        assessmentArgs += size
+        val deadlines = jdbc.query("""SELECT a.id,a.title,a.description,a.kind,a.deadline,m.subject_id,
+                (a.deadline AT TIME ZONE 'America/Sao_Paulo')::date local_date,
+                to_char(a.deadline AT TIME ZONE 'America/Sao_Paulo','HH24:MI') local_time
+            FROM core.assessments a JOIN core.modules m ON m.id=a.module_id JOIN core.subjects s ON s.id=m.subject_id JOIN core.classes c ON c.id=s.class_id
+            WHERE a.status='published' AND a.deadline IS NOT NULL AND m.withdrawn_at IS NULL AND $assessmentAccess
+              AND (a.deadline AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN ?::date AND ?::date
+            ORDER BY local_date,local_time,a.id LIMIT ?""", { rs, _ ->
+            val id = rs.getString("id")
+            val occurrence = mapOf("date" to rs.getDate("local_date").toLocalDate().toString(), "time" to rs.getString("local_time"), "allDay" to false)
+            calendarItem(id, rs.getString("title"), occurrence, rs.getString("description"), rs.getString("subject_id"), "assessment", "/questionarios?id=$id", rs.getString("kind"))
+        }, *assessmentArgs.toTypedArray())
+
+        val order = compareBy<Map<String, Any?>> { it["date"] as String }
+            .thenBy { it["allDay"] != true }
+            .thenBy { it["time"] as? String ?: "" }
+            .thenBy { it["id"] as String }
+        return (announcements + deadlines).sortedWith(order).take(size)
+    }
+
     private fun notify(id: String, revision: Int, actorId: String, draft: AnnouncementDraft) {
         val recipients = if (draft.subjectId == null) jdbc.query("""SELECT DISTINCT u.id,u.email FROM core.enrollments e JOIN core.users u ON u.id=e.student_id
             JOIN core.classes c ON c.id=e.class_id WHERE e.class_id=? AND e.status='active' AND u.active AND u.role='student' AND u.email_confirmed_at IS NOT NULL AND c.active ORDER BY u.id""", { rs, _ -> rs.getString(1) to rs.getString(2) }, draft.classId)

@@ -4,6 +4,7 @@ import br.com.ajadigital.core.application.academic.AcademicConflict
 import br.com.ajadigital.core.application.academic.AcademicForbidden
 import br.com.ajadigital.core.application.academic.AcademicNotFound
 import br.com.ajadigital.core.ports.out.ContentStore
+import br.com.ajadigital.core.ports.out.DashboardContent
 import br.com.ajadigital.core.ports.out.AcademicPage
 import br.com.ajadigital.core.ports.out.DownloadedFile
 import br.com.ajadigital.core.ports.out.MaterialCreate
@@ -189,6 +190,32 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         val count = jdbc.queryForObject("SELECT count(*) FROM core.material_progress p WHERE $where", Int::class.java, *args.toTypedArray()) ?: 0
         val rows = jdbc.query("SELECT p.* FROM core.material_progress p WHERE $where ORDER BY p.id${if (sort.startsWith("-")) " DESC" else " ASC"} LIMIT ? OFFSET ?", { rs, _ -> progressMap(rs) }, *(args + listOf(size, (page - 1) * size)).toTypedArray())
         return AcademicPage(rows, page, size, count)
+    }
+
+    @Transactional(readOnly = true)
+    override fun dashboard(actorId: String, role: String, sessionHash: String, progressLimit: Int): DashboardContent {
+        require(progressLimit in 1..100)
+        requireSession(actorId, sessionHash, "student")
+        val scope = "md.withdrawn_at IS NULL AND ${subjectAccess("s", role)}"
+        val scopeArgs = if (role == "student" || role == "teacher") listOf(actorId) else emptyList()
+        val totals = jdbc.query("""SELECT count(DISTINCT m.id),count(DISTINCT m.id) FILTER (WHERE p.completed)
+            FROM core.materials m JOIN core.modules md ON md.id=m.module_id AND md.withdrawn_at IS NULL
+            JOIN core.subjects s ON s.id=md.subject_id
+            LEFT JOIN core.material_progress p ON p.material_id=m.id AND p.user_id=?
+            WHERE $scope""", { rs, _ -> rs.getInt(1) to rs.getInt(2) }, *(listOf(actorId) + scopeArgs).toTypedArray()).single()
+        val progress = jdbc.query("""SELECT p.* FROM core.material_progress p
+            JOIN core.materials m ON m.id=p.material_id
+            JOIN core.modules md ON md.id=m.module_id AND md.withdrawn_at IS NULL
+            JOIN core.subjects s ON s.id=md.subject_id
+            WHERE p.user_id=? AND $scope ORDER BY p.id DESC LIMIT ?""", { rs, _ -> progressMap(rs) }, *(listOf<Any>(actorId) + scopeArgs + progressLimit).toTypedArray())
+        val resume = jdbc.query("""SELECT m.id,m.title,m.module_id,m.kind FROM core.material_progress p
+            JOIN core.materials m ON m.id=p.material_id
+            JOIN core.modules md ON md.id=m.module_id AND md.withdrawn_at IS NULL
+            JOIN core.subjects s ON s.id=md.subject_id
+            WHERE p.user_id=? AND NOT p.completed AND $scope ORDER BY p.last_access DESC,p.id DESC LIMIT 1""", { rs, _ ->
+            mapOf("id" to rs.getString("id"), "title" to rs.getString("title"), "moduleId" to rs.getString("module_id"), "kind" to rs.getString("kind"))
+        }, *(listOf(actorId) + scopeArgs).toTypedArray()).firstOrNull()
+        return DashboardContent(progress, totals.second, totals.first, resume)
     }
 
     @Transactional
