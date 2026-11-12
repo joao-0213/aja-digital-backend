@@ -28,6 +28,28 @@ class JdbcAttemptStore(
     private val idempotency: IdempotencyStore,
 ) : AttemptStore {
     @Transactional
+    override fun practiceBlocked(actorId: String, role: String, sessionHash: String, questionId: String): Boolean {
+        lockAuthInvariant()
+        requireSession(actorId, sessionHash)
+        if (role != "student") return false
+        return jdbc.queryForObject("""SELECT EXISTS(
+            SELECT 1 FROM core.attempts x
+            JOIN core.assessments a ON a.id=x.assessment_id
+            JOIN core.modules m ON m.id=a.module_id
+            JOIN core.subjects s ON s.id=m.subject_id
+            JOIN core.classes c ON c.id=s.class_id
+            WHERE x.user_id=? AND x.submitted_at IS NULL
+              AND a.kind='quiz' AND a.status='published' AND m.withdrawn_at IS NULL AND c.active
+              AND EXISTS(SELECT 1 FROM core.enrollments e JOIN core.users u ON u.id=e.student_id
+                WHERE e.class_id=s.class_id AND e.student_id=x.user_id AND e.status='active' AND u.active AND u.role='student'
+                  AND u.email_confirmed_at IS NOT NULL AND NOT jsonb_exists(e.unassigned_assessment_ids,a.id)
+                  AND (e.enrolled_at IS NULL OR a.deadline IS NULL OR e.enrolled_at<=a.deadline))
+              AND x.question_order @> jsonb_build_array(?)
+              AND EXISTS(SELECT 1 FROM jsonb_array_elements(x.questions) snapshot WHERE snapshot->>'id'=?)
+        )""", Boolean::class.java, actorId, questionId, questionId) ?: false
+    }
+
+    @Transactional
     override fun start(actorId: String, role: String, sessionHash: String, assessmentId: String, key: String, requestHash: String): Map<String, Any?> {
         lockAuthInvariant()
         requireSession(actorId, sessionHash, "student")

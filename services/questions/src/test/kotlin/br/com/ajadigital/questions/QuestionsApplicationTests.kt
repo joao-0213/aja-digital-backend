@@ -120,6 +120,65 @@ class QuestionsApplicationTests @Autowired constructor(
 
     @Test
     @Sql("/question-catalog-v1.sql")
+    fun `practice returns current correction only after Core allows it`() {
+        val response = postPractice("q1", 1)
+        assertEquals(200, response.first, response.second)
+        assertTrue(response.second.contains("\"questionId\":\"q1\""))
+        assertTrue(response.second.contains("\"choice\":1"))
+        assertTrue(response.second.contains("\"correct\":1"))
+        assertTrue(response.second.contains("\"isCorrect\":true"))
+        assertTrue(response.second.contains("\"explanation\":\"Subtraia 3 e divida por 2.\""))
+        jdbc.update("UPDATE questions.question_bank SET correct_option=0, explanation='Updated explanation' WHERE id='q1'")
+        val updated = postPractice("q1", 1)
+        assertEquals(200, updated.first)
+        assertTrue(updated.second.contains("\"correct\":0"))
+        assertTrue(updated.second.contains("\"isCorrect\":false"))
+        assertTrue(updated.second.contains("Updated explanation"))
+    }
+
+    @Test
+    @Sql("/question-catalog-v1.sql")
+    fun `practice rechecks question revision after the Core decision`() {
+        val response = postPractice("q1", 1, "G".repeat(43))
+        assertEquals(200, response.first)
+        assertTrue(response.second.contains("\"correct\":0"))
+        assertTrue(response.second.contains("\"isCorrect\":false"))
+        assertTrue(response.second.contains("Changed during Core"))
+        val continuouslyChanging = postPractice("q1", 1, "H".repeat(43))
+        assertEquals(409, continuouslyChanging.first)
+        assertFalse(continuouslyChanging.second.contains("\"correct\""))
+    }
+
+    @Test
+    @Sql("/question-catalog-v1.sql")
+    fun `practice preserves validation precedence`() {
+        assertEquals(401, postPractice("q1", 999, "B".repeat(43)).first)
+        assertEquals(404, postPractice("q-withdrawn", 999).first)
+        assertEquals(422, postPractice("q1", 999).first)
+        assertEquals(422, postPractice("q1", 999, "D".repeat(43)).first)
+        assertEquals(422, postPractice("q1", 1, query = "?unexpected=1").first)
+    }
+
+    @Test
+    @Sql("/question-catalog-v1.sql")
+    fun `practice does not return a correction when Core reports a live attempt`() {
+        val response = postPractice("q1", 1, "D".repeat(43))
+        assertEquals(409, response.first)
+        assertFalse(response.second.contains("\"correct\""))
+        assertFalse(response.second.contains("Subtraia 3"))
+    }
+
+    @Test
+    @Sql("/question-catalog-v1.sql")
+    fun `practice reports Core outage without a correction`() {
+        val response = postPractice("q1", 1, "F".repeat(43))
+        assertEquals(503, response.first)
+        assertFalse(response.second.contains("\"correct\""))
+        assertFalse(response.second.contains("Subtraia 3"))
+    }
+
+    @Test
+    @Sql("/question-catalog-v1.sql")
     fun `private snapshot batch is authenticated and preserves image and version`() {
         val client = RestClient.create()
         val denied = client.post().uri("http://localhost:$port/internal/v1/snapshots")
@@ -177,6 +236,12 @@ class QuestionsApplicationTests @Autowired constructor(
         .header("Cookie", "aja_session=$cookie")
         .exchange { _, response -> response.statusCode.value() to response.body.readAllBytes().decodeToString() }
 
+    private fun postPractice(id: String, choice: Int, cookie: String = "A".repeat(43), query: String = ""): Pair<Int, String> = RestClient.create().post()
+        .uri("http://localhost:$port/api/v1/questions/$id/practice$query")
+        .header("Cookie", "aja_session=$cookie")
+        .contentType(MediaType.APPLICATION_JSON).body("""{"choice":$choice}""")
+        .exchange { _, response -> response.statusCode.value() to response.body.readAllBytes().decodeToString() }
+
     @Test
     fun serviceUsesOwnedSchemaAndRole() {
         assertEquals("questions", jdbc.queryForObject("select current_schema()", String::class.java))
@@ -205,15 +270,24 @@ class QuestionsApplicationTests @Autowired constructor(
             createContext("/internal/v1/session") { request ->
                 val validToken = request.requestHeaders.getFirst("X-AJA-Service-Token") == "questions-core-test-token-0123456789"
                 val cookie = request.requestHeaders.getFirst("Cookie")
-                val validSession = cookie == "aja_session=${"A".repeat(43)}"
+                val validSession = cookie in setOf("aja_session=${"A".repeat(43)}", "aja_session=${"D".repeat(43)}", "aja_session=${"F".repeat(43)}", "aja_session=${"G".repeat(43)}", "aja_session=${"H".repeat(43)}")
                 val status = when {
                     !validToken -> 403
+                    request.requestMethod == "POST" && cookie == "aja_session=${"F".repeat(43)}" -> 503
                     cookie == "aja_session=${"C".repeat(43)}" -> 200
                     !validSession -> 401
                     else -> 200
                 }
                 val role = if (cookie == "aja_session=${"C".repeat(43)}") "observer" else "student"
-                val body = if (status == 200) """{"userId":"test-user","sessionId":"test-session","role":"$role","active":true,"emailConfirmedAt":null}""" else "{}"
+                val practice = request.requestMethod == "POST"
+                if (practice && cookie in setOf("aja_session=${"G".repeat(43)}", "aja_session=${"H".repeat(43)}")) {
+                    DriverManager.getConnection("${postgres.jdbcUrl}&currentSchema=questions", "questions", "questions-test").use { connection ->
+                        val revisionCondition = if (cookie == "aja_session=${"G".repeat(43)}") "revision=1" else "true"
+                        connection.createStatement().use { it.execute("UPDATE questions.question_bank SET revision=revision+1,correct_option=0,explanation='Changed during Core' WHERE id='q1' AND $revisionCondition") }
+                    }
+                }
+                val body = if (status == 200 && practice) """{"blocked":${cookie == "aja_session=${"D".repeat(43)}"}}"""
+                    else if (status == 200) """{"userId":"test-user","sessionId":"test-session","role":"$role","active":true,"emailConfirmedAt":null}""" else "{}"
                 request.sendResponseHeaders(status, body.toByteArray().size.toLong())
                 request.responseBody.use { it.write(body.toByteArray()) }
             }

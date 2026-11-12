@@ -3,8 +3,10 @@ package br.com.ajadigital.questions
 import br.com.ajadigital.questions.adapter.out.core.InvalidQuestionSession
 import br.com.ajadigital.questions.adapter.out.core.QuestionAccessForbidden
 import br.com.ajadigital.questions.adapter.out.core.QuestionSessionUnavailable
+import br.com.ajadigital.questions.adapter.out.core.QuestionPracticeBlocked
 import br.com.ajadigital.questions.application.question.InvalidQuestionRequest
 import br.com.ajadigital.questions.application.question.QuestionNotFound
+import br.com.ajadigital.questions.application.question.QuestionCatalogChanged
 import br.com.ajadigital.questions.application.question.ReadQuestionCatalog
 import br.com.ajadigital.questions.domain.question.Question
 import br.com.ajadigital.questions.domain.question.QuestionFilters
@@ -29,8 +31,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.UUID
+import tools.jackson.databind.JsonNode
 
 data class QuestionPracticeImage(val src: String, val alt: String)
+data class QuestionPracticeResult(val questionId: String, val choice: Int, val correct: Int, val isCorrect: Boolean, val explanation: String)
 data class QuestionPractice(
     val id: String,
     val subject: String,
@@ -89,6 +93,37 @@ class QuestionController(
         return readQuestionCatalog.get(id).toPractice()
     }
 
+    @PostMapping("/api/v1/questions/{id}/practice")
+    fun practice(
+        @CookieValue(name = "aja_session", required = false) cookie: String?,
+        @PathVariable id: String,
+        @RequestBody body: JsonNode,
+        request: HttpServletRequest,
+    ): QuestionPracticeResult {
+        coreSessionIntrospection.requireActiveSession(cookie)
+        var question = readQuestionCatalog.get(id)
+        if (request.parameterMap.isNotEmpty()) throw InvalidQuestionRequest()
+        val choice = practiceChoice(body, question)
+        repeat(2) { attempt ->
+            val blocked = coreSessionIntrospection.practiceBlocked(cookie, id)
+            val current = readQuestionCatalog.get(id)
+            if (current.revision == question.revision) {
+                if (blocked) throw QuestionPracticeBlocked()
+                return QuestionPracticeResult(id, choice, current.correctOption, choice == current.correctOption, current.explanation)
+            }
+            question = current
+            practiceChoice(body, current)
+            if (attempt == 1) throw QuestionCatalogChanged()
+        }
+        throw QuestionCatalogChanged()
+    }
+
+    private fun practiceChoice(body: JsonNode, question: Question): Int {
+        if (!body.isObject || body.properties().map { it.key }.toSet() != setOf("choice")) throw InvalidQuestionRequest()
+        return body.get("choice")?.takeIf { it.isIntegralNumber && it.canConvertToInt() }?.intValue()
+            ?.takeIf { it in question.options.indices } ?: throw InvalidQuestionRequest()
+    }
+
     private fun Question.toPractice() = QuestionPractice(
         id, subject, topic, difficulty, institution, year, statement, options,
         image?.let { QuestionPracticeImage("$fileContentBaseUrl${it.fileId}/content", it.alt) },
@@ -140,6 +175,12 @@ class QuestionsExceptionHandler {
 
     @ExceptionHandler(QuestionNotFound::class)
     fun notFound() = error(HttpStatus.NOT_FOUND, "NOT_FOUND", "Resource was not found")
+
+    @ExceptionHandler(QuestionPracticeBlocked::class)
+    fun practiceBlocked() = error(HttpStatus.CONFLICT, "CONFLICT", "Practice is unavailable during an active quiz attempt")
+
+    @ExceptionHandler(QuestionCatalogChanged::class)
+    fun questionChanged() = error(HttpStatus.CONFLICT, "CONFLICT", "Question changed while practice was being resolved")
 
     @ExceptionHandler(InvalidQuestionRequest::class, HttpMessageNotReadableException::class)
     fun invalid() = error(HttpStatus.UNPROCESSABLE_ENTITY, "VALIDATION_ERROR", "Request is invalid")

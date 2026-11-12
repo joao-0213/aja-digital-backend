@@ -1147,6 +1147,170 @@ class CoreApplicationTests @Autowired constructor(
     }
 
     @Test
+    fun coreAndQuestionsProcessesResolvePracticeAgainstCurrentAttemptAndAssignment() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val classId = createB06Class(adminCookie)
+        val subjectId = createB06Subject(adminCookie, classId, teacherId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val moduleResponse = mvc.post("/api/v1/modules") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "module-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"subjectId":"$subjectId","title":"B15 practice","description":""}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val assessmentModuleId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(moduleResponse.response.contentAsString).get("id").asText()
+        val assessmentId = createB07Assessment(assessmentModuleId, kind = "quiz", allowLate = true, deadline = null)
+        val questionId = "b15-practice-${UUID.randomUUID()}"
+        jdbc.update("""INSERT INTO core.assessment_questions(assessment_id,question_id,position,source,source_revision,content_hash,snapshot)
+            VALUES(?,?,0,'author',1,NULL,?::jsonb)""", assessmentId, questionId,
+            """{"id":"$questionId","origin":"author","subject":"Math","topic":"Algebra","difficulty":"easy","institution":"AJA","year":2026,"statement":"1 + 1?","options":["2","3"],"image":null,"correct":0,"explanation":"Because"}""")
+        val questionsDb = "${postgres.jdbcUrl}&currentSchema=questions"
+        val assessmentQuestionCount = jdbc.queryForObject("SELECT count(*) FROM core.assessment_questions WHERE assessment_id=?", Int::class.java, assessmentId)
+        val core = startCoreProcess()
+        val questions = startQuestionsProcess("http://127.0.0.1:${core.port}/internal/v1/session")
+        try {
+            DriverManager.getConnection(questionsDb, "questions", "questions-test").use { connection ->
+                connection.createStatement().use { it.execute("""INSERT INTO questions.question_bank(id,revision,created_at,subject,topic,difficulty,institution,year,statement,options,correct_option,explanation)
+                    VALUES ('$questionId',1,now(),'Math','Algebra','easy','AJA',2026,'1 + 1?','{2,3}',0,'Because')""") }
+            }
+            val client = HttpClient.newHttpClient()
+            fun questionRequest(method: String, path: String, body: String? = null) = client.send(
+                HttpRequest.newBuilder(URI("http://127.0.0.1:${questions.port}/api/v1$path"))
+                    .header("Cookie", "aja_session=$studentCookie")
+                    .header("Content-Type", "application/json")
+                    .method(method, body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody())
+                    .build(), HttpResponse.BodyHandlers.ofString(),
+            )
+            val before = questionRequest("POST", "/questions/$questionId/practice", """{"choice":0}""")
+            assertEquals(200, before.statusCode(), before.body())
+            assertTrue(before.body().contains("\"correct\":0"))
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE user_id=?", Int::class.java, studentId))
+            assertEquals(assessmentQuestionCount, jdbc.queryForObject("SELECT count(*) FROM core.assessment_questions WHERE assessment_id=?", Int::class.java, assessmentId))
+            val repeatedPractice = questionRequest("POST", "/questions/$questionId/practice", """{"choice":0}""")
+            assertEquals(200, repeatedPractice.statusCode(), repeatedPractice.body())
+            assertEquals(before.body(), repeatedPractice.body())
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE user_id=?", Int::class.java, studentId))
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE user_id=? AND score IS NOT NULL", Int::class.java, studentId))
+            assertEquals(assessmentQuestionCount, jdbc.queryForObject("SELECT count(*) FROM core.assessment_questions WHERE assessment_id=?", Int::class.java, assessmentId))
+
+            val getList = questionRequest("GET", "/questions")
+            assertEquals(200, getList.statusCode(), getList.body())
+            assertTrue(getList.body().contains(questionId))
+            val getDetail = questionRequest("GET", "/questions/$questionId")
+            assertEquals(200, getDetail.statusCode(), getDetail.body())
+
+            fun racePractice(mutate: (java.sql.Connection) -> Unit): HttpResponse<String> {
+                val executor = Executors.newSingleThreadExecutor()
+                try {
+                    return DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
+                        connection.autoCommit = false
+                        connection.createStatement().use { it.execute("SELECT pg_advisory_xact_lock(812734)") }
+                        val response = executor.submit<HttpResponse<String>> {
+                            questionRequest("POST", "/questions/$questionId/practice", """{"choice":0}""")
+                        }
+                        awaitLockWait("pg_advisory_xact_lock")
+                        mutate(connection)
+                        connection.commit()
+                        response.get(10, TimeUnit.SECONDS)
+                    }
+                } finally {
+                    executor.shutdownNow()
+                }
+            }
+
+            val pendingSnapshot = """[{"id":"$questionId","origin":"author","subject":"Math","topic":"Algebra","difficulty":"easy","institution":"AJA","year":2026,"statement":"1 + 1?","options":["2","3"],"image":null,"correct":0,"explanation":"Because"}]"""
+            val pendingOrder = """["$questionId"]"""
+            val barrierAttemptId = UUID.randomUUID().toString()
+            val attemptStartedBeforeDecision = racePractice { connection ->
+                connection.prepareStatement("""INSERT INTO core.attempts(id,assessment_id,user_id,revision,created_at,updated_at,updated_by,started_at,answers,question_order,questions,questions_updated_at)
+                    VALUES(?,?,?,1,now(),now(),?,now(),'{}'::jsonb,?::jsonb,?::jsonb,now())""").use { statement ->
+                    statement.setString(1, barrierAttemptId)
+                    statement.setString(2, assessmentId)
+                    statement.setString(3, studentId)
+                    statement.setString(4, studentId)
+                    statement.setString(5, pendingOrder)
+                    statement.setString(6, pendingSnapshot)
+                    statement.executeUpdate()
+                }
+            }
+            assertEquals(409, attemptStartedBeforeDecision.statusCode(), attemptStartedBeforeDecision.body())
+            jdbc.update("DELETE FROM core.attempts WHERE id=?", barrierAttemptId)
+
+            val started = coreHttp(client, core, "POST", "/attempts", studentCookie, """{"assessmentId":"$assessmentId"}""", "b15-${UUID.randomUUID()}")
+            assertEquals(201, started.statusCode(), started.body())
+            val attemptsBeforeBlockedPractice = jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE user_id=?", Int::class.java, studentId)
+            val blocked = questionRequest("POST", "/questions/$questionId/practice", """{"choice":0}""")
+            assertEquals(409, blocked.statusCode(), blocked.body())
+            assertFalse(blocked.body().contains("\"correct\""))
+            assertFalse(blocked.body().contains("Because"))
+            assertEquals(attemptsBeforeBlockedPractice, jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE user_id=?", Int::class.java, studentId))
+
+            jdbc.update("DELETE FROM core.attempts WHERE user_id=?", studentId)
+            val logout = racePractice { connection ->
+                connection.prepareStatement("UPDATE core.sessions SET revoked_at=now() WHERE token_hash=?").use {
+                    it.setString(1, sha256(studentCookie)); it.executeUpdate()
+                }
+            }
+            assertEquals(401, logout.statusCode(), logout.body())
+            jdbc.update("UPDATE core.sessions SET revoked_at=NULL WHERE token_hash=?", sha256(studentCookie))
+            val deactivated = racePractice { connection ->
+                connection.prepareStatement("UPDATE core.users SET active=false WHERE id=?").use {
+                    it.setString(1, studentId); it.executeUpdate()
+                }
+            }
+            assertEquals(401, deactivated.statusCode(), deactivated.body())
+            jdbc.update("UPDATE core.users SET active=true WHERE id=?", studentId)
+            val assignedAttempt = coreHttp(client, core, "POST", "/attempts", studentCookie,
+                """{"assessmentId":"$assessmentId"}""", "b15-enrollment-${UUID.randomUUID()}")
+            assertEquals(201, assignedAttempt.statusCode(), assignedAttempt.body())
+            val beforeEnrollmentEnd = questionRequest("POST", "/questions/$questionId/practice", """{"choice":0}""")
+            assertEquals(409, beforeEnrollmentEnd.statusCode(), beforeEnrollmentEnd.body())
+            val enrollmentEnded = racePractice { connection ->
+                connection.prepareStatement("UPDATE core.enrollments SET status='ended' WHERE student_id=? AND class_id=?").use {
+                    it.setString(1, studentId); it.setString(2, classId); it.executeUpdate()
+                }
+            }
+            assertEquals(200, enrollmentEnded.statusCode(), enrollmentEnded.body())
+            assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE user_id=? AND submitted_at IS NULL", Int::class.java, studentId))
+            jdbc.update("UPDATE core.enrollments SET status='active' WHERE student_id=? AND class_id=?", studentId, classId)
+            val beforeUnassignment = questionRequest("POST", "/questions/$questionId/practice", """{"choice":0}""")
+            assertEquals(409, beforeUnassignment.statusCode(), beforeUnassignment.body())
+            val unassigned = racePractice { connection ->
+                connection.prepareStatement("UPDATE core.enrollments SET unassigned_assessment_ids=jsonb_build_array(?) WHERE student_id=? AND class_id=?").use {
+                    it.setString(1, assessmentId); it.setString(2, studentId); it.setString(3, classId); it.executeUpdate()
+                }
+            }
+            assertEquals(200, unassigned.statusCode(), unassigned.body())
+            assertTrue(unassigned.body().contains("\"correct\":0"))
+            assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE user_id=? AND submitted_at IS NULL AND score IS NULL", Int::class.java, studentId))
+            assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE user_id=? AND question_order @> jsonb_build_array(?) AND questions @> jsonb_build_array(jsonb_build_object('id', ?))", Int::class.java, studentId, questionId, questionId))
+            val repeatedAfterUnassignment = questionRequest("POST", "/questions/$questionId/practice", """{"choice":0}""")
+            assertEquals(200, repeatedAfterUnassignment.statusCode(), repeatedAfterUnassignment.body())
+            assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE user_id=? AND submitted_at IS NULL AND score IS NULL", Int::class.java, studentId))
+
+            DriverManager.getConnection(questionsDb, "questions", "questions-test").use { connection ->
+                connection.createStatement().use { it.execute("UPDATE questions.question_bank SET withdrawn_at=now() WHERE id='$questionId'") }
+            }
+            val withdrawn = questionRequest("POST", "/questions/$questionId/practice", """{"choice":0}""")
+            assertEquals(404, withdrawn.statusCode(), withdrawn.body())
+            DriverManager.getConnection(questionsDb, "questions", "questions-test").use { connection ->
+                connection.createStatement().use { it.execute("UPDATE questions.question_bank SET withdrawn_at=NULL WHERE id='$questionId'") }
+            }
+            stopCoreProcess(core)
+            val unavailable = questionRequest("POST", "/questions/$questionId/practice", """{"choice":0}""")
+            assertEquals(503, unavailable.statusCode(), unavailable.body())
+            assertFalse(unavailable.body().contains("\"correct\""))
+            assertFalse(unavailable.body().contains("Because"))
+        } finally {
+            stopQuestionsProcess(questions)
+            stopCoreProcess(core)
+        }
+    }
+
+    @Test
     fun announcementCreateReplayRevalidatesTeacherAssignment() {
         val (adminCookie, _) = adminSession()
         val (teacherCookie, teacherId) = userSession("teacher")
@@ -5054,7 +5218,7 @@ class CoreApplicationTests @Autowired constructor(
 
     private data class QuestionsChild(val process: Process, val port: Int)
 
-    private fun startQuestionsProcess(): QuestionsChild {
+    private fun startQuestionsProcess(coreInternalSessionUrl: String? = null): QuestionsChild {
         val port = ServerSocket(0).use { it.localPort }
         val jar = Path.of("..", "questions", "build", "libs", "questions-0.0.1-SNAPSHOT.jar").toAbsolutePath()
         assertTrue(Files.isRegularFile(jar), "Questions boot jar missing at $jar; build services/questions bootJar first")
@@ -5072,6 +5236,7 @@ class CoreApplicationTests @Autowired constructor(
                     "CORE_QUESTIONS_SERVICE_TOKEN" to "fixture-questions-core-token-1234567890",
                     "SPRING_FLYWAY_BASELINE_ON_MIGRATE" to "true",
                 ))
+                coreInternalSessionUrl?.let { environment()["CORE_INTERNAL_SESSION_URL"] = it }
             }
             .start()
         val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build()

@@ -35,6 +35,7 @@ interface AssessmentStore {
 }
 
 interface AttemptStore {
+    fun practiceBlocked(actorId: String, role: String, sessionHash: String, questionId: String): Boolean
     fun start(actorId: String, role: String, sessionHash: String, assessmentId: String, key: String, requestHash: String): Map<String, Any?>
     fun attempts(actorId: String, role: String, sessionHash: String, page: Int, pageSize: Int, sort: String, assessmentId: String?, studentId: String?): AssessmentPage
     fun attempt(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>?

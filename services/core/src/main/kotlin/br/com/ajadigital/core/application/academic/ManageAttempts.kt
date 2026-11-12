@@ -9,6 +9,11 @@ import java.security.MessageDigest
 class InvalidAttemptAnswers : RuntimeException()
 
 class ManageAttempts(private val store: AttemptStore, private val mapper: ObjectMapper) {
+    fun practiceBlocked(actor: AcademicActor, questionId: String): Boolean {
+        id(questionId)
+        return store.practiceBlocked(actor.id, actor.role, actor.sessionTokenHash, questionId)
+    }
+
     fun start(actor: AcademicActor, key: String, body: JsonNode): Map<String, Any?> {
         student(actor)
         validKey(key)

@@ -9,6 +9,7 @@ import br.com.ajadigital.questions.ports.out.QuestionCatalog
 
 class QuestionNotFound : RuntimeException()
 class InvalidQuestionRequest : RuntimeException()
+class QuestionCatalogChanged : RuntimeException()
 
 class ReadQuestionCatalog(private val catalog: QuestionCatalog) {
     private val validId = Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")

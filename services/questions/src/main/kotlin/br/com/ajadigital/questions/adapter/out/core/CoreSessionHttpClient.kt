@@ -3,6 +3,7 @@ package br.com.ajadigital.questions.adapter.out.core
 import br.com.ajadigital.questions.ports.out.CoreSessionIntrospection
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpHeaders
+import org.springframework.http.MediaType
 import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
@@ -15,6 +16,7 @@ import java.time.Instant
 class InvalidQuestionSession : RuntimeException()
 class QuestionSessionUnavailable : RuntimeException()
 class QuestionAccessForbidden : RuntimeException()
+class QuestionPracticeBlocked : RuntimeException()
 
 @Component
 class CoreSessionHttpClient(
@@ -61,9 +63,40 @@ class CoreSessionHttpClient(
             throw QuestionSessionUnavailable()
         }
     }
+
+    override fun practiceBlocked(cookie: String?, questionId: String): Boolean {
+        if (cookie == null || !cookie.matches(Regex("[A-Za-z0-9_-]{43}"))) throw InvalidQuestionSession()
+        try {
+            return client.post().uri("/practice")
+                .header("X-AJA-Service-Token", String(serviceTokenBytes, Charsets.UTF_8))
+                .header(HttpHeaders.COOKIE, "aja_session=$cookie")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(mapOf("questionId" to questionId))
+                .exchange { _, response ->
+                    when (response.statusCode.value()) {
+                        200 -> objectMapper.readValue(response.body, CorePracticeResponse::class.java).blocked
+                        401 -> throw InvalidQuestionSession()
+                        403 -> throw QuestionAccessForbidden()
+                        else -> throw QuestionSessionUnavailable()
+                    }
+                }
+        } catch (exception: InvalidQuestionSession) {
+            throw exception
+        } catch (exception: QuestionSessionUnavailable) {
+            throw exception
+        } catch (exception: QuestionAccessForbidden) {
+            throw exception
+        } catch (_: RestClientException) {
+            throw QuestionSessionUnavailable()
+        } catch (_: JacksonException) {
+            throw QuestionSessionUnavailable()
+        }
+    }
 }
 
 private data class CoreSessionResponse(
     val role: String,
     val active: Boolean,
 )
+
+private data class CorePracticeResponse(val blocked: Boolean)
