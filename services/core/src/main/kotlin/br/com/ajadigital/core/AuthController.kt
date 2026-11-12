@@ -35,6 +35,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.servlet.NoHandlerFoundException
 import org.springframework.web.servlet.resource.NoResourceFoundException
+import org.springframework.web.bind.MissingRequestHeaderException
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
 import org.springframework.dao.DataAccessException
 import org.springframework.dao.DuplicateKeyException
 import java.util.UUID
@@ -215,6 +217,9 @@ class AuthExceptionHandler {
 
     @ExceptionHandler(HttpMessageNotReadableException::class)
     fun unreadable() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "Request is invalid"))
+
+    @ExceptionHandler(MissingRequestHeaderException::class, MethodArgumentTypeMismatchException::class)
+    fun invalidParameter() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "Request is invalid"))
 
     @ExceptionHandler(IllegalArgumentException::class)
     fun invalid() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "Request is invalid"))

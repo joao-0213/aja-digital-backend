@@ -140,12 +140,17 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
 
     @Transactional
     override fun confirmEmail(tokenHash: String): AuthTokenResult {
-        val userId = jdbc.query("select user_id from core.auth_tokens where token_hash=? and purpose='email_confirmation'", { rs, _ -> rs.getString(1) }, tokenHash).firstOrNull()
-            ?: return AuthTokenResult(failure = TokenFailure.INVALID).also { insertAudit("auth.email_confirmation", "invalid") }
-        val user = lockUser(userId) ?: return AuthTokenResult(failure = TokenFailure.INVALID).also { insertAudit("auth.email_confirmation", "invalid") }
+        val metadata = jdbc.query(
+            "select id token_id,user_id,email_at_issue,expires_at,used_at from core.auth_tokens where token_hash=? and purpose='email_confirmation'",
+            { rs, _ -> ConfirmationRow(rs.getString("token_id"), rs.getString("user_id"), rs.getString("email_at_issue"), rs.getTimestamp("expires_at").toInstant(), rs.getTimestamp("used_at")?.toInstant()) }, tokenHash,
+        ).firstOrNull() ?: return AuthTokenResult(failure = TokenFailure.INVALID).also { insertAudit("auth.email_confirmation", "invalid") }
+        val normalizedEmail = metadata.emailAtIssue.lowercase()
+        val user = lockUser(metadata.userId) ?: return AuthTokenResult(failure = TokenFailure.INVALID).also { insertAudit("auth.email_confirmation", "invalid") }
+        jdbc.query("SELECT id FROM core.classes WHERE active AND id IN (SELECT class_id FROM core.enrollments WHERE normalized_email=? AND status='pending') ORDER BY id FOR UPDATE", { rs, _ -> rs.getString(1) }, normalizedEmail)
+        jdbc.query("SELECT id FROM core.enrollments WHERE normalized_email=? AND status='pending' AND class_id IN (SELECT id FROM core.classes WHERE active) ORDER BY class_id,id FOR UPDATE", { rs, _ -> rs.getString(1) }, normalizedEmail)
         val row = jdbc.query(
-            "select id token_id,email_at_issue,expires_at,used_at from core.auth_tokens where token_hash=? and purpose='email_confirmation' for update",
-            { rs, _ -> ConfirmationRow(rs.getString("token_id"), rs.getString("email_at_issue"), rs.getTimestamp("expires_at").toInstant(), rs.getTimestamp("used_at")?.toInstant()) }, tokenHash,
+            "select id token_id,user_id,email_at_issue,expires_at,used_at from core.auth_tokens where token_hash=? and purpose='email_confirmation' for update",
+            { rs, _ -> ConfirmationRow(rs.getString("token_id"), rs.getString("user_id"), rs.getString("email_at_issue"), rs.getTimestamp("expires_at").toInstant(), rs.getTimestamp("used_at")?.toInstant()) }, tokenHash,
         ).firstOrNull() ?: return AuthTokenResult(failure = TokenFailure.INVALID).also { insertAudit("auth.email_confirmation", "invalid", user.id) }
         val verifiedAt = currentTime()
         if (row.expiresAt <= verifiedAt) return AuthTokenResult(failure = TokenFailure.EXPIRED).also { insertAudit("auth.email_confirmation", "expired", user.id) }
@@ -154,6 +159,11 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
         jdbc.update("update core.auth_tokens set used_at=? where id=? and used_at is null", Timestamp.from(verifiedAt), row.tokenId)
         if (user.emailConfirmedAt == null) {
             jdbc.update("update core.users set email_confirmed_at=?,revision=revision+1,updated_at=?,updated_by=id where id=?", Timestamp.from(verifiedAt), Timestamp.from(verifiedAt), user.id)
+            jdbc.update(
+                """update core.enrollments e set student_id=?,status='active',enrolled_at=?,revision=e.revision+1,updated_at=?,updated_by=?
+                   from core.classes c where e.class_id=c.id and e.normalized_email=? and e.status='pending' and c.active""",
+                user.id, Timestamp.from(verifiedAt), Timestamp.from(verifiedAt), user.id, normalizedEmail,
+            )
         }
         insertAudit("auth.email_confirmation", "success", user.id)
         return AuthTokenResult(user = findUser(user.id))
@@ -237,6 +247,6 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
         rs.getTimestamp("email_confirmed_at")?.toInstant(),
     )
 
-    private data class ConfirmationRow(val tokenId: String, val emailAtIssue: String, val expiresAt: java.time.Instant, val usedAt: java.time.Instant?)
+    private data class ConfirmationRow(val tokenId: String, val userId: String, val emailAtIssue: String, val expiresAt: java.time.Instant, val usedAt: java.time.Instant?)
     private data class ResetRow(val tokenId: String, val emailAtIssue: String, val expiresAt: java.time.Instant, val usedAt: java.time.Instant?)
 }

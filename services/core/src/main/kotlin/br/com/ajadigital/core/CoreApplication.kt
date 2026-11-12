@@ -8,8 +8,11 @@ import br.com.ajadigital.core.application.identity.AuthenticateStudent
 import br.com.ajadigital.core.application.identity.RequestAuthToken
 import br.com.ajadigital.core.application.identity.ResetPassword
 import br.com.ajadigital.core.application.identity.UpdateOwnProfile
+import br.com.ajadigital.core.application.academic.ManageAcademics
 import br.com.ajadigital.core.ports.out.IdentityStore
 import br.com.ajadigital.core.ports.out.PasswordHasher
+import br.com.ajadigital.core.ports.out.AcademicStore
+import br.com.ajadigital.core.ports.out.IdempotencyStore
 import tools.jackson.databind.ObjectMapper
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.SpringBootApplication
@@ -53,6 +56,11 @@ class CoreApplication {
 
     @Bean
     fun updateOwnProfile(store: IdentityStore) = UpdateOwnProfile(store)
+
+    @Bean
+    fun manageAcademics(store: AcademicStore, mapper: ObjectMapper, clock: Clock, encryption: OutboxEncryption, hasher: PasswordHasher, idempotency: IdempotencyStore) =
+        ManageAcademics(store, mapper, clock, encryption, hasher, idempotency)
+
 }
 
 fun main(args: Array<String>) {
