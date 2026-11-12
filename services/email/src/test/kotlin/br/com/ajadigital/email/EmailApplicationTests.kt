@@ -122,6 +122,22 @@ class EmailApplicationTests @Autowired constructor(
     }
 
     @Test
+    fun `announcement email uses its template and records ambiguous provider state`() {
+        val eventId = java.util.UUID.randomUUID().toString()
+        sender.failures[eventId] = DeliveryFailure(ambiguous = true)
+        val event = encryptedAnnouncementEvent(eventId)
+        rabbitTemplate.convertAndSend("aja.events", "academic.announcement-notification-requested", event)
+
+        waitForStatus(eventId, "unknown")
+        rabbitTemplate.convertAndSend("aja.events", "academic.announcement-notification-requested", event)
+        Thread.sleep(200)
+
+        assertEquals(1, sender.announcements.count { it.eventId == eventId })
+        assertTrue(sender.announcements.any { it == CapturedAnnouncementEmail(eventId, "worker@example.test", "Class update", "Tomorrow at 10:30") })
+        assertEquals("unknown", jdbc.queryForObject("select status from email.delivery_events where event_id=?", String::class.java, eventId))
+    }
+
+    @Test
     fun `invalid encrypted event is recorded as poison and moved to dlq`() {
         val eventId = java.util.UUID.randomUUID().toString()
         val poison = ObjectMapper().writeValueAsBytes(mapOf("id" to eventId, "eventType" to "identity.email-confirmation-requested", "version" to 1))
@@ -342,6 +358,24 @@ class EmailApplicationTests @Autowired constructor(
         )
     }
 
+    private fun encryptedAnnouncementEvent(eventId: String): ByteArray {
+        val nonce = ByteArray(12) { 4 }
+        val key = ByteArray(32) { 7 }
+        val eventType = "academic.announcement-notification-requested"
+        val payload = ObjectMapper().writeValueAsBytes(mapOf(
+            "recipient" to "worker@example.test", "announcementId" to "announcement-1", "recipientId" to "student-1",
+            "revision" to 2, "title" to "Class update", "body" to "Tomorrow at 10:30",
+        ))
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce))
+        cipher.updateAAD("$eventId|$eventType|1".toByteArray())
+        val keyId = MessageDigest.getInstance("SHA-256").digest(key).take(8).joinToString("") { "%02x".format(it) }
+        return ObjectMapper().writeValueAsBytes(mapOf(
+            "id" to eventId, "eventType" to eventType, "version" to 1, "keyId" to keyId,
+            "nonce" to Base64.getEncoder().encodeToString(nonce), "ciphertext" to Base64.getEncoder().encodeToString(cipher.doFinal(payload)),
+        ))
+    }
+
     @TestConfiguration
     class CaptureSenderConfiguration {
         @Bean @Primary fun capturedEmailSender() = CapturingEmailSender()
@@ -395,9 +429,11 @@ class EmailApplicationTests @Autowired constructor(
 }
 
 data class CapturedEmail(val eventId: String, val recipient: String, val token: String, val purpose: String)
+data class CapturedAnnouncementEmail(val eventId: String, val recipient: String, val title: String, val body: String)
 
 class CapturingEmailSender : EmailSender {
     val messages = CopyOnWriteArrayList<CapturedEmail>()
+    val announcements = CopyOnWriteArrayList<CapturedAnnouncementEmail>()
     val delivered = CopyOnWriteArrayList<CapturedEmail>()
     val failures = ConcurrentHashMap<String, DeliveryFailure>()
     val failCounts = ConcurrentHashMap<String, AtomicInteger>()
@@ -409,6 +445,11 @@ class CapturingEmailSender : EmailSender {
             throw DeliveryFailure(ambiguous = false)
         }
         delivered += CapturedEmail(eventId, recipient, token, purpose)
+    }
+
+    override fun sendAnnouncement(eventId: String, recipient: String, title: String, body: String) {
+        announcements += CapturedAnnouncementEmail(eventId, recipient, title, body)
+        failures.remove(eventId)?.let { throw it }
     }
 }
 

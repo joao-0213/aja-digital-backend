@@ -1,6 +1,7 @@
 package br.com.ajadigital.email.adapter.`in`.messaging
 
 import br.com.ajadigital.email.application.delivery.IdentityEmail
+import br.com.ajadigital.email.application.delivery.AnnouncementEmail
 import br.com.ajadigital.email.application.delivery.ProcessIdentityEmail
 import br.com.ajadigital.email.ports.out.DeliveryOutcome
 import br.com.ajadigital.email.ports.out.EmailDeliveryStore
@@ -44,6 +45,8 @@ class IdentityEventTopology(@Value("\${email.retry.delay-ms:5000}") private val 
         .with("identity.email-confirmation-requested")
     @Bean fun resetBinding(exchange: TopicExchange) = BindingBuilder.bind(identityEventsQueue()).to(exchange)
         .with("identity.password-reset-requested")
+    @Bean fun announcementBinding(exchange: TopicExchange) = BindingBuilder.bind(identityEventsQueue()).to(exchange)
+        .with("academic.announcement-notification-requested")
 }
 
 @Component
@@ -69,7 +72,11 @@ class IdentityEventConsumer(
             channel.basicNack(tag, false, false)
             return
         }
-        when (process.process(email)) {
+        val outcome = when (email) {
+            is IdentityWork -> process.process(email.value)
+            is AnnouncementWork -> process.processAnnouncement(email.value)
+        }
+        when (outcome) {
             DeliveryOutcome.ACKNOWLEDGED -> channel.basicAck(tag, false)
             DeliveryOutcome.DEAD -> channel.basicNack(tag, false, false)
             DeliveryOutcome.RETRY -> {
@@ -87,11 +94,11 @@ class IdentityEventConsumer(
         }
     }
 
-    private fun decode(body: ByteArray): IdentityEmail {
+    private fun decode(body: ByteArray): EmailWork {
         val envelope = mapper.readTree(body)
         val id = envelope.path("id").asText().takeIf(String::isNotBlank) ?: error("missing event id")
         val type = envelope.path("eventType").asText()
-        require(type == "identity.email-confirmation-requested" || type == "identity.password-reset-requested")
+        require(type == "identity.email-confirmation-requested" || type == "identity.password-reset-requested" || type == "academic.announcement-notification-requested")
         require(envelope.path("version").asInt() == 1 && envelope.path("keyId").asText() == keyId)
         val nonce = Base64.getDecoder().decode(envelope.path("nonce").asText())
         val ciphertext = Base64.getDecoder().decode(envelope.path("ciphertext").asText())
@@ -99,10 +106,20 @@ class IdentityEventConsumer(
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce))
         cipher.updateAAD("$id|$type|1".toByteArray())
         val payload = mapper.readTree(cipher.doFinal(ciphertext))
+        val recipient = payload.path("recipient").asText().takeIf(String::isNotBlank) ?: error("missing recipient")
+        if (type == "academic.announcement-notification-requested") {
+            require(payload.path("announcementId").asText().isNotBlank() && payload.path("recipientId").asText().isNotBlank() && payload.path("revision").asInt() > 0)
+            val title = payload.path("title").asText().takeIf(String::isNotBlank) ?: error("missing title")
+            val text = payload.path("body").asText()
+            return AnnouncementWork(AnnouncementEmail(id, type, recipient, title, text))
+        }
         val purpose = payload.path("purpose").asText()
         require(purpose == if (type == "identity.email-confirmation-requested") "email_confirmation" else "password_reset")
-        val recipient = payload.path("recipient").asText().takeIf(String::isNotBlank) ?: error("missing recipient")
         val token = payload.path("token").asText().takeIf(String::isNotBlank) ?: error("missing token")
-        return IdentityEmail(id, type, recipient, token, purpose)
+        return IdentityWork(IdentityEmail(id, type, recipient, token, purpose))
     }
 }
+
+private sealed interface EmailWork
+private data class IdentityWork(val value: IdentityEmail) : EmailWork
+private data class AnnouncementWork(val value: AnnouncementEmail) : EmailWork

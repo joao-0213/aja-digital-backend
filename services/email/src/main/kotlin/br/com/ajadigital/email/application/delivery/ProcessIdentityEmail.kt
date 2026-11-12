@@ -7,32 +7,41 @@ import br.com.ajadigital.email.ports.out.EmailDeliveryStore
 import br.com.ajadigital.email.ports.out.EmailSender
 
 data class IdentityEmail(val eventId: String, val eventType: String, val recipient: String, val token: String, val purpose: String)
+data class AnnouncementEmail(val eventId: String, val eventType: String, val recipient: String, val title: String, val body: String)
 
 class ProcessIdentityEmail(private val store: EmailDeliveryStore, private val sender: EmailSender) {
-    fun process(email: IdentityEmail): DeliveryOutcome = when (val attempt = store.begin(email.eventId, email.eventType)) {
+    fun process(email: IdentityEmail): DeliveryOutcome = process(email.eventId, email.eventType) {
+        sender.send(email.eventId, email.recipient, email.token, email.purpose)
+    }
+
+    fun processAnnouncement(email: AnnouncementEmail): DeliveryOutcome = process(email.eventId, email.eventType) {
+        sender.sendAnnouncement(email.eventId, email.recipient, email.title, email.body)
+    }
+
+    private fun process(eventId: String, eventType: String, send: () -> Unit): DeliveryOutcome = when (val attempt = store.begin(eventId, eventType)) {
         DeliveryAttempt.Acknowledge, DeliveryAttempt.Interrupted -> DeliveryOutcome.ACKNOWLEDGED
         DeliveryAttempt.Dead -> DeliveryOutcome.DEAD
         is DeliveryAttempt.Send -> try {
-            sender.send(email.eventId, email.recipient, email.token, email.purpose)
-            store.setStatus(email.eventId, "sent", null)
+            send()
+            store.setStatus(eventId, "sent", null)
             DeliveryOutcome.ACKNOWLEDGED
         } catch (failure: DeliveryFailure) {
             when {
                 failure.ambiguous -> {
-                    store.setStatus(email.eventId, "unknown", failure.javaClass.simpleName)
+                    store.setStatus(eventId, "unknown", failure.javaClass.simpleName)
                     DeliveryOutcome.ACKNOWLEDGED
                 }
                 attempt.count >= MAX_ATTEMPTS -> {
-                    store.setStatus(email.eventId, "dead", failure.javaClass.simpleName)
+                    store.setStatus(eventId, "dead", failure.javaClass.simpleName)
                     DeliveryOutcome.DEAD
                 }
                 else -> {
-                    store.setStatus(email.eventId, "retry", failure.javaClass.simpleName)
+                    store.setStatus(eventId, "retry", failure.javaClass.simpleName)
                     DeliveryOutcome.RETRY
                 }
             }
         } catch (failure: Exception) {
-            store.setStatus(email.eventId, "unknown", failure.javaClass.simpleName)
+            store.setStatus(eventId, "unknown", failure.javaClass.simpleName)
             DeliveryOutcome.ACKNOWLEDGED
         }
     }

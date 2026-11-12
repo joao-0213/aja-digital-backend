@@ -27,7 +27,15 @@ class HttpEmailSender(
         val path = if (purpose == "email_confirmation") "/confirm-email" else "/reset-password"
         val actionUrl = "$actionBaseUrl$path?token=${URLEncoder.encode(token, StandardCharsets.UTF_8)}"
         val subject = if (purpose == "email_confirmation") "Confirme seu e-mail" else "Redefina sua senha"
-        val body = mapper.writeValueAsBytes(mapOf("to" to recipient, "subject" to subject, "text" to actionUrl))
+        sendMessage(eventId, recipient, subject, actionUrl)
+    }
+
+    override fun sendAnnouncement(eventId: String, recipient: String, title: String, body: String) {
+        sendMessage(eventId, recipient, title, body)
+    }
+
+    private fun sendMessage(eventId: String, recipient: String, subject: String, text: String) {
+        val body = mapper.writeValueAsBytes(mapOf("to" to recipient, "subject" to subject, "text" to text))
         val request = HttpRequest.newBuilder(URI.create(endpoint))
             .timeout(Duration.ofSeconds(10))
             .header("Content-Type", "application/json")
