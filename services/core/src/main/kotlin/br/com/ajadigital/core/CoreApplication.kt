@@ -11,6 +11,9 @@ import br.com.ajadigital.core.application.identity.UpdateOwnProfile
 import br.com.ajadigital.core.application.academic.ManageAcademics
 import br.com.ajadigital.core.application.academic.ManageSubjects
 import br.com.ajadigital.core.application.academic.ManageContent
+import br.com.ajadigital.core.application.academic.ManageAssessments
+import br.com.ajadigital.core.ports.out.AssessmentStore
+import br.com.ajadigital.core.ports.out.QuestionSnapshotProvider
 import br.com.ajadigital.core.ports.out.SubjectStore
 import br.com.ajadigital.core.ports.out.ContentStore
 import br.com.ajadigital.core.ports.out.IdentityStore
@@ -70,6 +73,9 @@ class CoreApplication {
 
     @Bean
     fun manageContent(store: ContentStore, idempotency: IdempotencyStore, mapper: ObjectMapper) = ManageContent(store, idempotency, mapper)
+
+    @Bean
+    fun manageAssessments(store: AssessmentStore, snapshots: QuestionSnapshotProvider, idempotency: IdempotencyStore, mapper: ObjectMapper) = ManageAssessments(store, snapshots, idempotency, mapper)
 
 }
 

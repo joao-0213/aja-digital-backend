@@ -257,13 +257,28 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
               AND (a.deadline IS NULL OR e.enrolled_at IS NULL OR e.enrolled_at<=a.deadline)
         )""", Boolean::class.java, actorId, assessmentId, Timestamp.from(clock.instant()), Timestamp.from(clock.instant())) == true
     }
-    private fun canReadFile(id: String, actorId: String, role: String): Boolean = jdbc.queryForObject("""SELECT EXISTS(
-        SELECT 1 FROM core.files f WHERE f.id=? AND f.status='attached' AND (
-            f.purpose='question' OR EXISTS(SELECT 1 FROM core.materials mt JOIN core.modules m ON m.id=mt.module_id AND m.withdrawn_at IS NULL JOIN core.subjects s ON s.id=m.subject_id WHERE mt.file_id=f.id AND ${subjectAccess("s", role)})
-        ))""", Boolean::class.java, *(listOf(id) + if (role == "teacher" || role == "student") listOf(actorId) else emptyList()).toTypedArray()) == true
+    private fun canReadFile(id: String, actorId: String, role: String): Boolean {
+        val assessmentAccess = when (role) {
+            "admin" -> "true"
+            "teacher" -> "EXISTS(SELECT 1 FROM core.subject_teachers st JOIN core.users u ON u.id=st.teacher_id WHERE st.subject_id=s.id AND st.teacher_id=? AND u.active AND u.role='teacher')"
+            "student" -> "a.status='published' AND c.active AND EXISTS(SELECT 1 FROM core.enrollments e JOIN core.users u ON u.id=e.student_id WHERE e.class_id=c.id AND e.student_id=? AND e.status='active' AND u.active AND u.email_confirmed_at IS NOT NULL AND NOT jsonb_exists(e.unassigned_assessment_ids,a.id))"
+            else -> "false"
+        }
+        val args = listOf(id) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList()) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList())
+        return jdbc.queryForObject("""SELECT EXISTS(
+            SELECT 1 FROM core.files f WHERE f.id=? AND f.status='attached' AND (
+                f.purpose='question'
+                OR (f.purpose='assessment' AND EXISTS(
+                    SELECT 1 FROM core.assessments a JOIN core.modules m ON m.id=a.module_id AND m.withdrawn_at IS NULL
+                    JOIN core.subjects s ON s.id=m.subject_id JOIN core.classes c ON c.id=s.class_id
+                    WHERE a.id=f.parent_id AND $assessmentAccess
+                ))
+                OR EXISTS(SELECT 1 FROM core.materials mt JOIN core.modules m ON m.id=mt.module_id AND m.withdrawn_at IS NULL JOIN core.subjects s ON s.id=m.subject_id WHERE mt.file_id=f.id AND ${subjectAccess("s", role)})
+            ))""", Boolean::class.java, *args.toTypedArray()) == true
+    }
 
     private fun fileRow(rs: ResultSet) = mapOf("id" to rs.getString("id"), "ownerId" to rs.getString("owner_id"), "purpose" to rs.getString("purpose"), "parentId" to rs.getString("parent_id"), "name" to rs.getString("name"), "mime" to rs.getString("mime"), "size" to rs.getLong("size"), "sha256" to rs.getString("sha256"), "status" to rs.getString("status"), "expiresAt" to rs.getTimestamp("expires_at")?.toInstant())
-    private fun fileDto(file: Map<String, Any?>) = mapOf("id" to file["id"], "name" to file["name"], "size" to file["size"], "mime" to file["mime"], "purpose" to file["purpose"], "parentId" to file["parentId"], "status" to file["status"], "downloadUrl" to "/api/v1/files/${file["id"]}/content")
+    private fun fileDto(file: Map<String, Any?>) = mapOf("id" to file["id"], "name" to file["name"], "size" to file["size"], "mime" to file["mime"], "purpose" to if (file["purpose"] == "assessment") "question" else file["purpose"], "parentId" to file["parentId"], "status" to file["status"], "downloadUrl" to "/api/v1/files/${file["id"]}/content")
     private fun materialMap(rs: ResultSet): Map<String, Any?> {
         val fileId = rs.getString("file_id")
         val authorId = rs.getString("author_id")

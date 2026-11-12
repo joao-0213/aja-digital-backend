@@ -1,6 +1,8 @@
 package br.com.ajadigital.core
 
 import br.com.ajadigital.core.application.academic.AcademicConflict
+import br.com.ajadigital.core.application.academic.QuestionSnapshotNotFound
+import br.com.ajadigital.core.application.academic.QuestionsUnavailable
 import br.com.ajadigital.core.application.academic.AcademicActor
 import br.com.ajadigital.core.application.academic.AcademicIdempotencyConflict
 import br.com.ajadigital.core.application.academic.AcademicForbidden
@@ -170,6 +172,10 @@ class AcademicController(private val auth: AuthenticateStudent, private val acad
 
 @RestControllerAdvice
 class AcademicExceptionHandler {
+    @ExceptionHandler(QuestionSnapshotNotFound::class)
+    fun missingSnapshot() = ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("NOT_FOUND", "Resource was not found"))
+    @ExceptionHandler(QuestionsUnavailable::class)
+    fun unavailableSnapshots() = ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error("SERVICE_UNAVAILABLE", "Question snapshots are unavailable"))
     @ExceptionHandler(AcademicForbidden::class)
     fun forbidden() = ResponseEntity.status(HttpStatus.FORBIDDEN).body(error("FORBIDDEN", "This action is not allowed"))
     @ExceptionHandler(UnknownPublication::class)

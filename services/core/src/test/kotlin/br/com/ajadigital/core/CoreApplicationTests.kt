@@ -58,6 +58,9 @@ import br.com.ajadigital.core.adapter.out.messaging.OutboxRedrive
 import br.com.ajadigital.core.application.academic.AcademicActor
 import br.com.ajadigital.core.application.academic.AcademicForbidden
 import br.com.ajadigital.core.application.academic.ManageAcademics
+import br.com.ajadigital.core.ports.out.BankQuestionSnapshot
+import br.com.ajadigital.core.ports.out.BankQuestionImage
+import br.com.ajadigital.core.ports.out.QuestionSnapshotProvider
 
 class MutableTestClock : Clock() {
     private val offset = AtomicReference(Duration.ZERO)
@@ -98,9 +101,26 @@ class EmailQueueTopologyTestConfiguration {
     }
 }
 
+class TestQuestionSnapshotProvider : QuestionSnapshotProvider {
+    val requested = mutableListOf<List<String>>()
+    var imageFileId = "question-image-1"
+    override fun snapshots(ids: List<String>): List<BankQuestionSnapshot> {
+        requested += ids
+        if ("offline" in ids) throw br.com.ajadigital.core.application.academic.QuestionsUnavailable()
+        return ids.map { id -> BankQuestionSnapshot(id, 3, "a".repeat(64), "Math", "Algebra", "easy", "AJA", 2026, "Original $id", listOf("one", "two"), 1, "Because", if (id == "bank-1") BankQuestionImage(imageFileId, "Figure") else null) }
+    }
+}
+
+@TestConfiguration
+class AssessmentSnapshotTestConfiguration {
+    @Bean
+    @Primary
+    fun testQuestionSnapshotProvider() = TestQuestionSnapshotProvider()
+}
+
 @Testcontainers
 @AutoConfigureMockMvc
-@Import(MutableTestClockConfiguration::class, EmailQueueTopologyTestConfiguration::class)
+@Import(MutableTestClockConfiguration::class, EmailQueueTopologyTestConfiguration::class, AssessmentSnapshotTestConfiguration::class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest
 class CoreApplicationTests @Autowired constructor(
@@ -112,6 +132,7 @@ class CoreApplicationTests @Autowired constructor(
     private val passwordEncoder: PasswordEncoder,
     private val mutableClock: MutableTestClock,
     private val manageAcademics: ManageAcademics,
+    private val questionSnapshotProvider: TestQuestionSnapshotProvider,
 ) {
     @Test
     fun stagedMaterialFileIsStoredAndReadableOnlyByItsAuthorizedOwner() {
@@ -178,6 +199,271 @@ class CoreApplicationTests @Autowired constructor(
             multipart("/api/v1/files").file(upload).param("purpose", "material").param("parentId", moduleId)
                 .cookie(Cookie("aja_session", teacherCookie)).header("Origin", "https://aja.example.test").header("Idempotency-Key", uploadKey),
         ).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound)
+    }
+
+    @Test
+    fun assessmentCanBeCreatedReadAndPublishedByItsAssignedTeacher() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        val (studentCookie, studentId) = userSession("student")
+        createB07Enrollment(classId, studentId, teacherId)
+        val createKey = "assessment-${UUID.randomUUID()}"
+        val createBody = """{"moduleId":"$moduleId","title":"B08 work","description":"","kind":"work","maxGrade":null,"deadline":null,"required":false,"allowLate":false,"questions":[]}"""
+        val created = mvc.post("/api/v1/assessments") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", createKey)
+            cookie(Cookie("aja_session", teacherCookie))
+            content = createBody
+        }.andExpect { status { isCreated() } }.andReturn()
+        val body = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString)
+        val id = body.get("id").asText()
+        assertEquals("draft", body.get("status").asText())
+        assertFalse(body.get("hasSubmissions").asBoolean())
+        mvc.post("/api/v1/assessments") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", createKey)
+            cookie(Cookie("aja_session", teacherCookie))
+            content = createBody
+        }.andExpect { status { isCreated() }; jsonPath("$.id") { value(id) } }
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.assessments WHERE id=?", Int::class.java, id))
+
+        mvc.get("/api/v1/assessments/$id") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isNotFound() } }
+
+        mvc.get("/api/v1/assessments/$id") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.id") { value(id) }; jsonPath("$.status") { value("draft") } }
+
+        val publishKey = "publish-${UUID.randomUUID()}"
+        val publishBody = """{"expectedRevision":1}"""
+        mvc.post("/api/v1/assessments/$id/publish") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", publishKey)
+            cookie(Cookie("aja_session", teacherCookie))
+            content = publishBody
+        }.andExpect { status { isOk() }; jsonPath("$.status") { value("published") }; jsonPath("$.publishedAt") { exists() } }
+        mvc.post("/api/v1/assessments/$id/publish") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", publishKey)
+            cookie(Cookie("aja_session", teacherCookie))
+            content = publishBody
+        }.andExpect { status { isOk() }; jsonPath("$.status") { value("published") } }
+        mvc.get("/api/v1/assessments/$id") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.assigned") { value(true) }; jsonPath("$.questions") { doesNotExist() } }
+        val (unassignedTeacherCookie, _) = userSession("teacher")
+        mvc.post("/api/v1/assessments") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "unassigned-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", unassignedTeacherCookie))
+            content = createBody
+        }.andExpect { status { isForbidden() } }
+    }
+
+    @Test
+    fun assessmentKindChangesMustPreserveCompositionInvariant() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (_, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        val quiz = mvc.post("/api/v1/assessments") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "quiz-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"moduleId":"$moduleId","title":"Kind invariant","description":"","kind":"quiz","maxGrade":5,"deadline":null,"required":true,"allowLate":false,"questions":[{"source":"authored","clientKey":"q","questionId":null,"question":{"subject":"Math","topic":"Algebra","difficulty":"easy","institution":"AJA","year":2026,"statement":"1 + 1?","options":["2","3"],"image":null,"correct":0,"explanation":""}}]}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val quizId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(quiz.response.contentAsString).get("id").asText()
+        mvc.patch("/api/v1/assessments/$quizId") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "quiz-to-work-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":1,"kind":"work"}"""
+        }.andExpect { status { isConflict() } }
+
+        val work = mvc.post("/api/v1/assessments") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "work-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"moduleId":"$moduleId","title":"Empty work","description":"","kind":"work","maxGrade":null,"deadline":null,"required":true,"allowLate":false,"questions":[]}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val workId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(work.response.contentAsString).get("id").asText()
+        mvc.patch("/api/v1/assessments/$workId") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "work-to-quiz-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":1,"kind":"quiz"}"""
+        }.andExpect { status { isConflict() } }
+        jdbc.update("UPDATE core.assessments SET kind='work' WHERE id=?", quizId)
+        mvc.post("/api/v1/assessments/$quizId/publish") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "invalid-work-publish-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isConflict() } }
+    }
+
+    @Test
+    fun assessmentRejectsMalformedDeadlineAndOverflowingAuthoredIntegers() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (_, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        val base = """{"moduleId":"$moduleId","title":"Bad input","description":"","kind":"quiz","maxGrade":5,"deadline":"not-an-instant","required":true,"allowLate":false,"questions":[{"source":"authored","clientKey":"q","questionId":null,"question":{"subject":"Math","topic":"Algebra","difficulty":"easy","institution":"AJA","year":2026,"statement":"1 + 1?","options":["2","3"],"image":null,"correct":0,"explanation":""}}]}"""
+        mvc.post("/api/v1/assessments") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "bad-deadline-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = base
+        }.andExpect { status { isUnprocessableEntity() } }
+        val valid = mvc.post("/api/v1/assessments") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "valid-deadline-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = base.replace("\"deadline\":\"not-an-instant\"", "\"deadline\":null")
+        }.andExpect { status { isCreated() } }.andReturn()
+        val assessmentId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(valid.response.contentAsString).get("id").asText()
+        mvc.patch("/api/v1/assessments/$assessmentId") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "patch-bad-deadline-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":1,"deadline":"not-an-instant"}"""
+        }.andExpect { status { isUnprocessableEntity() } }
+        for ((field, value) in listOf("year" to "4294967296", "correct" to "4294967296")) {
+            val input = base.replace("\"deadline\":\"not-an-instant\"", "\"deadline\":null")
+                .replace(if (field == "year") "\"year\":2026" else "\"correct\":0", "\"$field\":$value")
+            mvc.post("/api/v1/assessments") {
+                contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                header("Origin", "https://aja.example.test")
+                header("Idempotency-Key", "overflow-$field-${UUID.randomUUID()}")
+                cookie(Cookie("aja_session", teacherCookie))
+                content = input
+            }.andExpect { status { isUnprocessableEntity() } }
+        }
+    }
+
+    @Test
+    fun assessmentSnapshotsAreCapturedOnceAndHiddenFromStudents() {
+        questionSnapshotProvider.requested.clear()
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val imageBytes = byteArrayOf(1, 2, 3, 4)
+        val questionImageId = "question-image-${UUID.randomUUID()}"
+        questionSnapshotProvider.imageFileId = questionImageId
+        jdbc.update("INSERT INTO core.files(id,purpose,parent_id,name,mime,size,sha256,status,content,created_at) VALUES(?,'question',?,'figure.png','image/png',?,?,'attached',?,?)", questionImageId, "bank-1", imageBytes.size, "b".repeat(64), imageBytes, java.sql.Timestamp.from(mutableClock.instant()))
+        val quiz = """{"moduleId":"$moduleId","title":"Snapshot quiz","description":"Instructions","kind":"quiz","maxGrade":10,"deadline":null,"required":true,"allowLate":false,"questions":[{"source":"bank","questionId":"bank-1"},{"source":"authored","clientKey":"author-1","questionId":null,"question":{"subject":"Math","topic":"Algebra","difficulty":"medium","institution":"AJA","year":2026,"statement":"Authored","options":["a","b"],"image":null,"correct":0,"explanation":"Because"}}]}"""
+        val before = jdbc.queryForObject("SELECT count(*) FROM core.assessments", Int::class.java)
+        mvc.post("/api/v1/assessments") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "offline-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = quiz.replace("bank-1", "offline")
+        }.andExpect { status { isServiceUnavailable() } }
+        assertEquals(before, jdbc.queryForObject("SELECT count(*) FROM core.assessments", Int::class.java))
+
+        val duplicate = quiz.replace("\"questionId\":\"bank-1\"},{\"source\":\"authored\"", "\"questionId\":\"bank-1\"},{\"source\":\"bank\",\"questionId\":\"bank-1\"},{\"source\":\"authored\"")
+        mvc.post("/api/v1/assessments") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "duplicate-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = duplicate
+        }.andExpect { status { isUnprocessableEntity() } }
+        assertEquals(1, questionSnapshotProvider.requested.size)
+
+        val created = mvc.post("/api/v1/assessments") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "quiz-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = quiz
+        }.andExpect { status { isCreated() }; jsonPath("$.questions[0].statement") { value("Original bank-1") }; jsonPath("$.questions[1].origin") { value("author") } }.andReturn()
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString).get("id").asText()
+        val authoredId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString).get("questions").get(1).get("id").asText()
+        assertEquals(listOf("bank-1"), questionSnapshotProvider.requested.last())
+        assertEquals("Original bank-1", jdbc.queryForObject("SELECT snapshot->>'statement' FROM core.assessment_questions WHERE assessment_id=? AND question_id='bank-1'", String::class.java, id))
+        assertEquals(3, jdbc.queryForObject("SELECT source_revision FROM core.assessment_questions WHERE assessment_id=? AND question_id='bank-1'", Int::class.java, id))
+        val copiedImageId = jdbc.queryForObject("SELECT substring(snapshot->'image'->>'src' from '/files/([^/]+)/content$') FROM core.assessment_questions WHERE assessment_id=? AND question_id='bank-1'", String::class.java, id)!!
+        assertTrue(copiedImageId != questionImageId)
+        assertEquals("assessment", jdbc.queryForObject("SELECT purpose FROM core.files WHERE id=?", String::class.java, copiedImageId))
+        assertEquals(imageBytes.toList(), jdbc.queryForObject("SELECT content FROM core.files WHERE id=?", ByteArray::class.java, copiedImageId)?.toList())
+        mvc.get("/api/v1/files/$copiedImageId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.purpose") { value("question") } }
+        mvc.get("/api/v1/files/$copiedImageId/content") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isNotFound() } }
+
+        mvc.post("/api/v1/assessments/$id/publish") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "publish-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isOk() } }
+        mvc.get("/api/v1/files/$copiedImageId/content") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() }; content { bytes(imageBytes) } }
+        mvc.get("/api/v1/assessments/$id") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.questionCount") { value(2) }; jsonPath("$.questions") { doesNotExist() }; jsonPath("$.correct") { doesNotExist() }; jsonPath("$.explanation") { doesNotExist() } }
+        mvc.get("/api/v1/assessments?moduleId=$moduleId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.items[0].questionCount") { value(2) }; jsonPath("$.items[0].questions") { doesNotExist() } }
+
+        mvc.patch("/api/v1/assessments/$id") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "metadata-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":2,"title":"Updated title"}"""
+        }.andExpect { status { isOk() }; jsonPath("$.title") { value("Updated title") } }
+        assertEquals(2, questionSnapshotProvider.requested.size)
+        assertEquals("Original bank-1", jdbc.queryForObject("SELECT snapshot->>'statement' FROM core.assessment_questions WHERE assessment_id=? AND question_id='bank-1'", String::class.java, id))
+
+        val newComposition = """[{"source":"bank","questionId":"bank-1"},{"source":"authored","clientKey":"author-1","questionId":"$authoredId","question":{"subject":"Math","topic":"Algebra","difficulty":"medium","institution":"AJA","year":2026,"statement":"Authored","options":["a","b"],"image":null,"correct":0,"explanation":"Because"}},{"source":"bank","questionId":"bank-2"}]"""
+        mvc.patch("/api/v1/assessments/$id") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "unconfirmed-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":3,"questions":$newComposition}"""
+        }.andExpect { status { isConflict() } }
+        assertEquals(2, questionSnapshotProvider.requested.size)
+
+        mvc.patch("/api/v1/assessments/$id") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "confirmed-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":3,"confirmResetDrafts":true,"questions":$newComposition}"""
+        }.andExpect { status { isOk() }; jsonPath("$.questionIds.length()") { value(3) } }
+        assertEquals(listOf("bank-2"), questionSnapshotProvider.requested.last())
+        assertEquals(copiedImageId, jdbc.queryForObject("SELECT substring(snapshot->'image'->>'src' from '/files/([^/]+)/content$') FROM core.assessment_questions WHERE assessment_id=? AND question_id='bank-1'", String::class.java, id))
     }
 
     @Test
@@ -923,6 +1209,43 @@ class CoreApplicationTests @Autowired constructor(
             pool.shutdownNow()
         }
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.modules WHERE subject_id=? AND title='Revoked while queued'", Int::class.java, subjectId))
+    }
+
+    @Test
+    fun assessmentCreationQueuedBehindRevocationCannotCommit() {
+        val adminCookie = adminSession().first
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (_, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        val held = DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password)
+        held.autoCommit = false
+        held.createStatement().use { it.execute("SELECT pg_advisory_xact_lock(812734)") }
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val logout = pool.submit<Int> {
+                mvc.post("/api/v1/auth/logout") { header("Origin", "https://aja.example.test"); cookie(Cookie("aja_session", teacherCookie)) }.andReturn().response.status
+            }
+            awaitLockWaitCount(1)
+            val create = pool.submit<Int> {
+                mvc.post("/api/v1/assessments") {
+                    contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                    header("Origin", "https://aja.example.test")
+                    header("Idempotency-Key", "revoked-${UUID.randomUUID()}")
+                    cookie(Cookie("aja_session", teacherCookie))
+                    content = """{"moduleId":"$moduleId","title":"Revoked activity","description":"","kind":"work","maxGrade":null,"deadline":null,"required":false,"allowLate":false,"questions":[]}"""
+                }.andReturn().response.status
+            }
+            repeat(80) { if (!create.isDone) Thread.sleep(25) }
+            assertFalse(create.isDone, "Assessment writes wait for the Core authorization gate")
+            awaitLockWaitCount(2)
+            held.commit()
+            assertEquals(204, logout.get(10, TimeUnit.SECONDS))
+            assertEquals(403, create.get(10, TimeUnit.SECONDS))
+        } finally {
+            runCatching { held.rollback() }
+            held.close()
+            pool.shutdownNow()
+        }
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.assessments WHERE title='Revoked activity'", Int::class.java))
     }
 
     @Test
@@ -2308,7 +2631,7 @@ class CoreApplicationTests @Autowired constructor(
     @Test
     fun migrationsAreRepeatable() {
         flyway.migrate()
-        assertEquals(10, jdbc.queryForObject("select count(*) from core.flyway_schema_history where success", Int::class.java))
+        assertEquals(11, jdbc.queryForObject("select count(*) from core.flyway_schema_history where success", Int::class.java))
     }
 
     private fun assertPrivilegeDenied(action: () -> Unit) {
@@ -2354,7 +2677,10 @@ class CoreApplicationTests @Autowired constructor(
     private fun createB07Assessment(moduleId: String, kind: String = "work", status: String = "published", allowLate: Boolean = false, deadline: java.time.Instant? = mutableClock.instant().plusSeconds(600)): String {
         val id = "assessment-${UUID.randomUUID()}"
         val publishedAt = if (status == "published") java.sql.Timestamp.from(mutableClock.instant().minusSeconds(1)) else null
-        jdbc.update("INSERT INTO core.assessments(id,module_id,kind,status,revision,published_at,deadline,allow_late) VALUES(?,?,?,?,1,?,?,?)", id, moduleId, kind, status, publishedAt, deadline?.let(java.sql.Timestamp::from), allowLate)
+        val authorId = jdbc.queryForObject("SELECT updated_by FROM core.modules WHERE id=?", String::class.java, moduleId)!!
+        val now = java.sql.Timestamp.from(mutableClock.instant())
+        jdbc.update("""INSERT INTO core.assessments(id,module_id,kind,status,revision,published_at,deadline,allow_late,created_at,updated_at,updated_by,title,description)
+            VALUES(?,?,?,?,1,?,?,?,?,?,?,?,?)""", id, moduleId, kind, status, publishedAt, deadline?.let(java.sql.Timestamp::from), allowLate, now, now, authorId, "B07 fixture", "")
         return id
     }
 
