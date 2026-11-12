@@ -68,6 +68,7 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         }
         val now = Timestamp.from(clock.instant())
         if (desiredQuestions != null && changedQuestions) {
+            resetPendingAttempts(id)
             jdbc.update("DELETE FROM core.assessment_questions WHERE assessment_id=?", id)
             deleteUnusedAssessmentImages(id, desiredQuestions)
             writeQuestions(id, desiredQuestions)
@@ -223,6 +224,15 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     }
 
     private fun hasSubmissions(id: String): Boolean = id in hasSubmissions(listOf(id))
+
+    private fun resetPendingAttempts(id: String) {
+        if (jdbc.queryForObject("SELECT to_regclass('core.attempts') IS NOT NULL", Boolean::class.java) != true) return
+        jdbc.update("""DELETE FROM core.command_idempotency c USING core.attempts a
+            WHERE a.assessment_id=? AND a.submitted_at IS NULL AND c.actor_id=a.user_id
+              AND c.operation='startAttempt' AND c.target='/attempts'
+              AND c.response_body::jsonb->>'assessmentId'=a.assessment_id""", id)
+        jdbc.update("DELETE FROM core.attempts WHERE assessment_id=? AND submitted_at IS NULL", id)
+    }
 
     private fun updatePublicationSubject(id: String, moduleId: String) {
         val subjectId = jdbc.queryForObject("SELECT subject_id FROM core.modules WHERE id=?", String::class.java, moduleId) ?: throw AcademicNotFound()

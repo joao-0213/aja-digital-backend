@@ -7,6 +7,7 @@ import br.com.ajadigital.core.application.academic.AcademicActor
 import br.com.ajadigital.core.application.academic.AcademicIdempotencyConflict
 import br.com.ajadigital.core.application.academic.AcademicForbidden
 import br.com.ajadigital.core.application.academic.AcademicNotFound
+import br.com.ajadigital.core.application.academic.InvalidAttemptAnswers
 import br.com.ajadigital.core.application.academic.ManageAcademics
 import br.com.ajadigital.core.application.academic.ManageSubjects
 import br.com.ajadigital.core.application.academic.UnknownPublication
@@ -182,6 +183,8 @@ class AcademicExceptionHandler {
     fun invalidPublication() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "Publication is not visible in this subject"))
     @ExceptionHandler(InvalidAcademicReference::class)
     fun invalidReference() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "A referenced user is not eligible"))
+    @ExceptionHandler(InvalidAttemptAnswers::class)
+    fun invalidAttemptAnswers() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "An answer is not valid for this attempt"))
     @ExceptionHandler(AcademicNotFound::class)
     fun notFound() = ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("NOT_FOUND", "Resource was not found"))
     @ExceptionHandler(AcademicConflict::class)

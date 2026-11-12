@@ -4,9 +4,11 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart
@@ -29,7 +31,14 @@ import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
 import java.sql.DriverManager
 import java.sql.SQLException
+import java.net.URI
+import java.net.ServerSocket
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.util.UUID
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.time.Clock
@@ -68,6 +77,7 @@ class MutableTestClock : Clock() {
     override fun withZone(zone: ZoneId): Clock = this
     override fun instant(): Instant = Instant.now(Clock.systemUTC()).plus(offset.get())
     fun advance(duration: Duration) { offset.updateAndGet { it.plus(duration) } }
+    fun reset() { offset.set(Duration.ZERO) }
 }
 
 @TestConfiguration
@@ -122,7 +132,7 @@ class AssessmentSnapshotTestConfiguration {
 @AutoConfigureMockMvc
 @Import(MutableTestClockConfiguration::class, EmailQueueTopologyTestConfiguration::class, AssessmentSnapshotTestConfiguration::class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class CoreApplicationTests @Autowired constructor(
     private val jdbc: JdbcTemplate,
     private val flyway: Flyway,
@@ -133,7 +143,11 @@ class CoreApplicationTests @Autowired constructor(
     private val mutableClock: MutableTestClock,
     private val manageAcademics: ManageAcademics,
     private val questionSnapshotProvider: TestQuestionSnapshotProvider,
+    private val webContext: ServletWebServerApplicationContext,
 ) {
+    @BeforeEach
+    fun resetClock() = mutableClock.reset()
+
     @Test
     fun stagedMaterialFileIsStoredAndReadableOnlyByItsAuthorizedOwner() {
         val (adminCookie, _) = adminSession()
@@ -268,6 +282,413 @@ class CoreApplicationTests @Autowired constructor(
             cookie(Cookie("aja_session", unassignedTeacherCookie))
             content = createBody
         }.andExpect { status { isForbidden() } }
+    }
+
+    @Test
+    fun attemptCanBeStartedAndResumedWithPersistedAnswers() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        val (studentCookie, studentId) = userSession("student")
+        createB07Enrollment(classId, studentId, teacherId)
+        val question = """{"source":"authored","clientKey":"q","questionId":null,"question":{"subject":"Math","topic":"Algebra","difficulty":"easy","institution":"AJA","year":2026,"statement":"1 + 1?","options":["2","3"],"image":null,"correct":0,"explanation":"Because"}}"""
+        val created = mvc.post("/api/v1/assessments") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "quiz-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"moduleId":"$moduleId","title":"Attempt quiz","description":"","kind":"quiz","maxGrade":10,"deadline":null,"required":true,"allowLate":false,"questions":[$question]}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val assessmentId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString).get("id").asText()
+        mvc.post("/api/v1/assessments/$assessmentId/publish") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "publish-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isOk() } }
+
+        val startKey = "start-${UUID.randomUUID()}"
+        val started = mvc.post("/api/v1/attempts") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", startKey)
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId"}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val attemptId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(started.response.contentAsString).get("id").asText()
+        mvc.post("/api/v1/attempts") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "resume-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId"}"""
+        }.andExpect { status { isCreated() }; jsonPath("$.id") { value(attemptId) } }
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE assessment_id=? AND user_id=?", Int::class.java, assessmentId, studentId))
+        mvc.patch("/api/v1/attempts/$attemptId/answers") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":1,"answers":{"${jdbc.queryForObject("SELECT question_id FROM core.assessment_questions WHERE assessment_id=?", String::class.java, assessmentId)}":0}}"""
+        }.andExpect { status { isOk() }; jsonPath("$.revision") { value(2) } }
+        val questionId = jdbc.queryForObject("SELECT question_id FROM core.assessment_questions WHERE assessment_id=?", String::class.java, assessmentId)
+        val revisedQuestion = """{"source":"authored","clientKey":"q","questionId":"$questionId","question":{"subject":"Math","topic":"Algebra","difficulty":"easy","institution":"AJA","year":2026,"statement":"Changed after start","options":["3","2"],"image":null,"correct":1,"explanation":"Changed"}}"""
+        mvc.patch("/api/v1/assessments/$assessmentId") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "edit-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":2,"questions":[$revisedQuestion]}"""
+        }.andExpect { status { isConflict() } }
+        mvc.get("/api/v1/attempts/$attemptId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.answers.*") { value(0) }; jsonPath("$.questions[0].statement") { value("1 + 1?") }; jsonPath("$.questions[0].options[0]") { value("2") }; jsonPath("$.questions[0].correct") { doesNotExist() }; jsonPath("$.questions[0].explanation") { doesNotExist() } }
+        mvc.patch("/api/v1/assessments/$assessmentId") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "confirmed-edit-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":2,"confirmResetDrafts":true,"questions":[$revisedQuestion]}"""
+        }.andExpect { status { isOk() } }
+        mvc.get("/api/v1/attempts/$attemptId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isNotFound() } }
+        val restartedDraft = mvc.post("/api/v1/attempts") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", startKey)
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId"}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val replacementAttemptId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(restartedDraft.response.contentAsString).get("id").asText()
+        assertTrue(replacementAttemptId != attemptId)
+        mvc.get("/api/v1/attempts/$replacementAttemptId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.answers") { isEmpty() }; jsonPath("$.questions[0].statement") { value("Changed after start") } }
+    }
+
+    @Test
+    fun concurrentSubmitKeepsOneReceiptAndResultForTwentyFiveHours() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        val (studentCookie, studentId) = userSession("student")
+        createB07Enrollment(classId, studentId, teacherId)
+        val (outsiderCookie, _) = userSession("student")
+        val question = """{"source":"authored","clientKey":"q","questionId":null,"question":{"subject":"Math","topic":"Algebra","difficulty":"easy","institution":"AJA","year":2026,"statement":"1 + 1?","options":["2","3"],"image":null,"correct":0,"explanation":"Because"}}"""
+        val created = mvc.post("/api/v1/assessments") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "quiz-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"moduleId":"$moduleId","title":"Submit quiz","description":"","kind":"quiz","maxGrade":10,"deadline":null,"required":true,"allowLate":false,"questions":[$question]}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val assessment = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString)
+        val assessmentId = assessment.get("id").asText()
+        val questionId = assessment.get("questionIds").get(0).asText()
+        mvc.post("/api/v1/assessments/$assessmentId/publish") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "publish-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isOk() } }
+        val started = mvc.post("/api/v1/attempts") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "start-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId"}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val attemptId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(started.response.contentAsString).get("id").asText()
+        mvc.get("/api/v1/attempts/$attemptId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", outsiderCookie))
+        }.andExpect { status { isNotFound() } }
+        mvc.patch("/api/v1/attempts/$attemptId/answers") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", outsiderCookie))
+            content = """{"expectedRevision":1,"answers":{}}"""
+        }.andExpect { status { isNotFound() } }
+        mvc.post("/api/v1/attempts/$attemptId/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "outsider-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", outsiderCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isNotFound() } }
+        mvc.patch("/api/v1/attempts/$attemptId/answers") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":1,"answers":{"$questionId":0}}"""
+        }.andExpect { status { isOk() }; jsonPath("$.revision") { value(2) } }
+
+        val submitKey = "submit-${UUID.randomUUID()}"
+        val body = """{"expectedRevision":2}"""
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(2)
+        val requests = (1..2).map {
+            pool.submit<MvcResult> {
+                gate.await()
+                mvc.post("/api/v1/attempts/$attemptId/submit") {
+                    contentType = org.springframework.http.MediaType.APPLICATION_JSON
+                    header("Origin", "https://aja.example.test")
+                    header("Idempotency-Key", submitKey)
+                    cookie(Cookie("aja_session", studentCookie))
+                    content = body
+                }.andReturn()
+            }
+        }
+        gate.countDown()
+        val responses = requests.map { it.get(30, TimeUnit.SECONDS) }
+        pool.shutdownNow()
+        assertEquals(listOf(200, 200), responses.map { it.response.status }.sorted())
+        val result = tools.jackson.databind.json.JsonMapper.builder().build().readTree(responses.first().response.contentAsString)
+        val receiptId = result.get("receipt").get("id").asText()
+        assertEquals(receiptId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(responses.last().response.contentAsString).get("receipt").get("id").asText())
+        assertEquals(10.0, result.get("score").doubleValue())
+        assertEquals("1 + 1?", result.get("questions").get(0).get("statement").asText())
+        assertEquals(0, result.get("questions").get(0).get("correct").intValue())
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE id=? AND receipt_id=?", Int::class.java, attemptId, receiptId))
+        val changedAfterSubmit = """{"source":"authored","clientKey":"q","questionId":"$questionId","question":{"subject":"Math","topic":"Algebra","difficulty":"easy","institution":"AJA","year":2026,"statement":"Changed after submission","options":["3","2"],"image":null,"correct":1,"explanation":"Changed"}}"""
+        mvc.patch("/api/v1/assessments/$assessmentId") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "edit-submitted-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":2,"confirmResetDrafts":true,"questions":[$changedAfterSubmit]}"""
+        }.andExpect { status { isConflict() } }
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE id=? AND submitted_at IS NOT NULL AND receipt_id=?", Int::class.java, attemptId, receiptId))
+        mvc.post("/api/v1/attempts/$attemptId/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", submitKey)
+            cookie(Cookie("aja_session", studentCookie))
+            content = body
+        }.andExpect { status { isOk() }; jsonPath("$.receipt.id") { value(receiptId) } }
+        mvc.post("/api/v1/attempts/$attemptId/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", submitKey)
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isConflict() }; jsonPath("$.error.code") { value("IDEMPOTENCY_CONFLICT") } }
+        val committedKey = "committed-${UUID.randomUUID()}"
+        mvc.post("/api/v1/attempts/$attemptId/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", committedKey)
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":3}"""
+        }.andExpect { status { isOk() }; jsonPath("$.receipt.id") { value(receiptId) } }
+        mvc.post("/api/v1/attempts/$attemptId/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", committedKey)
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isConflict() }; jsonPath("$.error.code") { value("IDEMPOTENCY_CONFLICT") } }
+        mvc.patch("/api/v1/attempts/$attemptId/answers") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":3,"answers":{}}"""
+        }.andExpect { status { isConflict() } }
+        mvc.get("/api/v1/attempts/$attemptId/result") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", outsiderCookie))
+        }.andExpect { status { isNotFound() } }
+        mvc.get("/api/v1/attempts?assessmentId=$assessmentId") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.items[0].id") { value(attemptId) }; jsonPath("$.items[0].studentName") { exists() } }
+        mvc.get("/api/v1/attempts/$attemptId/result") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", teacherCookie))
+        }.andExpect { status { isOk() }; jsonPath("$.questions[0].correct") { value(0) } }
+        val (unassignedTeacherCookie, _) = userSession("teacher")
+        mvc.get("/api/v1/attempts/$attemptId/result") {
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", unassignedTeacherCookie))
+        }.andExpect { status { isNotFound() } }
+
+        jdbc.update("UPDATE core.sessions SET expires_at=? WHERE token_hash=?", java.sql.Timestamp.from(mutableClock.instant().plus(Duration.ofHours(30))), sha256(studentCookie))
+        mutableClock.advance(Duration.ofHours(25))
+        val webServer = checkNotNull(webContext.webServer)
+    }
+
+    @Test
+    fun attemptDeadlineIsExclusiveInBrasiliaAndLatePolicyIsApplied() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        val (studentCookie, studentId) = userSession("student")
+        val oldEnrollmentTime = mutableClock.instant().minusSeconds(600)
+        createB07Enrollment(classId, studentId, teacherId, enrolledAt = oldEnrollmentTime)
+        val now = mutableClock.instant()
+        val expired = createAttemptQuiz(moduleId, now.plusSeconds(60), false)
+        val started = mvc.post("/api/v1/attempts") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "start-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$expired"}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val attemptId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(started.response.contentAsString).get("id").asText()
+        mutableClock.advance(Duration.ofSeconds(60))
+        val questionId = jdbc.queryForObject("SELECT question_id FROM core.assessment_questions WHERE assessment_id=?", String::class.java, expired)
+        mvc.patch("/api/v1/attempts/$attemptId/answers") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":1,"answers":{"$questionId":0}}"""
+        }.andExpect { status { isConflict() } }
+        mvc.post("/api/v1/attempts/$attemptId/submit") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "submit-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isConflict() } }
+
+        val lateAccepted = createAttemptQuiz(moduleId, mutableClock.instant().minusSeconds(1), true)
+        mvc.post("/api/v1/attempts") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "late-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$lateAccepted"}"""
+        }.andExpect { status { isCreated() } }
+    }
+
+    @Test
+    fun attemptResumeAndReceiptSurviveFreshCoreProcesses() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        val (studentCookie, studentId) = userSession("student")
+        createB07Enrollment(classId, studentId, teacherId)
+        val assessmentId = createAttemptQuiz(moduleId, mutableClock.instant().plusSeconds(600), false)
+        val start = mvc.post("/api/v1/attempts") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "process-start-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId"}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val attemptId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(start.response.contentAsString).get("id").asText()
+        val questionId = jdbc.queryForObject("SELECT question_id FROM core.assessment_questions WHERE assessment_id=?", String::class.java, assessmentId)
+        val firstClient = HttpClient.newHttpClient()
+        val secondClient = HttpClient.newHttpClient()
+        var process: CoreChild? = null
+        try {
+            var child = startCoreProcess()
+            process = child
+            val initialResume = coreHttp(firstClient, child, "GET", "/attempts/$attemptId", studentCookie)
+            assertEquals(200, initialResume.statusCode(), initialResume.body())
+            assertEquals(1, tools.jackson.databind.json.JsonMapper.builder().build().readTree(initialResume.body()).get("revision").intValue())
+            stopCoreProcess(child)
+            process = null
+
+            child = startCoreProcess()
+            process = child
+            val resumedByFirst = coreHttp(firstClient, child, "GET", "/attempts/$attemptId", studentCookie)
+            val resumedBySecond = coreHttp(secondClient, child, "GET", "/attempts/$attemptId", studentCookie)
+            assertEquals(200, resumedByFirst.statusCode(), resumedByFirst.body())
+            assertEquals(200, resumedBySecond.statusCode(), resumedBySecond.body())
+            assertEquals(attemptId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(resumedByFirst.body()).get("id").asText())
+            assertEquals(1, tools.jackson.databind.json.JsonMapper.builder().build().readTree(resumedBySecond.body()).get("revision").intValue())
+            val answer = coreHttp(firstClient, child, "PATCH", "/attempts/$attemptId/answers", studentCookie,
+                """{"expectedRevision":1,"answers":{"$questionId":0}}""")
+            assertEquals(200, answer.statusCode(), answer.body())
+            val answerSeenBySecond = coreHttp(secondClient, child, "GET", "/attempts/$attemptId", studentCookie)
+            assertEquals(2, tools.jackson.databind.json.JsonMapper.builder().build().readTree(answerSeenBySecond.body()).get("revision").intValue())
+            stopCoreProcess(child)
+            process = null
+
+            child = startCoreProcess()
+            process = child
+            val resumedAgain = coreHttp(secondClient, child, "GET", "/attempts/$attemptId", studentCookie)
+            assertEquals(200, resumedAgain.statusCode(), resumedAgain.body())
+            assertEquals(0, tools.jackson.databind.json.JsonMapper.builder().build().readTree(resumedAgain.body()).get("answers").get(questionId).intValue())
+            val submitKey = "process-submit-${UUID.randomUUID()}"
+            val submitBody = """{"expectedRevision":2}"""
+            val submitted = coreHttp(firstClient, child, "POST", "/attempts/$attemptId/submit", studentCookie, submitBody, submitKey)
+            assertEquals(200, submitted.statusCode(), submitted.body())
+            val receiptId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(submitted.body()).get("receipt").get("id").asText()
+            stopCoreProcess(child)
+            process = null
+
+            jdbc.update("UPDATE core.command_idempotency SET created_at=created_at-interval '25 hours',expires_at=expires_at-interval '25 hours' WHERE actor_id=? AND operation='submitAttempt' AND target=? AND idempotency_key=?", studentId, "/attempts/$attemptId/submit", submitKey)
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.command_idempotency WHERE actor_id=? AND operation='submitAttempt' AND idempotency_key=? AND expires_at>clock_timestamp()", Int::class.java, studentId, submitKey))
+
+            child = startCoreProcess()
+            process = child
+            val replayed = coreHttp(secondClient, child, "POST", "/attempts/$attemptId/submit", studentCookie, submitBody, submitKey)
+            assertEquals(200, replayed.statusCode(), replayed.body())
+            assertEquals(receiptId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(replayed.body()).get("receipt").get("id").asText())
+            val result = coreHttp(firstClient, child, "GET", "/attempts/$attemptId/result", studentCookie)
+            assertEquals(200, result.statusCode(), result.body())
+            assertEquals(receiptId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(result.body()).get("receipt").get("id").asText())
+        } finally {
+            process?.let(::stopCoreProcess)
+        }
+    }
+
+    @Test
+    fun attemptLifecycleWorksOverTheRunningCoreHttpServer() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        val (studentCookie, studentId) = userSession("student")
+        createB07Enrollment(classId, studentId, teacherId)
+        val question = """{"source":"authored","clientKey":"q","questionId":null,"question":{"subject":"Math","topic":"Algebra","difficulty":"easy","institution":"AJA","year":2026,"statement":"HTTP quiz","options":["right","wrong"],"image":null,"correct":0,"explanation":"correct"}}"""
+        val created = mvc.post("/api/v1/assessments") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "quiz-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"moduleId":"$moduleId","title":"HTTP quiz","description":"","kind":"quiz","maxGrade":2,"deadline":null,"required":true,"allowLate":false,"questions":[$question]}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        val assessment = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString)
+        val assessmentId = assessment.get("id").asText()
+        val questionId = assessment.get("questionIds").get(0).asText()
+        mvc.post("/api/v1/assessments/$assessmentId/publish") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", "publish-${UUID.randomUUID()}")
+            cookie(Cookie("aja_session", teacherCookie))
+            content = """{"expectedRevision":1}"""
+        }.andExpect { status { isOk() } }
+
+        val client = HttpClient.newHttpClient()
+        fun request(method: String, path: String, body: String? = null, key: String? = null): HttpResponse<String> {
+            val builder = HttpRequest.newBuilder(URI("http://localhost:${checkNotNull(webContext.webServer).port}/api/v1$path"))
+                .header("Origin", "https://aja.example.test")
+                .header("Cookie", "aja_session=$studentCookie")
+                .header("Content-Type", "application/json")
+            key?.let { builder.header("Idempotency-Key", it) }
+            val publisher = body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody()
+            return client.send(builder.method(method, publisher).build(), HttpResponse.BodyHandlers.ofString())
+        }
+        val started = request("POST", "/attempts", """{"assessmentId":"$assessmentId"}""", "http-start-${UUID.randomUUID()}")
+        assertEquals(201, started.statusCode())
+        val mapper = tools.jackson.databind.json.JsonMapper.builder().build()
+        val attemptId = mapper.readTree(started.body()).get("id").asText()
+        val saved = request("PATCH", "/attempts/$attemptId/answers", """{"expectedRevision":1,"answers":{"$questionId":0}}""")
+        assertEquals(200, saved.statusCode())
+        assertEquals(2, mapper.readTree(saved.body()).get("revision").intValue())
+        val submitted = request("POST", "/attempts/$attemptId/submit", """{"expectedRevision":2}""", "http-submit-${UUID.randomUUID()}")
+        assertEquals(200, submitted.statusCode())
+        assertEquals(2.0, mapper.readTree(submitted.body()).get("score").doubleValue())
+        val result = request("GET", "/attempts/$attemptId/result")
+        assertEquals(200, result.statusCode())
+        assertEquals("correct", mapper.readTree(result.body()).get("questions").get(0).get("explanation").asText())
     }
 
     @Test
@@ -2631,12 +3052,92 @@ class CoreApplicationTests @Autowired constructor(
     @Test
     fun migrationsAreRepeatable() {
         flyway.migrate()
-        assertEquals(11, jdbc.queryForObject("select count(*) from core.flyway_schema_history where success", Int::class.java))
+        assertEquals(12, jdbc.queryForObject("select count(*) from core.flyway_schema_history where success", Int::class.java))
     }
 
     private fun assertPrivilegeDenied(action: () -> Unit) {
         val error = assertThrows(DataAccessException::class.java, action)
         assertTrue(generateSequence(error as Throwable?) { it.cause }.filterIsInstance<SQLException>().any { it.sqlState == "42501" })
+    }
+
+    private fun liveHttp(method: String, path: String, cookie: String, body: String? = null, key: String? = null): HttpResponse<String> {
+        val builder = HttpRequest.newBuilder(URI("http://localhost:${checkNotNull(webContext.webServer).port}/api/v1$path"))
+            .header("Origin", "https://aja.example.test")
+            .header("Cookie", "aja_session=$cookie")
+            .header("Content-Type", "application/json")
+        key?.let { builder.header("Idempotency-Key", it) }
+        val publisher = body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody()
+        return HttpClient.newHttpClient().send(builder.method(method, publisher).build(), HttpResponse.BodyHandlers.ofString())
+    }
+
+    private data class CoreChild(val process: Process, val port: Int)
+
+    private fun startCoreProcess(): CoreChild {
+        val port = ServerSocket(0).use { it.localPort }
+        val jar = Path.of("build", "libs", "core-0.0.1-SNAPSHOT.jar").toAbsolutePath()
+        assertTrue(Files.isRegularFile(jar), "Core boot jar missing at $jar")
+        val javaExecutable = Path.of(System.getProperty("java.home"), "bin", if (System.getProperty("os.name").startsWith("Windows")) "java.exe" else "java")
+        val process = ProcessBuilder(javaExecutable.toString(), "-jar", jar.toString(), "--server.port=$port")
+            .directory(Path.of("").toAbsolutePath().toFile())
+            .redirectErrorStream(true)
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            .apply {
+                environment().putAll(mapOf(
+                    "API_ALLOWED_ORIGINS" to "https://aja.example.test",
+                    "CORE_DATABASE_URL" to "${postgres.jdbcUrl}&currentSchema=core",
+                    "CORE_DATABASE_USER" to "core",
+                    "CORE_DATABASE_PASSWORD" to "core-test",
+                    "RABBITMQ_HOST" to rabbit.host,
+                    "RABBITMQ_PORT" to rabbit.amqpPort.toString(),
+                    "RABBITMQ_USER" to rabbit.adminUsername,
+                    "RABBITMQ_PASSWORD" to rabbit.adminPassword,
+                    "CORE_OUTBOX_ENCRYPTION_KEY" to java.util.Base64.getEncoder().encodeToString(ByteArray(32) { 7 }),
+                    "CORE_OUTBOX_OPERATOR_TOKEN" to "fixture-outbox-operator-token-1234567890",
+                    "CORE_QUESTIONS_SERVICE_TOKEN" to "fixture-questions-core-token-1234567890",
+                ))
+            }
+            .start()
+        val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build()
+        val deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos()
+        while (System.nanoTime() < deadline) {
+            if (!process.isAlive) throw AssertionError("Fresh Core process exited before readiness with code ${process.exitValue()}")
+            try {
+                val health = client.send(HttpRequest.newBuilder(URI("http://localhost:$port/actuator/health")).timeout(Duration.ofSeconds(2)).GET().build(), HttpResponse.BodyHandlers.ofString())
+                if (health.statusCode() == 200) return CoreChild(process, port)
+            } catch (_: Exception) {
+                // The listener is not ready yet.
+            }
+            Thread.sleep(100)
+        }
+        stopCoreProcess(CoreChild(process, port))
+        throw AssertionError("Fresh Core process on port $port did not become healthy")
+    }
+
+    private fun stopCoreProcess(child: CoreChild) {
+        child.process.destroy()
+        if (!child.process.waitFor(10, TimeUnit.SECONDS)) {
+            child.process.destroyForcibly()
+            assertTrue(child.process.waitFor(10, TimeUnit.SECONDS), "Core child process did not terminate")
+        }
+    }
+
+    private fun coreHttp(
+        client: HttpClient,
+        child: CoreChild,
+        method: String,
+        path: String,
+        cookie: String,
+        body: String? = null,
+        key: String? = null,
+    ): HttpResponse<String> {
+        val builder = HttpRequest.newBuilder(URI("http://localhost:${child.port}/api/v1$path"))
+            .timeout(Duration.ofSeconds(10))
+            .header("Origin", "https://aja.example.test")
+            .header("Cookie", "aja_session=$cookie")
+            .header("Content-Type", "application/json")
+        key?.let { builder.header("Idempotency-Key", it) }
+        val publisher = body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody()
+        return client.send(builder.method(method, publisher).build(), HttpResponse.BodyHandlers.ofString())
     }
 
     private fun createB06Class(adminCookie: String): String {
@@ -2682,6 +3183,15 @@ class CoreApplicationTests @Autowired constructor(
         jdbc.update("""INSERT INTO core.assessments(id,module_id,kind,status,revision,published_at,deadline,allow_late,created_at,updated_at,updated_by,title,description)
             VALUES(?,?,?,?,1,?,?,?,?,?,?,?,?)""", id, moduleId, kind, status, publishedAt, deadline?.let(java.sql.Timestamp::from), allowLate, now, now, authorId, "B07 fixture", "")
         return id
+    }
+
+    private fun createAttemptQuiz(moduleId: String, deadline: Instant, allowLate: Boolean): String {
+        val assessmentId = createB07Assessment(moduleId, kind = "quiz", allowLate = allowLate, deadline = deadline)
+        val questionId = "attempt-question-${UUID.randomUUID()}"
+        val snapshot = """{"id":"$questionId","origin":"author","subject":"Math","topic":"Algebra","difficulty":"easy","institution":"AJA","year":2026,"statement":"1 + 1?","options":["2","3"],"image":null,"correct":0,"explanation":"Because"}"""
+        jdbc.update("""INSERT INTO core.assessment_questions(assessment_id,question_id,position,source,source_revision,content_hash,snapshot)
+            VALUES(?,?,0,'author',1,NULL,?::jsonb)""", assessmentId, questionId, snapshot)
+        return assessmentId
     }
 
     private fun createB06Subject(adminCookie: String, classId: String, teacherId: String): String {
