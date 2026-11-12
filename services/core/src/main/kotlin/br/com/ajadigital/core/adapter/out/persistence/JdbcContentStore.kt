@@ -28,7 +28,7 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         val currentRole = requireSession(actorId, sessionHash)
         when (purpose) {
             "material" -> if (lockModuleForWrite(parentId, actorId, sessionHash, currentRole) == null) throw AcademicNotFound()
-            "forum" -> if (!canReadSubject(parentId, actorId, currentRole)) throw AcademicNotFound()
+            "forum" -> if (!canWriteForum(parentId, actorId, currentRole)) throw AcademicNotFound()
             "work" -> if (currentRole != "student" || !canPrepareWork(parentId, actorId, currentRole)) throw AcademicNotFound()
         }
         val hash = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
@@ -225,6 +225,12 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         val query = "SELECT EXISTS(SELECT 1 FROM core.subjects s WHERE s.id=? AND ${subjectAccess("s", role)})"
         return jdbc.queryForObject(query, Boolean::class.java, *(listOf(subjectId) + if (role == "teacher" || role == "student") listOf(actorId) else emptyList()).toTypedArray()) == true
     }
+    private fun canWriteForum(subjectId: String, actorId: String, role: String): Boolean = when (role) {
+        "admin" -> jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM core.subjects s JOIN core.classes c ON c.id=s.class_id WHERE s.id=? AND c.active)", Boolean::class.java, subjectId) == true
+        "teacher" -> jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM core.subjects s JOIN core.classes c ON c.id=s.class_id JOIN core.subject_teachers st ON st.subject_id=s.id JOIN core.users u ON u.id=st.teacher_id WHERE s.id=? AND c.active AND u.id=? AND u.active AND u.role='teacher')", Boolean::class.java, subjectId, actorId) == true
+        "student" -> jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM core.subjects s JOIN core.classes c ON c.id=s.class_id JOIN core.enrollments e ON e.class_id=c.id JOIN core.users u ON u.id=e.student_id WHERE s.id=? AND c.active AND e.student_id=? AND e.status='active' AND u.active AND u.role='student' AND u.email_confirmed_at IS NOT NULL)", Boolean::class.java, subjectId, actorId) == true
+        else -> false
+    }
     private fun canWriteSubject(subjectId: String, actorId: String) = jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM core.subjects s JOIN core.classes c ON c.id=s.class_id WHERE s.id=? AND c.active AND (EXISTS(SELECT 1 FROM core.subject_teachers st JOIN core.users u ON u.id=st.teacher_id WHERE st.subject_id=s.id AND st.teacher_id=? AND u.active AND u.role='teacher')))", Boolean::class.java, subjectId, actorId) == true
     private fun subjectAccess(subject: String, role: String) = when (role) {
         "admin" -> "true"
@@ -235,7 +241,7 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
     private fun canUseStaged(file: Map<String, Any?>, actorId: String, role: String): Boolean = when (file["purpose"]) {
         "material" -> role in setOf("teacher", "admin") && canWriteModule(file["parentId"] as String, actorId, role)
         "work" -> canPrepareWork(file["parentId"] as String, actorId, role)
-        "forum" -> canReadSubject(file["parentId"] as String, actorId, role)
+        "forum" -> canWriteForum(file["parentId"] as String, actorId, role)
         else -> false
     }
     private fun canWriteModule(moduleId: String, actorId: String, role: String): Boolean {
@@ -270,7 +276,13 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
             "student" -> "x.user_id=f.owner_id AND x.user_id=? AND a.status='published' AND c.active AND EXISTS(SELECT 1 FROM core.enrollments e JOIN core.users u ON u.id=e.student_id WHERE e.class_id=c.id AND e.student_id=x.user_id AND e.status='active' AND u.active AND u.email_confirmed_at IS NOT NULL AND NOT jsonb_exists(e.unassigned_assessment_ids,a.id))"
             else -> "false"
         }
-        val args = listOf(id) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList()) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList()) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList())
+        val forumAccess = when (role) {
+            "admin" -> "true"
+            "teacher" -> "EXISTS(SELECT 1 FROM core.subject_teachers st JOIN core.users u ON u.id=st.teacher_id WHERE st.subject_id=t.subject_id AND st.teacher_id=? AND u.active AND u.role='teacher')"
+            "student" -> "c.active AND EXISTS(SELECT 1 FROM core.enrollments e JOIN core.users u ON u.id=e.student_id WHERE e.class_id=c.id AND e.student_id=? AND e.status='active' AND u.active AND u.email_confirmed_at IS NOT NULL)"
+            else -> "false"
+        }
+        val args = listOf(id) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList()) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList()) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList()) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList())
         return jdbc.queryForObject("""SELECT EXISTS(
             SELECT 1 FROM core.files f WHERE f.id=? AND f.status='attached' AND (
                 f.purpose='question'
@@ -285,6 +297,7 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
                     WHERE x.assessment_id=f.parent_id AND x.submitted_at IS NOT NULL AND x.attachments @> jsonb_build_array(jsonb_build_object('kind','file','fileId',f.id)) AND $workAccess
                 ))
                 OR EXISTS(SELECT 1 FROM core.materials mt JOIN core.modules m ON m.id=mt.module_id AND m.withdrawn_at IS NULL JOIN core.subjects s ON s.id=m.subject_id WHERE mt.file_id=f.id AND ${subjectAccess("s", role)})
+                OR EXISTS(SELECT 1 FROM core.topics t JOIN core.classes c ON c.id=t.class_id WHERE t.attachment_id=f.id AND t.withdrawn_at IS NULL AND $forumAccess)
             ))""", Boolean::class.java, *args.toTypedArray()) == true
     }
 

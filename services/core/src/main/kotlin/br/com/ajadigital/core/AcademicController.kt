@@ -11,6 +11,8 @@ import br.com.ajadigital.core.application.academic.InvalidAttemptAnswers
 import br.com.ajadigital.core.application.academic.InvalidSubmissionFeedback
 import br.com.ajadigital.core.application.academic.ManageAcademics
 import br.com.ajadigital.core.application.academic.ManageSubjects
+import br.com.ajadigital.core.application.academic.ManageTopics
+import br.com.ajadigital.core.application.academic.InvalidTopicReference
 import br.com.ajadigital.core.application.academic.UnknownPublication
 import br.com.ajadigital.core.application.academic.InvalidAcademicReference
 import br.com.ajadigital.core.application.identity.AuthenticateStudent
@@ -63,9 +65,23 @@ data class OrderItemRequest(val id: String, val expectedRevision: Int)
 data class OrderCommandRequest(val expectedRevision: JsonNode = MissingNode.getInstance(), val items: List<OrderItemRequest>)
 @JsonIgnoreProperties(ignoreUnknown = false)
 data class VisitCommandRequest(val publicationIds: List<String>)
+@JsonIgnoreProperties(ignoreUnknown = false)
+data class TopicTargetRequest(val type: String, val id: String)
+@JsonIgnoreProperties(ignoreUnknown = false)
+data class TopicCreateRequest(val classId: String, val subjectId: String, val title: String, val body: String, val tags: List<String>, val target: TopicTargetRequest?, val attachmentId: String?)
+@JsonIgnoreProperties(ignoreUnknown = false)
+data class TopicReplyRequest(val body: String)
+@JsonIgnoreProperties(ignoreUnknown = false)
+class EmptyCommandRequest
+@JsonIgnoreProperties(ignoreUnknown = false)
+data class TopicSolutionRequest(val expectedRevision: JsonNode = MissingNode.getInstance(), val replyId: JsonNode = MissingNode.getInstance())
+@JsonIgnoreProperties(ignoreUnknown = false)
+data class TopicRevisionRequest(val expectedRevision: Int)
+@JsonIgnoreProperties(ignoreUnknown = false)
+data class TopicVoteRequest(val voted: Boolean)
 
 @RestController
-class AcademicController(private val auth: AuthenticateStudent, private val academics: ManageAcademics, private val subjects: ManageSubjects) {
+class AcademicController(private val auth: AuthenticateStudent, private val academics: ManageAcademics, private val subjects: ManageSubjects, private val topics: ManageTopics) {
     @GetMapping("/api/v1/users")
     fun users(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "id") sort: String, @RequestParam(required = false) role: String?, @RequestParam(required = false) active: Boolean?, @RequestParam(required = false) q: String?) = page(academics.users(actor(cookie), page, pageSize, sort, role, active, q))
     @PostMapping("/api/v1/users")
@@ -162,6 +178,39 @@ class AcademicController(private val auth: AuthenticateStudent, private val acad
     @Transactional
     fun reorderModules(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestBody body: OrderCommandRequest) = subjects.reorder(actor(cookie), id(id), revision(body.expectedRevision), body.items.map { id(it.id) to it.expectedRevision }, page, pageSize)
 
+    @GetMapping("/api/v1/topics")
+    fun topics(@CookieValue(name = "aja_session", required = false) cookie: String?, request: HttpServletRequest, @RequestParam(defaultValue = "1") page: String, @RequestParam(defaultValue = "20") pageSize: String, @RequestParam(defaultValue = "createdAt") sort: String, @RequestParam(required = false) classId: String?, @RequestParam(required = false) subjectId: String?, @RequestParam(required = false) q: String?, @RequestParam(required = false) unread: String?, @RequestParam(required = false) solved: String?): Map<String, Any?> {
+        val currentActor = actor(cookie)
+        require(request.parameterMap.keys.all { it in setOf("page", "pageSize", "sort", "classId", "subjectId", "q", "unread", "solved") })
+        fun boolean(value: String?) = when (value) { null -> null; "true" -> true; "false" -> false; else -> throw IllegalArgumentException() }
+        return topics.topics(currentActor, page.toIntOrNull() ?: throw IllegalArgumentException(), pageSize.toIntOrNull() ?: throw IllegalArgumentException(), sort, classId, subjectId, q, boolean(unread), boolean(solved))
+    }
+    @PostMapping("/api/v1/topics")
+    fun createTopic(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: TopicCreateRequest) = ResponseEntity.status(HttpStatus.CREATED).body(topics.create(actor(cookie), br.com.ajadigital.core.ports.out.TopicDraft(body.classId, body.subjectId, body.title, body.body, body.tags, body.target?.type, body.target?.id, body.attachmentId), idempotencyKey(key)))
+    @GetMapping("/api/v1/topics/{id}")
+    fun topic(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = topics.topic(actor(cookie), id(id))
+    @PostMapping("/api/v1/topics/{id}/replies")
+    @Transactional
+    fun reply(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: TopicReplyRequest) = ResponseEntity.status(HttpStatus.CREATED).body(topics.reply(actor(cookie), id(id), body.body, idempotencyKey(key)))
+    @PostMapping("/api/v1/topics/{id}/read")
+    @Transactional
+    fun readTopic(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: EmptyCommandRequest) = topics.read(actor(cookie), id(id))
+    @PostMapping("/api/v1/topics/{id}/solution")
+    @Transactional
+    fun solution(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: TopicSolutionRequest): Map<String, Any?> {
+        val replyId = when { body.replyId.isNull -> null; body.replyId.isTextual -> id(body.replyId.asString()); else -> throw IllegalArgumentException() }
+        return topics.solution(actor(cookie), id(id), revision(body.expectedRevision), replyId)
+    }
+    @PostMapping("/api/v1/topics/{id}/withdraw")
+    @Transactional
+    fun withdrawTopic(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: TopicRevisionRequest) = topics.withdraw(actor(cookie), id(id), body.expectedRevision)
+    @PostMapping("/api/v1/topics/{id}/replies/{replyId}/vote")
+    @Transactional
+    fun voteReply(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @PathVariable replyId: String, @RequestBody body: TopicVoteRequest) = topics.vote(actor(cookie), id(id), replyId, body.voted)
+    @PostMapping("/api/v1/topics/{id}/replies/{replyId}/withdraw")
+    @Transactional
+    fun withdrawReply(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @PathVariable replyId: String, @RequestBody body: TopicRevisionRequest) = topics.withdrawReply(actor(cookie), id(id), replyId, body.expectedRevision)
+
     private fun actor(cookie: String?): AcademicActor = auth.resolve(cookie).let { AcademicActor(it.user.id, it.user.role, it.user.active, it.user.emailConfirmedAt, it.tokenHash) }
     private fun idempotencyKey(value: String?): String = value?.also { require(it.length in 8..128) } ?: throw IllegalArgumentException()
     private fun id(value: String) = value.also { require(it.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"))) }
@@ -174,6 +223,8 @@ class AcademicController(private val auth: AuthenticateStudent, private val acad
 
 @RestControllerAdvice
 class AcademicExceptionHandler {
+    @ExceptionHandler(InvalidTopicReference::class)
+    fun invalidTopicReference() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "Referenced content is not visible in this subject"))
     @ExceptionHandler(InvalidSubmissionFeedback::class)
     fun invalidSubmissionFeedback() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "Feedback is invalid"))
     @ExceptionHandler(QuestionSnapshotNotFound::class)
