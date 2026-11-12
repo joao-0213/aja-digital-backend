@@ -15,6 +15,7 @@ class OriginFilter(@Value("\${API_ALLOWED_ORIGINS:}") allowedOrigins: String) : 
     private val allowed = allowedOrigins.split(',').map(String::trim).filter(String::isNotEmpty).toSet()
 
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
+        if (request.requestURI.startsWith("/internal/v1/")) return chain.doFilter(request, response)
         val origins = Collections.list(request.getHeaders("Origin"))
         val unsafe = request.method !in setOf("GET", "HEAD", "OPTIONS")
         if (origins.isEmpty() && !unsafe) return chain.doFilter(request, response)

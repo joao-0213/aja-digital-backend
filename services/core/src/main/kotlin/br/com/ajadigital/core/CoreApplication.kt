@@ -10,7 +10,9 @@ import br.com.ajadigital.core.application.identity.ResetPassword
 import br.com.ajadigital.core.application.identity.UpdateOwnProfile
 import br.com.ajadigital.core.application.academic.ManageAcademics
 import br.com.ajadigital.core.application.academic.ManageSubjects
+import br.com.ajadigital.core.application.academic.ManageContent
 import br.com.ajadigital.core.ports.out.SubjectStore
+import br.com.ajadigital.core.ports.out.ContentStore
 import br.com.ajadigital.core.ports.out.IdentityStore
 import br.com.ajadigital.core.ports.out.PasswordHasher
 import br.com.ajadigital.core.ports.out.AcademicStore
@@ -65,6 +67,9 @@ class CoreApplication {
 
     @Bean
     fun manageSubjects(store: SubjectStore, mapper: ObjectMapper, idempotency: IdempotencyStore) = ManageSubjects(store, mapper, idempotency)
+
+    @Bean
+    fun manageContent(store: ContentStore, idempotency: IdempotencyStore, mapper: ObjectMapper) = ManageContent(store, idempotency, mapper)
 
 }
 
