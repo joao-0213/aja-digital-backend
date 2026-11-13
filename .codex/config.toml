@@ -1,0 +1,10 @@
+[marketplaces.ecc]
+source_type = "git"
+source = "https://github.com/affaan-m/ECC.git"
+
+[plugins."ecc@ecc"]
+enabled = true
+
+[agents."database-reviewer"]
+description = "Revisor de PostgreSQL do AJA: consultas, migrations, schemas, índices, transações, concorrência e privilégios. Revisão somente de leitura."
+config_file = "database-reviewer.toml"
