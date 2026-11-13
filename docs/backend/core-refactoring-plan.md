@@ -123,7 +123,7 @@ The issues below are concrete work items that implement phases 0–7 of the phas
 
 ### R-00 — Characterize current state
 
-**Implements:** phase 0. **Depends on:** none. **Status:** all criteria **pending**.
+**Implements:** phase 0. **Depends on:** none. **Status:** all criteria **verified** — evidence in [core-refactoring-r00-characterization.md](core-refactoring-r00-characterization.md).
 
 **Scope:** no file changes. Read-only inspection of every file in the source inventory, every declared type (top-level, nested, private, sealed subtypes) and every caller/import chain. Capture the current Core test/build baseline.
 
@@ -139,7 +139,7 @@ The issues below are concrete work items that implement phases 0–7 of the phas
 
 **Acceptance criteria:**
 
-- **Pending:** recorded Git revision, exact `test` and `build` commands/outcomes, operation-to-controller-to-usecase-to-store map, transaction/lock/idempotency invariants per write operation, and declaration-to-destination map. Block on unavailable required tools/services rather than guessing.
+- **Verified:** recorded Git revision, exact `test` and `build` commands/outcomes, operation-to-controller-to-usecase-to-store map, transaction/lock/idempotency invariants per write operation, and declaration-to-destination map. Block on unavailable required tools/services rather than guessing.
 
 ---
 
@@ -151,9 +151,18 @@ The issues below are concrete work items that implement phases 0–7 of the phas
 
 Affected test files per the test inventory: split `CoreApplicationTests.kt` into single-type test-support files (test configuration, fixtures, fake providers, clocks) and per-feature integration test files. Keep every existing test case and its assertions.
 
-**What changes:** file splits only. No package moves — types remain in their current packages. No new logic. No import changes beyond updating references from the old multi-type file to the new single-type files. Runtime wiring and Spring component scanning remain fixed.
+**What changes:** file splits only, plus the four approved deviations listed after "What does NOT change". No package moves — types remain in their current packages. No new logic. No import changes beyond updating references from the old multi-type file to the new single-type files. Runtime wiring and Spring component scanning remain fixed.
 
 **What does NOT change:** all observable HTTP behavior, SQL queries, transaction boundaries, lock orders, idempotency semantics, outbox guarantees, error shapes, and status codes. No functional changes to any type's implementation.
+
+**Approved deviations (recorded before implementation, see [R-00 decisions](core-refactoring-r00-characterization.md#decisions-approved-for-r-01)):**
+
+1. The per-feature integration test split happens in R-01, as required above.
+2. The aggregate OpenAPI coverage mechanism may change so it still runs once per test run after the suite is split. Coverage is gated by `B16_OPENAPI_COVERAGE=true`, which only `scripts/acceptance-b16.ps1` sets; a split that leaves observations in a per-class filter would let that script pass while covering nothing.
+3. Test helpers may move into one shared base test class instead of being duplicated per feature class.
+4. Top-level `private` declarations that become cross-file may widen to `internal`.
+
+These are the only permitted departures from "splits only"; anything else requires a new decision recorded in R-00.
 
 **Acceptance criteria:**
 
