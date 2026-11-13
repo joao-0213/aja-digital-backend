@@ -5,8 +5,10 @@ import org.junit.jupiter.api.Assertions.assertAll
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestInstance
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext
@@ -68,6 +70,14 @@ import org.springframework.context.annotation.Import
 import org.springframework.context.annotation.Primary
 import org.springframework.test.annotation.DirtiesContext
 import org.springframework.boot.test.context.TestConfiguration
+import org.springframework.mock.web.MockHttpServletRequest
+import org.springframework.web.filter.OncePerRequestFilter
+import org.springframework.web.util.pattern.PathPatternParser
+import org.springframework.http.server.PathContainer
+import jakarta.servlet.FilterChain
+import jakarta.servlet.http.HttpServletRequest
+import jakarta.servlet.http.HttpServletResponse
+import java.util.concurrent.ConcurrentHashMap
 import br.com.ajadigital.core.adapter.out.messaging.OutboxOperationsController
 import br.com.ajadigital.core.adapter.out.messaging.OutboxPublisher
 import br.com.ajadigital.core.adapter.out.messaging.OutboxRedrive
@@ -154,9 +164,128 @@ class AssessmentSnapshotTestConfiguration {
     fun testQuestionSnapshotProvider() = TestQuestionSnapshotProvider()
 }
 
+class CoreOpenApiCoverageFilter : OncePerRequestFilter() {
+    data class DenialProbe(val id: String, val method: String, val target: String, val expectedStatus: Int, val body: String?, val contentType: String, val idempotencyKey: Boolean)
+    private data class Operation(val id: String, val method: String, val path: String, val target: String, val pattern: org.springframework.web.util.pattern.PathPattern, val responseCodes: Set<String>, val requiresSession: Boolean, val body: String?, val contentType: String)
+    private val mapper = tools.jackson.databind.json.JsonMapper.builder().build()
+    private val document by lazy {
+        val specPath = generateSequence(Path.of("").toAbsolutePath()) { it.parent }
+            .map { it.resolve("docs/http/openapi.json") }.first { Files.isRegularFile(it) }
+        mapper.readTree(Files.readString(specPath))
+    }
+    private val operations by lazy {
+        document.get("paths").properties().asSequence().flatMap { (path, methods) ->
+            if (path.startsWith("/questions")) emptySequence() else methods.properties().asSequence()
+                .filter { it.key in setOf("get", "post", "patch", "put", "delete", "options", "head", "trace") }
+                .map { (method, operation) ->
+                    val security = operation.get("security") ?: document.get("security")
+                    val parameters = sequenceOf(methods.get("parameters"), operation.get("parameters"))
+                        .filterNotNull().flatMap { it.iterator().asSequence() }
+                        .map(::resolveParameter)
+                        .toList()
+                    val query = parameters
+                        .filter { it.get("in")?.asText() == "query" }
+                        .joinToString("&") { parameter ->
+                            val name = java.net.URLEncoder.encode(parameter.get("name").asText(), Charsets.UTF_8)
+                            val value = java.net.URLEncoder.encode(parameterExample(parameter), Charsets.UTF_8)
+                            "$name=$value"
+                        }
+                    val pathValues = parameters.filter { it.get("in")?.asText() == "path" }
+                        .associate { it.get("name").asText() to parameterExample(it, uuidFallback = true) }
+                    val concretePath = Regex("\\{([^}]+)}").replace(path) { match ->
+                        pathValues[match.groupValues[1]] ?: "00000000-0000-4000-8000-000000000000"
+                    }
+                    val target = concretePath + if (query.isEmpty()) "" else "?$query"
+                    val requestContent = operation.get("requestBody")?.get("content")
+                    val mediaType = requestContent?.properties()?.firstOrNull()?.key ?: "application/json"
+                    val body = if (mediaType == "application/json") {
+                        val content = requestContent?.get(mediaType)
+                        val example = content?.get("example") ?: content?.get("examples")?.properties()?.firstOrNull()?.value?.get("value")
+                        example?.toString()
+                    } else null
+                    Operation(operation.get("operationId").asText(), method.uppercase(), path, target, PathPatternParser().parse("/api/v1$path"), operation.get("responses").properties().map { it.key }.toSet(), security != null && !security.isEmpty, body, mediaType)
+                }
+        }.toList().sortedWith(compareBy<Operation> { it.path.count { char -> char == '{' } }.thenByDescending { it.path.length })
+    }
+    private val observed = ConcurrentHashMap<Operation, MutableSet<Int>>()
+
+    override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
+        try { chain.doFilter(request, response) } finally {
+            if (request !is MockHttpServletRequest) {
+                val operation = operations.firstOrNull { it.method == request.method && it.pattern.matches(PathContainer.parsePath(request.requestURI)) }
+                operation?.let { observed.computeIfAbsent(it) { ConcurrentHashMap.newKeySet() }.add(response.status) }
+            }
+        }
+    }
+
+    fun expectedDenials(): List<DenialProbe> = operations.map { operation ->
+        val status = when {
+            operation.id == "logout" -> 204
+            operation.requiresSession -> 401
+            operation.id == "health" -> 403
+            else -> 422
+        }
+        assertTrue(status.toString() in operation.responseCodes, "OpenAPI does not declare the expected denial $status for ${operation.method} ${operation.path} (${operation.id})")
+        val multipartBoundary = "B16ProbeBoundary"
+        val multipart = "--$multipartBoundary\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nmaterial\r\n--$multipartBoundary\r\nContent-Disposition: form-data; name=\"parentId\"\r\n\r\ns1\r\n--$multipartBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"probe.txt\"\r\nContent-Type: text/plain\r\n\r\nprobe\r\n--$multipartBoundary--\r\n"
+        val body = when {
+            status == 204 || operation.id == "health" -> null
+            status == 401 -> operation.body ?: if (operation.contentType == "multipart/form-data") multipart else null
+            else -> "{}"
+        }
+        val contentType = if (operation.contentType == "multipart/form-data") "multipart/form-data; boundary=$multipartBoundary" else "application/json"
+        DenialProbe(operation.id, operation.method, operation.target, status, body, contentType, status == 401 && body != null)
+    }
+
+    fun recordProbeResponse(method: String, target: String, status: Int) {
+        val path = URI("http://localhost/api/v1$target").path
+        val operation = operations.firstOrNull { it.method == method && it.pattern.matches(PathContainer.parsePath(path)) }
+        assertTrue(operation != null, "Probe did not match an OpenAPI operation: $method $target")
+        observed.computeIfAbsent(checkNotNull(operation)) { ConcurrentHashMap.newKeySet() }.add(status)
+    }
+
+    private fun resolveParameter(parameter: tools.jackson.databind.JsonNode): tools.jackson.databind.JsonNode {
+        val reference = parameter.get("\$ref")?.asText() ?: return parameter
+        return document.at(reference.removePrefix("#"))
+    }
+
+    private fun parameterExample(parameter: tools.jackson.databind.JsonNode, uuidFallback: Boolean = false): String {
+        val schema = parameter.get("schema")
+        val example = parameter.get("example") ?: schema?.get("example") ?: schema?.get("enum")?.firstOrNull()
+        if (example != null && !example.isNull) return if (example.isArray) example.firstOrNull()?.asText().orEmpty() else example.asText()
+        return when (schema?.get("format")?.asText()) {
+            "date" -> "2026-11-02"
+            "date-time" -> "2026-11-02T12:00:00Z"
+            "uuid" -> "00000000-0000-4000-8000-000000000000"
+            else -> when (schema?.get("type")?.asText()) {
+                "integer", "number" -> "1"
+                "boolean" -> "true"
+                else -> if (uuidFallback) "00000000-0000-4000-8000-000000000000" else "probe"
+            }
+        }
+    }
+
+    fun assertEveryOperationHasSuccessAndExpectedDenial() {
+        val missing = operations.filter { operation -> observed[operation].orEmpty().none { it in 200..299 } }
+        assertTrue(missing.isEmpty(), "OpenAPI operations without a successful HTTP request: ${missing.joinToString { "${it.method} ${it.path} (${it.id}) status=${observed[it]}" }}")
+        val missingDenial = operations.filter { operation ->
+            val expected = when { operation.id == "logout" -> 204; operation.requiresSession -> 401; operation.id == "health" -> 403; else -> 422 }
+            expected !in observed[operation].orEmpty()
+        }
+        assertTrue(missingDenial.isEmpty(), "OpenAPI operations without their expected HTTP denial: ${missingDenial.joinToString { "${it.method} ${it.path} (${it.id}) status=${observed[it]}" }}")
+    }
+}
+
+@TestConfiguration
+class CoreOpenApiCoverageConfiguration {
+    @Bean
+    fun coreOpenApiCoverageFilter() = CoreOpenApiCoverageFilter()
+}
+
 @Testcontainers
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @AutoConfigureMockMvc
-@Import(MutableTestClockConfiguration::class, EmailQueueTopologyTestConfiguration::class, AssessmentSnapshotTestConfiguration::class)
+@Import(MutableTestClockConfiguration::class, EmailQueueTopologyTestConfiguration::class, AssessmentSnapshotTestConfiguration::class, CoreOpenApiCoverageConfiguration::class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class CoreApplicationTests @Autowired constructor(
@@ -171,7 +300,15 @@ class CoreApplicationTests @Autowired constructor(
     private val idempotencyStore: IdempotencyStore,
     private val questionSnapshotProvider: TestQuestionSnapshotProvider,
     private val webContext: ServletWebServerApplicationContext,
+    private val openApiCoverage: CoreOpenApiCoverageFilter,
 ) {
+    @AfterAll
+    fun everyCoreOpenApiOperationHasHttpSuccessAndExpectedDenial() {
+        if (System.getenv("B16_OPENAPI_COVERAGE") == "true") {
+            openApiCoverage.assertEveryOperationHasSuccessAndExpectedDenial()
+        }
+    }
+
     @BeforeEach
     fun resetClock() = mutableClock.reset()
 
@@ -830,6 +967,29 @@ class CoreApplicationTests @Autowired constructor(
         } finally {
             mutableClock.reset()
         }
+    }
+
+    @Test
+    fun topicWithdrawalHidesTheTopicFromPublicReads() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val classId = createB06Class(adminCookie)
+        val subjectId = createB06Subject(adminCookie, classId, teacherId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val created = liveHttp(
+            "POST", "/topics", studentCookie,
+            """{"classId":"$classId","subjectId":"$subjectId","title":"Withdraw probe","body":"Question","tags":[],"target":null,"attachmentId":null}""",
+            "topic-withdraw-${UUID.randomUUID()}",
+        )
+        assertEquals(201, created.statusCode(), created.body())
+        val topicId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.body()).get("id").asText()
+
+        val withdrawn = liveHttp("POST", "/topics/$topicId/withdraw", studentCookie, """{"expectedRevision":1}""")
+
+        assertEquals(200, withdrawn.statusCode(), withdrawn.body())
+        assertEquals(404, liveHttp("GET", "/topics/$topicId", studentCookie).statusCode())
+        assertEquals(404, liveHttp("GET", "/topics/$topicId", teacherCookie).statusCode())
     }
 
     @Test
@@ -1506,12 +1666,8 @@ class CoreApplicationTests @Autowired constructor(
             header("Origin", "https://aja.example.test")
             cookie(Cookie("aja_session", outsiderCookie))
         }.andExpect { status { isNotFound() } }
-        mvc.post("/api/v1/files/$fileId/discard") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", teacherCookie))
-            content = "{}"
-        }.andExpect { status { isNoContent() } }
+        val discarded = liveHttp("POST", "/files/$fileId/discard", teacherCookie, "{}")
+        assertEquals(204, discarded.statusCode(), discarded.body())
         mvc.perform(
             multipart("/api/v1/files").file(upload).param("purpose", "material").param("parentId", moduleId)
                 .cookie(Cookie("aja_session", teacherCookie)).header("Origin", "https://aja.example.test").header("Idempotency-Key", uploadKey),
@@ -1527,14 +1683,9 @@ class CoreApplicationTests @Autowired constructor(
         createB07Enrollment(classId, studentId, teacherId)
         val createKey = "assessment-${UUID.randomUUID()}"
         val createBody = """{"moduleId":"$moduleId","title":"B08 work","description":"","kind":"work","maxGrade":null,"deadline":null,"required":false,"allowLate":false,"questions":[]}"""
-        val created = mvc.post("/api/v1/assessments") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", createKey)
-            cookie(Cookie("aja_session", teacherCookie))
-            content = createBody
-        }.andExpect { status { isCreated() } }.andReturn()
-        val body = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString)
+        val created = liveHttp("POST", "/assessments", teacherCookie, createBody, createKey)
+        assertEquals(201, created.statusCode(), created.body())
+        val body = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.body())
         val id = body.get("id").asText()
         assertEquals("draft", body.get("status").asText())
         assertFalse(body.get("hasSubmissions").asBoolean())
@@ -1559,13 +1710,11 @@ class CoreApplicationTests @Autowired constructor(
 
         val publishKey = "publish-${UUID.randomUUID()}"
         val publishBody = """{"expectedRevision":1}"""
-        mvc.post("/api/v1/assessments/$id/publish") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", publishKey)
-            cookie(Cookie("aja_session", teacherCookie))
-            content = publishBody
-        }.andExpect { status { isOk() }; jsonPath("$.status") { value("published") }; jsonPath("$.publishedAt") { exists() } }
+        val published = liveHttp("POST", "/assessments/$id/publish", teacherCookie, publishBody, publishKey)
+        assertEquals(200, published.statusCode(), published.body())
+        val publishedBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(published.body())
+        assertEquals("published", publishedBody.get("status").asText())
+        assertTrue(publishedBody.hasNonNull("publishedAt"))
         mvc.post("/api/v1/assessments/$id/publish") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
@@ -1628,13 +1777,16 @@ class CoreApplicationTests @Autowired constructor(
             content = """{"assessmentId":"$assessmentId"}"""
         }.andExpect { status { isCreated() }; jsonPath("$.id") { value(attemptId) } }
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE assessment_id=? AND user_id=?", Int::class.java, assessmentId, studentId))
+        val attempts = liveHttp("GET", "/attempts?assessmentId=$assessmentId", studentCookie)
+        assertEquals(200, attempts.statusCode(), attempts.body())
+        assertTrue(tools.jackson.databind.json.JsonMapper.builder().build().readTree(attempts.body()).get("items").any { it.get("id").asText() == attemptId })
+        val questionId = jdbc.queryForObject("SELECT question_id FROM core.assessment_questions WHERE assessment_id=?", String::class.java, assessmentId)!!
         mvc.patch("/api/v1/attempts/$attemptId/answers") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
             cookie(Cookie("aja_session", studentCookie))
-            content = """{"expectedRevision":1,"answers":{"${jdbc.queryForObject("SELECT question_id FROM core.assessment_questions WHERE assessment_id=?", String::class.java, assessmentId)}":0}}"""
+            content = """{"expectedRevision":1,"answers":{"$questionId":0}}"""
         }.andExpect { status { isOk() }; jsonPath("$.revision") { value(2) } }
-        val questionId = jdbc.queryForObject("SELECT question_id FROM core.assessment_questions WHERE assessment_id=?", String::class.java, assessmentId)
         val revisedQuestion = """{"source":"authored","clientKey":"q","questionId":"$questionId","question":{"subject":"Math","topic":"Algebra","difficulty":"easy","institution":"AJA","year":2026,"statement":"Changed after start","options":["3","2"],"image":null,"correct":1,"explanation":"Changed"}}"""
         mvc.patch("/api/v1/assessments/$assessmentId") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
@@ -1643,17 +1795,20 @@ class CoreApplicationTests @Autowired constructor(
             cookie(Cookie("aja_session", teacherCookie))
             content = """{"expectedRevision":2,"questions":[$revisedQuestion]}"""
         }.andExpect { status { isConflict() } }
-        mvc.get("/api/v1/attempts/$attemptId") {
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", studentCookie))
-        }.andExpect { status { isOk() }; jsonPath("$.answers.*") { value(0) }; jsonPath("$.questions[0].statement") { value("1 + 1?") }; jsonPath("$.questions[0].options[0]") { value("2") }; jsonPath("$.questions[0].correct") { doesNotExist() }; jsonPath("$.questions[0].explanation") { doesNotExist() } }
-        mvc.patch("/api/v1/assessments/$assessmentId") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", "confirmed-edit-${UUID.randomUUID()}")
-            cookie(Cookie("aja_session", teacherCookie))
-            content = """{"expectedRevision":2,"confirmResetDrafts":true,"questions":[$revisedQuestion]}"""
-        }.andExpect { status { isOk() } }
+        val attemptRead = liveHttp("GET", "/attempts/$attemptId", studentCookie)
+        assertEquals(200, attemptRead.statusCode(), attemptRead.body())
+        val attemptReadBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(attemptRead.body())
+        assertEquals(0, attemptReadBody.get("answers").get(questionId).asInt())
+        assertEquals("1 + 1?", attemptReadBody.at("/questions/0/statement").asText())
+        assertEquals("2", attemptReadBody.at("/questions/0/options/0").asText())
+        assertFalse(attemptReadBody.at("/questions/0").has("correct"))
+        assertFalse(attemptReadBody.at("/questions/0").has("explanation"))
+        val confirmedEdit = liveHttp(
+            "PATCH", "/assessments/$assessmentId", teacherCookie,
+            """{"expectedRevision":2,"confirmResetDrafts":true,"questions":[$revisedQuestion]}""",
+            "confirmed-edit-${UUID.randomUUID()}",
+        )
+        assertEquals(200, confirmedEdit.statusCode(), confirmedEdit.body())
         mvc.get("/api/v1/attempts/$attemptId") {
             header("Origin", "https://aja.example.test")
             cookie(Cookie("aja_session", studentCookie))
@@ -2265,11 +2420,20 @@ class CoreApplicationTests @Autowired constructor(
         val assessmentId = createB07Assessment(moduleId)
         jdbc.update("UPDATE core.assessments SET max_grade=10 WHERE id=?", assessmentId)
         val fileBytes = "student work".toByteArray()
-        val upload = mvc.perform(multipart("/api/v1/files").file(MockMultipartFile("file", "work.txt", "text/plain", fileBytes))
-            .param("purpose", "work").param("parentId", assessmentId).cookie(Cookie("aja_session", studentCookie))
-            .header("Origin", "https://aja.example.test").header("Idempotency-Key", "upload-${UUID.randomUUID()}"))
-            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isCreated).andReturn()
-        val fileId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(upload.response.contentAsString).get("id").asString()
+        val boundary = "B16Work-${UUID.randomUUID()}"
+        val multipartBody = buildString {
+            append("--$boundary\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nwork\r\n")
+            append("--$boundary\r\nContent-Disposition: form-data; name=\"parentId\"\r\n\r\n$assessmentId\r\n")
+            append("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"work.txt\"\r\nContent-Type: text/plain\r\n\r\n")
+            append(fileBytes.toString(Charsets.UTF_8))
+            append("\r\n--$boundary--\r\n")
+        }
+        val upload = liveHttp(
+            "POST", "/files", studentCookie, multipartBody, "upload-${UUID.randomUUID()}",
+            contentType = "multipart/form-data; boundary=$boundary",
+        )
+        assertEquals(201, upload.statusCode(), upload.body())
+        val fileId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(upload.body()).get("id").asString()
         val otherAssessmentId = createB07Assessment(moduleId)
         mvc.post("/api/v1/submissions") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
@@ -2280,36 +2444,34 @@ class CoreApplicationTests @Autowired constructor(
         }.andExpect { status { isConflict() } }
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.submissions WHERE assessment_id=?", Int::class.java, otherAssessmentId))
 
-        fun post(cookie: String, key: String) = mvc.post("/api/v1/submissions") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", key)
-            cookie(Cookie("aja_session", cookie))
-            content = """{"assessmentId":"$assessmentId","attachments":[{"kind":"file","fileId":"$fileId","name":"work.txt"},{"kind":"link","name":"Research","url":"https://example.test/work"}]}"""
-        }.andReturn()
+        fun post(cookie: String, key: String) = liveHttp(
+            "POST", "/submissions", cookie,
+            """{"assessmentId":"$assessmentId","attachments":[{"kind":"file","fileId":"$fileId","name":"work.txt"},{"kind":"link","name":"Research","url":"https://example.test/work"}]}""",
+            key,
+        )
 
         val createKey = "submission-${UUID.randomUUID()}"
         val created = post(studentCookie, createKey)
-        val parsed = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.response.contentAsString)
+        assertEquals(201, created.statusCode(), created.body())
+        val parsed = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.body())
         val submissionId = parsed.get("id").asString()
-        assertEquals(201, created.response.status)
         assertEquals(assessmentId, parsed.get("assessmentId").asString())
         assertTrue(parsed.get("submittedAt").isNull)
-        assertEquals(submissionId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(post(studentCookie, createKey).response.contentAsString).get("id").asString())
+        val replayedCreate = post(studentCookie, createKey)
+        assertEquals(201, replayedCreate.statusCode(), replayedCreate.body())
+        assertEquals(submissionId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(replayedCreate.body()).get("id").asString())
 
         val submitKey = "submit-${UUID.randomUUID()}"
         val submitBody = """{"expectedRevision":1}"""
-        fun submit(key: String) = mvc.post("/api/v1/submissions/$submissionId/submit") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", key)
-            cookie(Cookie("aja_session", studentCookie))
-            content = submitBody
-        }.andReturn()
-        val submitted = tools.jackson.databind.json.JsonMapper.builder().build().readTree(submit(submitKey).response.contentAsString)
+        fun submit(key: String) = liveHttp("POST", "/submissions/$submissionId/submit", studentCookie, submitBody, key)
+        val submitResponse = submit(submitKey)
+        assertEquals(200, submitResponse.statusCode(), submitResponse.body())
+        val submitted = tools.jackson.databind.json.JsonMapper.builder().build().readTree(submitResponse.body())
         val receiptId = submitted.get("receipt").get("id").asString()
         assertTrue(receiptId.isNotBlank())
-        assertEquals(receiptId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(submit(submitKey).response.contentAsString).get("receipt").get("id").asString())
+        val submitReplay = submit(submitKey)
+        assertEquals(200, submitReplay.statusCode(), submitReplay.body())
+        assertEquals(receiptId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(submitReplay.body()).get("receipt").get("id").asString())
         assertEquals("attached", jdbc.queryForObject("SELECT status FROM core.files WHERE id=?", String::class.java, fileId))
         mvc.get("/api/v1/files/$fileId/content") {
             header("Origin", "https://aja.example.test")
@@ -2339,24 +2501,26 @@ class CoreApplicationTests @Autowired constructor(
             cookie(Cookie("aja_session", teacherCookie))
             content = """{"expectedRevision":2,"comment":"Too high","grade":11}"""
         }.andExpect { status { isUnprocessableEntity() } }
-        mvc.patch("/api/v1/submissions/$submissionId/feedback") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", teacherCookie))
-            content = """{"expectedRevision":2,"comment":"Good evidence","grade":9}"""
-        }.andExpect { status { isOk() }; jsonPath("$.feedbackDraft.grade") { value(9) }; jsonPath("$.feedbackHistory") { isEmpty() } }
-        mvc.get("/api/v1/submissions/$submissionId") {
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", studentCookie))
-        }.andExpect { status { isOk() }; jsonPath("$.feedbackDraft") { doesNotExist() }; jsonPath("$.feedbackPublished") { value(null) } }
+        val savedFeedback = liveHttp(
+            "PATCH", "/submissions/$submissionId/feedback", teacherCookie,
+            """{"expectedRevision":2,"comment":"Good evidence","grade":9}""",
+        )
+        assertEquals(200, savedFeedback.statusCode(), savedFeedback.body())
+        val savedFeedbackBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(savedFeedback.body())
+        assertEquals(9, savedFeedbackBody.at("/feedbackDraft/grade").asInt())
+        assertEquals(0, savedFeedbackBody.get("feedbackHistory").size())
+        val studentRead = liveHttp("GET", "/submissions/$submissionId", studentCookie)
+        assertEquals(200, studentRead.statusCode(), studentRead.body())
+        val studentReadBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(studentRead.body())
+        assertFalse(studentReadBody.has("feedbackDraft"))
+        assertTrue(studentReadBody.get("feedbackPublished").isNull)
 
-        mvc.post("/api/v1/submissions/$submissionId/publish-feedback") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", "publish-${UUID.randomUUID()}")
-            cookie(Cookie("aja_session", teacherCookie))
-            content = """{"expectedRevision":3}"""
-        }.andExpect { status { isOk() }; jsonPath("$.feedbackHistory.length()") { value(1) } }
+        val publishedFeedback = liveHttp(
+            "POST", "/submissions/$submissionId/publish-feedback", teacherCookie,
+            """{"expectedRevision":3}""", "publish-${UUID.randomUUID()}",
+        )
+        assertEquals(200, publishedFeedback.statusCode(), publishedFeedback.body())
+        assertEquals(1, tools.jackson.databind.json.JsonMapper.builder().build().readTree(publishedFeedback.body()).get("feedbackHistory").size())
         mvc.patch("/api/v1/submissions/$submissionId/feedback") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
@@ -2818,12 +2982,9 @@ class CoreApplicationTests @Autowired constructor(
             content = """{"expectedRevision":1}"""
         }.andExpect { status { isConflict() } }
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.submissions WHERE id=? AND submitted_at IS NOT NULL", Int::class.java, id))
-        mvc.patch("/api/v1/submissions/$id") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", studentCookie))
-            content = """{"expectedRevision":1,"attachments":[{"kind":"link","name":"Final","url":"https://example.test/final"}]}"""
-        }.andExpect { status { isOk() }; jsonPath("$.revision") { value(2) } }
+        val updated = liveHttp("PATCH", "/submissions/$id", studentCookie, """{"expectedRevision":1,"attachments":[{"kind":"link","name":"Final","url":"https://example.test/final"}]}""")
+        assertEquals(200, updated.statusCode(), updated.body())
+        assertEquals(2, tools.jackson.databind.json.JsonMapper.builder().build().readTree(updated.body()).get("revision").asInt())
         mvc.post("/api/v1/submissions/$id/submit") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
@@ -3065,10 +3226,9 @@ class CoreApplicationTests @Autowired constructor(
             header("Origin", "https://aja.example.test")
             cookie(Cookie("aja_session", teacherCookie))
         }.andExpect { status { isOk() }; jsonPath("$.total") { value(0) } }
-        mvc.get("/api/v1/files/$fileId") {
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", teacherCookie))
-        }.andExpect { status { isOk() }; jsonPath("$.status") { value("staged") } }
+        val file = liveHttp("GET", "/files/$fileId", teacherCookie)
+        assertEquals(200, file.statusCode(), file.body())
+        assertEquals("staged", tools.jackson.databind.json.JsonMapper.builder().build().readTree(file.body()).get("status").asText())
 
         val batchKey = "batch-${UUID.randomUUID()}"
         val published = mvc.post("/api/v1/materials/batch") {
@@ -3086,22 +3246,16 @@ class CoreApplicationTests @Autowired constructor(
             cookie(Cookie("aja_session", teacherCookie))
             content = command
         }.andExpect { status { isCreated() }; jsonPath("$.items[0].id") { value(materialId) } }
-        mvc.get("/api/v1/materials/$materialId") {
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", teacherCookie))
-        }.andExpect {
-            status { isOk() }
-            jsonPath("$.material.fileId") { value(fileId) }
-            jsonPath("$.material.file.path") { doesNotExist() }
-            jsonPath("$.module.id") { value(moduleId) }
-            jsonPath("$.subject.id") { value(subjectId) }
-        }
-        mvc.patch("/api/v1/me/progress") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", teacherCookie))
-            content = """{"materialId":"$materialId","completed":true}"""
-        }.andExpect { status { isOk() }; jsonPath("$.completed") { value(true) } }
+        val material = liveHttp("GET", "/materials/$materialId", teacherCookie)
+        assertEquals(200, material.statusCode(), material.body())
+        val materialBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(material.body())
+        assertEquals(fileId, materialBody.at("/material/fileId").asText())
+        assertFalse(materialBody.at("/material/file").has("path"))
+        assertEquals(moduleId, materialBody.at("/module/id").asText())
+        assertEquals(subjectId, materialBody.at("/subject/id").asText())
+        val progress = liveHttp("PATCH", "/me/progress", teacherCookie, """{"materialId":"$materialId","completed":true}""")
+        assertEquals(200, progress.statusCode(), progress.body())
+        assertTrue(tools.jackson.databind.json.JsonMapper.builder().build().readTree(progress.body()).get("completed").asBoolean())
         mutableClock.advance(Duration.ofMinutes(1))
         mvc.patch("/api/v1/me/progress") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
@@ -3111,6 +3265,74 @@ class CoreApplicationTests @Autowired constructor(
         }.andExpect { status { isOk() }; jsonPath("$.completed") { value(true) } }
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.material_progress WHERE user_id=? AND material_id=? AND completed", Int::class.java, teacherId, materialId))
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.materials WHERE id=?", Int::class.java, materialId))
+    }
+
+    @Test
+    fun materialsCanBeUpdatedThroughThePublicHttpContract() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val classId = createB06Class(adminCookie)
+        val subjectId = createB06Subject(adminCookie, classId, teacherId)
+        val module = tools.jackson.databind.json.JsonMapper.builder().build().readTree(
+            liveHttp("POST", "/modules", teacherCookie, """{"subjectId":"$subjectId","title":"Update probe","description":""}""", "module-update-${UUID.randomUUID()}").body(),
+        )
+        val moduleId = module.get("id").asText()
+        val created = liveHttp(
+            "POST", "/materials/batch", teacherCookie,
+            """{"moduleId":"$moduleId","expectedRevision":1,"items":[{"moduleId":"$moduleId","title":"Original","kind":"lesson","duration":10,"content":"Body"}]}""",
+            "materials-update-${UUID.randomUUID()}",
+        )
+        assertEquals(201, created.statusCode(), created.body())
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.body()).get("items").get(0).get("id").asText()
+
+        val updated = liveHttp("PATCH", "/materials/$id", teacherCookie, """{"expectedRevision":1,"title":"Updated","duration":12,"content":"Revised body"}""")
+
+        assertEquals(200, updated.statusCode(), updated.body())
+        assertEquals("Updated", tools.jackson.databind.json.JsonMapper.builder().build().readTree(updated.body()).get("title").asText())
+    }
+
+    @Test
+    fun userAndClassReadAndPatchOperationsReturnTheirCurrentRepresentations() {
+        val (adminCookie, _) = adminSession()
+        val (_, studentId) = userSession("student")
+        val initialClassId = createB06Class(adminCookie)
+
+        val user = liveHttp("GET", "/users/$studentId", adminCookie)
+        assertEquals(200, user.statusCode(), user.body())
+        val userPatch = liveHttp("PATCH", "/users/$studentId", adminCookie, """{"expectedRevision":1,"name":"Updated student"}""")
+        assertEquals(200, userPatch.statusCode(), userPatch.body())
+        assertEquals("Updated student", tools.jackson.databind.json.JsonMapper.builder().build().readTree(userPatch.body()).get("name").asText())
+
+        val classPatch = liveHttp("PATCH", "/classes/$initialClassId", adminCookie, """{"expectedRevision":1,"name":"Updated class"}""")
+        assertEquals(200, classPatch.statusCode(), classPatch.body())
+        assertEquals("Updated class", tools.jackson.databind.json.JsonMapper.builder().build().readTree(classPatch.body()).get("name").asText())
+
+        val email = "preview-${UUID.randomUUID()}@example.test"
+        assertEquals(200, liveHttp("GET", "/enrollments/preview?classId=$initialClassId&email=$email", adminCookie).statusCode())
+        val enrollment = liveHttp("POST", "/enrollments", adminCookie, """{"classId":"$initialClassId","email":"$email"}""", "enrollment-${UUID.randomUUID()}")
+        assertEquals(201, enrollment.statusCode(), enrollment.body())
+        val enrollmentId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(enrollment.body()).get("id").asText()
+        assertEquals(200, liveHttp("GET", "/enrollments/$enrollmentId", adminCookie).statusCode())
+    }
+
+    @Test
+    fun publicHealthIsAvailableWithoutASession() {
+        val response = liveHttp("GET", "/health", "")
+        assertEquals(200, response.statusCode(), response.body())
+        assertEquals("ok", tools.jackson.databind.json.JsonMapper.builder().build().readTree(response.body()).get("status").asText())
+    }
+
+    @Test
+    fun everyCoreOpenApiOperationRejectsItsUnauthenticatedOrInvalidProbe() {
+        val failures = mutableListOf<String>()
+        openApiCoverage.expectedDenials().forEach { probe ->
+            val origin = if (probe.expectedStatus == 403) "https://denied.example.test" else "https://aja.example.test"
+            val key = if (probe.idempotencyKey) "b16-${UUID.randomUUID()}" else null
+            val response = liveHttp(probe.method, probe.target, "", probe.body, key, origin, probe.contentType)
+            openApiCoverage.recordProbeResponse(probe.method, probe.target, response.statusCode())
+            if (response.statusCode() != probe.expectedStatus) failures += "${probe.method} ${probe.target} (${probe.id}) expected ${probe.expectedStatus}, got ${response.statusCode()}: ${response.body()}"
+        }
+        assertTrue(failures.isEmpty(), failures.joinToString("\n"))
     }
 
     @Test
@@ -3142,12 +3364,9 @@ class CoreApplicationTests @Autowired constructor(
         val firstId = items.get(0).get("id").asText()
         val secondId = items.get(1).get("id").asText()
         val reorder = """{"expectedRevision":2,"items":[{"id":"$secondId","expectedRevision":1},{"id":"$firstId","expectedRevision":1}]}"""
-        mvc.post("/api/v1/modules/$moduleId/reorder-materials") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", teacherCookie))
-            content = reorder
-        }.andExpect { status { isOk() }; jsonPath("$.items[0].id") { value(secondId) } }
+        val reordered = liveHttp("POST", "/modules/$moduleId/reorder-materials", teacherCookie, reorder)
+        assertEquals(200, reordered.statusCode(), reordered.body())
+        assertEquals(secondId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(reordered.body()).at("/items/0/id").asText())
         mvc.post("/api/v1/modules/$moduleId/reorder-materials") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
@@ -3263,32 +3482,36 @@ class CoreApplicationTests @Autowired constructor(
             cookie(Cookie("aja_session", teacherTwoCookie))
             content = """{"expectedRevision":3,"items":[{"id":"$secondModuleId","expectedRevision":1},{"id":"$firstModuleId","expectedRevision":1},{"id":"$adminModuleId","expectedRevision":1}]}"""
         }.andExpect { status { isConflict() } }
-        mvc.get("/api/v1/subjects/$subjectId") {
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", teacherTwoCookie))
-        }.andExpect { status { isOk() }; jsonPath("$.modules.length()") { value(3) }; jsonPath("$.modules[0].id") { value(firstModuleId) } }
-        mvc.post("/api/v1/subjects/$subjectId/reorder-modules") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", teacherTwoCookie))
-            param("page", "2")
-            param("pageSize", "1")
-            content = """{"expectedRevision":4,"items":[{"id":"$secondModuleId","expectedRevision":1},{"id":"$firstModuleId","expectedRevision":1},{"id":"$adminModuleId","expectedRevision":1}]}"""
-        }.andExpect { status { isOk() }; jsonPath("$.page") { value(2) }; jsonPath("$.pageSize") { value(1) }; jsonPath("$.total") { value(3) }; jsonPath("$.items.length()") { value(1) }; jsonPath("$.items[0].id") { value(firstModuleId) } }
-        mvc.get("/api/v1/modules?subjectId=$subjectId&page=1&pageSize=1&sort=order") {
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", teacherTwoCookie))
-        }.andExpect { status { isOk() }; jsonPath("$.pageSize") { value(1) }; jsonPath("$.total") { value(3) }; jsonPath("$.items.length()") { value(1) } }
-        mvc.get("/api/v1/modules/$firstModuleId") {
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", teacherTwoCookie))
-        }.andExpect { status { isOk() }; jsonPath("$.title") { value("Módulo A") } }
-        mvc.patch("/api/v1/modules/$firstModuleId") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", teacherTwoCookie))
-            content = """{"expectedRevision":2,"title":"Módulo A editado"}"""
-        }.andExpect { status { isOk() }; jsonPath("$.revision") { value(3) }; jsonPath("$.description") { value("") } }
+        val subjectBeforeReorder = liveHttp("GET", "/subjects/$subjectId", teacherTwoCookie)
+        assertEquals(200, subjectBeforeReorder.statusCode(), subjectBeforeReorder.body())
+        val subjectBeforeReorderBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(subjectBeforeReorder.body())
+        assertEquals(3, subjectBeforeReorderBody.get("modules").size())
+        assertEquals(firstModuleId, subjectBeforeReorderBody.at("/modules/0/id").asText())
+        val reorderedModules = liveHttp(
+            "POST", "/subjects/$subjectId/reorder-modules?page=2&pageSize=1", teacherTwoCookie,
+            """{"expectedRevision":4,"items":[{"id":"$secondModuleId","expectedRevision":1},{"id":"$firstModuleId","expectedRevision":1},{"id":"$adminModuleId","expectedRevision":1}]}""",
+        )
+        assertEquals(200, reorderedModules.statusCode(), reorderedModules.body())
+        val reorderBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(reorderedModules.body())
+        assertEquals(2, reorderBody.get("page").asInt())
+        assertEquals(1, reorderBody.get("pageSize").asInt())
+        assertEquals(3, reorderBody.get("total").asInt())
+        assertEquals(1, reorderBody.get("items").size())
+        assertEquals(firstModuleId, reorderBody.at("/items/0/id").asText())
+        val moduleList = liveHttp("GET", "/modules?subjectId=$subjectId&page=1&pageSize=1&sort=order", teacherTwoCookie)
+        assertEquals(200, moduleList.statusCode(), moduleList.body())
+        val moduleListBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(moduleList.body())
+        assertEquals(1, moduleListBody.get("pageSize").asInt())
+        assertEquals(3, moduleListBody.get("total").asInt())
+        assertEquals(1, moduleListBody.get("items").size())
+        val moduleRead = liveHttp("GET", "/modules/$firstModuleId", teacherTwoCookie)
+        assertEquals(200, moduleRead.statusCode(), moduleRead.body())
+        assertEquals("Módulo A", tools.jackson.databind.json.JsonMapper.builder().build().readTree(moduleRead.body()).get("title").asText())
+        val moduleUpdate = liveHttp("PATCH", "/modules/$firstModuleId", teacherTwoCookie, """{"expectedRevision":2,"title":"Módulo A editado"}""")
+        assertEquals(200, moduleUpdate.statusCode(), moduleUpdate.body())
+        val moduleUpdateBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(moduleUpdate.body())
+        assertEquals(3, moduleUpdateBody.get("revision").asInt())
+        assertEquals("", moduleUpdateBody.get("description").asText())
 
         mvc.patch("/api/v1/subjects/$subjectId") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
@@ -3323,17 +3546,20 @@ class CoreApplicationTests @Autowired constructor(
             cookie(Cookie("aja_session", outsiderCookie))
         }.andExpect { status { isOk() }; jsonPath("$.total") { value(0) }; jsonPath("$.items.length()") { value(0) } }
         jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?)", subjectId, "material:observed")
-        val firstVisit = mvc.get("/api/v1/subjects/$subjectId/visits") {
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", studentCookie))
-        }.andExpect { status { isOk() }; jsonPath("$.seenAt") { value(null) }; jsonPath("$.publicationIds.length()") { value(1) }; jsonPath("$.hasUpdates") { value(true) } }.andReturn()
+        val firstVisit = liveHttp("GET", "/subjects/$subjectId/visits", studentCookie)
+        assertEquals(200, firstVisit.statusCode(), firstVisit.body())
+        val firstVisitBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(firstVisit.body())
+        assertTrue(firstVisitBody.get("seenAt").isNull)
+        assertEquals(1, firstVisitBody.get("publicationIds").size())
+        assertTrue(firstVisitBody.get("hasUpdates").asBoolean())
         jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?)", subjectId, "notice:later")
-        mvc.post("/api/v1/subjects/$subjectId/visits") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", studentCookie))
-            content = """{"publicationIds":["material:observed"]}"""
-        }.andExpect { status { isOk() }; jsonPath("$.seenAt") { exists() }; jsonPath("$.seenPublicationIds[0]") { value("material:observed") }; jsonPath("$.publicationIds.length()") { value(2) }; jsonPath("$.hasUpdates") { value(true) } }
+        val recordedVisit = liveHttp("POST", "/subjects/$subjectId/visits", studentCookie, """{"publicationIds":["material:observed"]}""")
+        assertEquals(200, recordedVisit.statusCode(), recordedVisit.body())
+        val recordedVisitBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(recordedVisit.body())
+        assertTrue(recordedVisitBody.hasNonNull("seenAt"))
+        assertEquals("material:observed", recordedVisitBody.get("seenPublicationIds").first().asText())
+        assertEquals(2, recordedVisitBody.get("publicationIds").size())
+        assertTrue(recordedVisitBody.get("hasUpdates").asBoolean())
         val visitPool = Executors.newFixedThreadPool(2)
         jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?)", subjectId, "material:concurrent-a")
         jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?)", subjectId, "notice:concurrent-b")
@@ -3372,7 +3598,7 @@ class CoreApplicationTests @Autowired constructor(
             header("Origin", "https://aja.example.test")
             cookie(Cookie("aja_session", otherStudentCookie))
         }.andExpect { status { isOk() }; jsonPath("$.seenAt") { value(null) }; jsonPath("$.seenPublicationIds.length()") { value(0) }; jsonPath("$.hasUpdates") { value(true) } }
-        assertTrue(firstVisit.response.contentAsString.contains("\"seenAt\":null"))
+        assertTrue(firstVisit.body().contains("\"seenAt\":null"))
 
         mvc.post("/api/v1/classes/$classId/close") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
@@ -3693,13 +3919,9 @@ class CoreApplicationTests @Autowired constructor(
 
         val teacherEmail = "teacher-${UUID.randomUUID()}@example.test"
         val outboxBefore = jdbc.queryForObject("select count(*) from core.outbox_events", Int::class.java)!!
-        mvc.post("/api/v1/users") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", "user-${UUID.randomUUID()}")
-            cookie(Cookie("aja_session", adminCookie))
-            content = """{"name":"Teacher AJA","email":"$teacherEmail","role":"teacher"}"""
-        }.andExpect { status { isCreated() }; jsonPath("$.emailConfirmedAt") { value(null) } }
+        val teacher = liveHttp("POST", "/users", adminCookie, """{"name":"Teacher AJA","email":"$teacherEmail","role":"teacher"}""", "user-${UUID.randomUUID()}")
+        assertEquals(201, teacher.statusCode(), teacher.body())
+        assertTrue(tools.jackson.databind.json.JsonMapper.builder().build().readTree(teacher.body()).get("emailConfirmedAt").isNull)
         assertEquals(outboxBefore + 2, jdbc.queryForObject("select count(*) from core.outbox_events", Int::class.java))
         assertEquals(2, jdbc.queryForObject("select count(*) from core.auth_tokens where email_at_issue=?", Int::class.java, teacherEmail))
 
@@ -3741,10 +3963,9 @@ class CoreApplicationTests @Autowired constructor(
             header("Origin", "https://aja.example.test")
             cookie(Cookie("aja_session", adminCookie))
         }.andExpect { status { isOk() }; jsonPath("$.items[0].enrollment") { value(null) } }
-        mvc.get("/api/v1/students/$studentId") {
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", adminCookie))
-        }.andExpect { status { isOk() }; jsonPath("$.enrollments[0].id") { value(enrollmentId) } }
+        val studentDetail = liveHttp("GET", "/students/$studentId", adminCookie)
+        assertEquals(200, studentDetail.statusCode(), studentDetail.body())
+        assertEquals(enrollmentId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(studentDetail.body()).at("/enrollments/0/id").asText())
 
         val login = mvc.post("/api/v1/auth/login") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
@@ -3752,14 +3973,15 @@ class CoreApplicationTests @Autowired constructor(
             content = """{"email":"$studentEmail","password":"A long test password"}"""
         }.andExpect { status { isOk() } }.andReturn()
         val studentCookie = login.response.getHeader("Set-Cookie")!!.substringAfter("aja_session=").substringBefore(';')
-        mvc.get("/api/v1/classes") {
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", studentCookie))
-        }.andExpect { status { isOk() }; jsonPath("$.total") { value(1) }; jsonPath("$.items[0].id") { value(classId) }; jsonPath("$.items[0].studentIds") { doesNotExist() } }
-        mvc.get("/api/v1/classes/$classId") {
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", studentCookie))
-        }.andExpect { status { isOk() }; jsonPath("$.id") { value(classId) } }
+        val classes = liveHttp("GET", "/classes", studentCookie)
+        assertEquals(200, classes.statusCode(), classes.body())
+        val classesBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(classes.body())
+        assertEquals(1, classesBody.get("total").asInt())
+        assertEquals(classId, classesBody.at("/items/0/id").asText())
+        assertFalse(classesBody.at("/items/0").has("studentIds"))
+        val classRead = liveHttp("GET", "/classes/$classId", studentCookie)
+        assertEquals(200, classRead.statusCode(), classRead.body())
+        assertEquals(classId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(classRead.body()).get("id").asText())
         mvc.get("/api/v1/students?classId=$classId&q=$studentEmail&history=true") {
             header("Origin", "https://aja.example.test")
             cookie(Cookie("aja_session", studentCookie))
@@ -3791,21 +4013,11 @@ class CoreApplicationTests @Autowired constructor(
             cookie(Cookie("aja_session", adminCookie))
             content = """{"classId":"$classId","email":"other-${UUID.randomUUID()}@example.test"}"""
         }.andExpect { status { isConflict() }; jsonPath("$.error.code") { value("IDEMPOTENCY_CONFLICT") } }
-        mvc.post("/api/v1/classes/$classId/close") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", "close-${UUID.randomUUID()}")
-            cookie(Cookie("aja_session", adminCookie))
-            content = """{"expectedRevision":1}"""
-        }.andExpect { status { isOk() } }
+        val closedClass = liveHttp("POST", "/classes/$classId/close", adminCookie, """{"expectedRevision":1}""", "close-${UUID.randomUUID()}")
+        assertEquals(200, closedClass.statusCode(), closedClass.body())
         assertEquals("ended", jdbc.queryForObject("select status from core.enrollments where id=?", String::class.java, enrollmentId))
-        mvc.post("/api/v1/classes/$classId/reopen") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", "reopen-${UUID.randomUUID()}")
-            cookie(Cookie("aja_session", adminCookie))
-            content = """{"expectedRevision":2}"""
-        }.andExpect { status { isOk() } }
+        val reopenedClass = liveHttp("POST", "/classes/$classId/reopen", adminCookie, """{"expectedRevision":2}""", "reopen-${UUID.randomUUID()}")
+        assertEquals(200, reopenedClass.statusCode(), reopenedClass.body())
         assertEquals("ended", jdbc.queryForObject("select status from core.enrollments where id=?", String::class.java, enrollmentId))
     }
 
@@ -3819,12 +4031,7 @@ class CoreApplicationTests @Autowired constructor(
         try {
             val requests = listOf(first, second).map { (cookie, id) -> executor.submit<Int> {
                 start.await()
-                mvc.post("/api/v1/users/$id/deactivate") {
-                    contentType = org.springframework.http.MediaType.APPLICATION_JSON
-                    header("Origin", "https://aja.example.test")
-                    cookie(Cookie("aja_session", cookie))
-                    content = """{"expectedRevision":1}"""
-                }.andReturn().response.status
+                liveHttp("POST", "/users/$id/deactivate", cookie, """{"expectedRevision":1}""").statusCode()
             } }
             start.countDown()
             val statuses = requests.map { it.get(10, TimeUnit.SECONDS) }
@@ -3833,6 +4040,19 @@ class CoreApplicationTests @Autowired constructor(
         } finally {
             executor.shutdownNow()
         }
+    }
+
+    @Test
+    fun userWithdrawalRevokesTheTargetUsersSession() {
+        val (adminCookie, _) = adminSession()
+        val (studentCookie, studentId) = userSession("student")
+
+        val withdrawn = liveHttp("POST", "/users/$studentId/withdraw", adminCookie, """{"expectedRevision":1}""")
+
+        assertEquals(200, withdrawn.statusCode(), withdrawn.body())
+        assertEquals(false, tools.jackson.databind.json.JsonMapper.builder().build().readTree(withdrawn.body()).get("active").asBoolean())
+        assertEquals(401, liveHttp("GET", "/me", studentCookie).statusCode())
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.sessions WHERE user_id=? AND revoked_at IS NOT NULL", Int::class.java, studentId))
     }
 
     @Test
@@ -3855,16 +4075,16 @@ class CoreApplicationTests @Autowired constructor(
             header("Origin", "https://aja.example.test")
             cookie(Cookie("aja_session", teacherCookie))
         }.andExpect { status { isOk() }; jsonPath("$.total") { value(0) } }
+        val users = liveHttp("GET", "/users?role=teacher&active=true&page=1&pageSize=100", adminCookie)
+        assertEquals(200, users.statusCode(), users.body())
+        assertTrue(tools.jackson.databind.json.JsonMapper.builder().build().readTree(users.body()).get("items").any { it.get("id").asText() == teacherId })
         mvc.get("/api/v1/users?role=teacher&active=true&q=Admin%20AJA") {
             header("Origin", "https://aja.example.test")
             cookie(Cookie("aja_session", adminCookie))
         }.andExpect { status { isOk() }; jsonPath("$.items.length()") { value(0) } }
-        mvc.post("/api/v1/users/$teacherId/role") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", adminCookie))
-            content = """{"expectedRevision":1,"role":"student"}"""
-        }.andExpect { status { isOk() }; jsonPath("$.revision") { value(2) } }
+        val roleChange = liveHttp("POST", "/users/$teacherId/role", adminCookie, """{"expectedRevision":1,"role":"student"}""")
+        assertEquals(200, roleChange.statusCode(), roleChange.body())
+        assertEquals(2, tools.jackson.databind.json.JsonMapper.builder().build().readTree(roleChange.body()).get("revision").asInt())
         mvc.get("/api/v1/classes") {
             header("Origin", "https://aja.example.test")
             cookie(Cookie("aja_session", teacherCookie))
@@ -3936,22 +4156,16 @@ class CoreApplicationTests @Autowired constructor(
             VALUES(?,1,?,?,?,?,?,?,?,'student',true,?)""", studentId, now, now, studentId, "Confirmed Student", email, email.lowercase(), "unused", now)
         jdbc.update("""INSERT INTO core.enrollments(id,revision,created_at,updated_at,updated_by,class_id,email,normalized_email,student_id,status,created_by)
             VALUES(?,1,?,?,?,?,?,?,NULL,'pending',?)""", enrollmentId, now, now, adminId, classId, email, email.lowercase(), adminId)
-        mvc.post("/api/v1/enrollments/$enrollmentId/activate") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", "activate-${UUID.randomUUID()}")
-            cookie(Cookie("aja_session", adminCookie))
-            content = """{"expectedRevision":1}"""
-        }.andExpect { status { isOk() }; jsonPath("$.studentId") { value(studentId) }; jsonPath("$.status") { value("active") } }
+        val activated = liveHttp("POST", "/enrollments/$enrollmentId/activate", adminCookie, """{"expectedRevision":1}""", "activate-${UUID.randomUUID()}")
+        assertEquals(200, activated.statusCode(), activated.body())
+        val activatedBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(activated.body())
+        assertEquals(studentId, activatedBody.get("studentId").asText())
+        assertEquals("active", activatedBody.get("status").asText())
         assertEquals(1, jdbc.queryForObject("select revision from core.users where id=?", Int::class.java, studentId))
         assertTrue(jdbc.queryForObject("select active and email_confirmed_at is not null from core.users where id=?", Boolean::class.java, studentId)!!)
-        mvc.post("/api/v1/enrollments/$enrollmentId/end") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", "end-${UUID.randomUUID()}")
-            cookie(Cookie("aja_session", adminCookie))
-            content = """{"expectedRevision":2}"""
-        }.andExpect { status { isOk() }; jsonPath("$.status") { value("ended") } }
+        val ended = liveHttp("POST", "/enrollments/$enrollmentId/end", adminCookie, """{"expectedRevision":2}""", "end-${UUID.randomUUID()}")
+        assertEquals(200, ended.statusCode(), ended.body())
+        assertEquals("ended", tools.jackson.databind.json.JsonMapper.builder().build().readTree(ended.body()).get("status").asText())
         val renewed = mvc.post("/api/v1/enrollments") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
@@ -3960,13 +4174,12 @@ class CoreApplicationTests @Autowired constructor(
             content = """{"classId":"$classId","email":"$email"}"""
         }.andExpect { status { isCreated() }; jsonPath("$.status") { value("active") } }.andReturn()
         val renewedId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(renewed.response.contentAsString).get("id").asText()
-        mvc.post("/api/v1/enrollments/$renewedId/cancel") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", "cancel-${UUID.randomUUID()}")
-            cookie(Cookie("aja_session", adminCookie))
-            content = """{"expectedRevision":1}"""
-        }.andExpect { status { isOk() }; jsonPath("$.status") { value("cancelled") } }
+        val cancelled = liveHttp(
+            "POST", "/enrollments/$renewedId/cancel", adminCookie,
+            """{"expectedRevision":1}""", "cancel-${UUID.randomUUID()}",
+        )
+        assertEquals(200, cancelled.statusCode(), cancelled.body())
+        assertEquals("cancelled", tools.jackson.databind.json.JsonMapper.builder().build().readTree(cancelled.body()).get("status").asText())
     }
 
     @Test
@@ -4412,27 +4625,19 @@ class CoreApplicationTests @Autowired constructor(
     @Test
     fun confirmationRequestsAreNeutralAndOnlyKnownAddressQueuesEncryptedEvent() {
         val email = "confirm-request-${UUID.randomUUID()}@example.test"
-        mvc.post("/api/v1/auth/register") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            content = """{"name":"Confirmation Student","email":"$email","password":"A long test password"}"""
-        }.andExpect { status { isCreated() } }
+        val registration = liveHttp("POST", "/auth/register", null, """{"name":"Confirmation Student","email":"$email","password":"A long test password"}""")
+        assertEquals(201, registration.statusCode(), registration.body())
         val originalTokenHash = jdbc.queryForObject("select token_hash from core.auth_tokens where email_at_issue=? and purpose='email_confirmation'", String::class.java, email)!!.trim()
         val beforeEvents = jdbc.queryForObject("select count(*) from core.outbox_events", Int::class.java)!!
-        val known = mvc.post("/api/v1/auth/email-confirmation-requests") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            content = """{"email":"$email"}"""
-        }.andExpect {
-            status { isAccepted() }
-            jsonPath("$.message") { exists() }
-        }.andReturn()
+        val known = liveHttp("POST", "/auth/email-confirmation-requests", null, """{"email":"$email"}""")
+        assertEquals(202, known.statusCode(), known.body())
+        assertTrue(tools.jackson.databind.json.JsonMapper.builder().build().readTree(known.body()).hasNonNull("message"))
         val unknown = mvc.post("/api/v1/auth/email-confirmation-requests") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
             content = """{"email":"unknown-${UUID.randomUUID()}@example.test"}"""
         }.andExpect { status { isAccepted() } }.andReturn()
-        assertEquals(known.response.contentAsString, unknown.response.contentAsString)
+        assertEquals(known.body(), unknown.response.contentAsString)
         assertEquals(beforeEvents + 1, jdbc.queryForObject("select count(*) from core.outbox_events", Int::class.java))
         val payload = latestOutboxPayload("identity.email-confirmation-requested")
         val token = Regex(""""token":"([^"]+)"""").find(payload)!!.groupValues[1]
@@ -4442,32 +4647,24 @@ class CoreApplicationTests @Autowired constructor(
         )!!
         assertEquals(sha256(token), tokenHash.trim())
         assertEquals(1, jdbc.queryForObject("select count(*) from core.auth_tokens where token_hash=? and used_at is not null", Int::class.java, originalTokenHash))
-        assertFalse(known.response.contentAsString.contains(token))
+        assertFalse(known.body().contains(token))
     }
 
     @Test
     fun passwordResetRequestsAreNeutralForKnownAndUnknownAddresses() {
         val email = "reset-request-${UUID.randomUUID()}@example.test"
-        mvc.post("/api/v1/auth/register") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            content = """{"name":"Reset Student","email":"$email","password":"A long test password"}"""
-        }.andExpect { status { isCreated() } }
+        val registration = liveHttp("POST", "/auth/register", null, """{"name":"Reset Student","email":"$email","password":"A long test password"}""")
+        assertEquals(201, registration.statusCode(), registration.body())
         val beforeEvents = jdbc.queryForObject("select count(*) from core.outbox_events", Int::class.java)!!
-        val known = mvc.post("/api/v1/auth/password-reset-requests") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            content = """{"email":"$email"}"""
-        }.andExpect {
-            status { isAccepted() }
-            jsonPath("$.message") { exists() }
-        }.andReturn()
+        val known = liveHttp("POST", "/auth/password-reset-requests", null, """{"email":"$email"}""")
+        assertEquals(202, known.statusCode(), known.body())
+        assertTrue(tools.jackson.databind.json.JsonMapper.builder().build().readTree(known.body()).hasNonNull("message"))
         val unknown = mvc.post("/api/v1/auth/password-reset-requests") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
             content = """{"email":"unknown-${UUID.randomUUID()}@example.test"}"""
         }.andExpect { status { isAccepted() } }.andReturn()
-        assertEquals(known.response.contentAsString, unknown.response.contentAsString)
+        assertEquals(known.body(), unknown.response.contentAsString)
         assertEquals(beforeEvents + 1, jdbc.queryForObject("select count(*) from core.outbox_events", Int::class.java))
         val payload = latestOutboxPayload("identity.password-reset-requested")
         val token = Regex(""""token":"([^"]+)"""").find(payload)!!.groupValues[1]
@@ -4476,7 +4673,7 @@ class CoreApplicationTests @Autowired constructor(
             String::class.java, email,
         )!!
         assertEquals(sha256(token), tokenHash.trim())
-        assertFalse(known.response.contentAsString.contains(token))
+        assertFalse(known.body().contains(token))
     }
 
     @Test
@@ -4493,15 +4690,11 @@ class CoreApplicationTests @Autowired constructor(
             return email to token
         }
         val (confirmedEmail, confirmationToken) = registerAndGetToken("valid")
-        mvc.post("/api/v1/auth/email-confirmations") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            content = """{"token":"$confirmationToken"}"""
-        }.andExpect {
-            status { isOk() }
-            jsonPath("$.email") { value(confirmedEmail) }
-            jsonPath("$.emailConfirmedAt") { exists() }
-        }
+        val confirmed = liveHttp("POST", "/auth/email-confirmations", null, """{"token":"$confirmationToken"}""")
+        assertEquals(200, confirmed.statusCode(), confirmed.body())
+        val confirmedBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(confirmed.body())
+        assertEquals(confirmedEmail, confirmedBody.get("email").asText())
+        assertTrue(confirmedBody.hasNonNull("emailConfirmedAt"))
         mvc.post("/api/v1/auth/email-confirmations") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
@@ -4593,13 +4786,11 @@ class CoreApplicationTests @Autowired constructor(
         }.andExpect { status { isOk() } }.andReturn()
         val sessionCookie = login.response.getHeader("Set-Cookie")!!.substringAfter("aja_session=").substringBefore(';')
 
-        fun requestReset(): String = mvc.post("/api/v1/auth/password-reset-requests") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            content = """{"email":"$email"}"""
-        }.andExpect { status { isAccepted() } }.andReturn().let {
+        fun requestReset(): String {
+            val response = liveHttp("POST", "/auth/password-reset-requests", null, """{"email":"$email"}""")
+            assertEquals(202, response.statusCode(), response.body())
             val payload = latestOutboxPayload("identity.password-reset-requested")
-            Regex(""""token":"([^"]+)"""").find(payload)!!.groupValues[1]
+            return Regex(""""token":"([^"]+)"""").find(payload)!!.groupValues[1]
         }
         val previousToken = requestReset()
         val previousHash = sha256(previousToken)
@@ -4608,14 +4799,9 @@ class CoreApplicationTests @Autowired constructor(
         assertEquals(1, jdbc.queryForObject("select count(*) from core.auth_tokens where token_hash=? and used_at is not null", Int::class.java, previousHash))
 
         val newPassword = "Brand new long password"
-        mvc.post("/api/v1/auth/password-resets") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            content = """{"token":"$resetToken","password":"$newPassword"}"""
-        }.andExpect {
-            status { isOk() }
-            jsonPath("$.message") { exists() }
-        }
+        val reset = liveHttp("POST", "/auth/password-resets", null, """{"token":"$resetToken","password":"$newPassword"}""")
+        assertEquals(200, reset.statusCode(), reset.body())
+        assertTrue(tools.jackson.databind.json.JsonMapper.builder().build().readTree(reset.body()).hasNonNull("message"))
         val passwordHash = jdbc.queryForObject("select password_hash from core.users where normalized_email=?", String::class.java, email)!!
         assertTrue(passwordEncoder.matches(newPassword, passwordHash))
         assertFalse(passwordEncoder.matches("A long test password", passwordHash))
@@ -4670,47 +4856,38 @@ class CoreApplicationTests @Autowired constructor(
     @Test
     fun loginCreatesOpaqueHttpOnlySessionCookie() {
         val email = "login-${UUID.randomUUID()}@example.test"
-        mvc.post("/api/v1/auth/register") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            content = """{"name":"Login Student","email":"$email","password":"A long test password"}"""
-        }.andExpect { status { isCreated() } }
-        val result = mvc.post("/api/v1/auth/login") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            content = """{"email":"$email","password":"A long test password"}"""
-        }.andExpect {
-            status { isOk() }
-            jsonPath("$.user.email") { value(email) }
-            jsonPath("$.sessionId") { exists() }
-            header { string("Set-Cookie", org.hamcrest.Matchers.containsString("aja_session=")) }
-            header { string("Set-Cookie", org.hamcrest.Matchers.containsString("HttpOnly")) }
-            header { string("Set-Cookie", org.hamcrest.Matchers.containsString("Path=/api/v1")) }
-            header { string("Set-Cookie", org.hamcrest.Matchers.containsString("SameSite=Lax")) }
-            header { string("Set-Cookie", org.hamcrest.Matchers.containsString("Max-Age=28800")) }
-            header { string("Set-Cookie", org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("Secure"))) }
-            jsonPath("$.expiresAt") { exists() }
-        }.andReturn()
-        val sessionCookieValue = result.response.getHeader("Set-Cookie")!!.substringAfter("aja_session=").substringBefore(';')
-        val sessionId = com.jayway.jsonpath.JsonPath.read<String>(result.response.contentAsString, "$.sessionId")
+        val registration = liveHttp("POST", "/auth/register", null, """{"name":"Login Student","email":"$email","password":"A long test password"}""")
+        assertEquals(201, registration.statusCode(), registration.body())
+        val result = liveHttp("POST", "/auth/login", null, """{"email":"$email","password":"A long test password"}""")
+        assertEquals(200, result.statusCode(), result.body())
+        val responseBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(result.body())
+        assertEquals(email, responseBody.at("/user/email").asText())
+        assertTrue(responseBody.hasNonNull("sessionId"))
+        assertTrue(responseBody.hasNonNull("expiresAt"))
+        val setCookie = result.headers().firstValue("Set-Cookie").orElseThrow()
+        assertTrue(setCookie.contains("aja_session="))
+        assertTrue(setCookie.contains("HttpOnly"))
+        assertTrue(setCookie.contains("Path=/api/v1"))
+        assertTrue(setCookie.contains("SameSite=Lax"))
+        assertTrue(setCookie.contains("Max-Age=28800"))
+        assertFalse(setCookie.contains("Secure"))
+        val sessionCookieValue = setCookie.substringAfter("aja_session=").substringBefore(';')
+        val sessionId = responseBody.get("sessionId").asText()
         val storedHash = jdbc.queryForObject("select token_hash from core.sessions where id = ?", String::class.java, sessionId)!!
         assertEquals(MessageDigest.getInstance("SHA-256").digest(sessionCookieValue.toByteArray()).joinToString("") { "%02x".format(it) }, storedHash.trim())
         assertEquals(28800.0, jdbc.queryForObject("select extract(epoch from expires_at - created_at) from core.sessions where id = ?", Double::class.java, sessionId))
-        assertFalse(result.response.contentAsString.contains(sessionCookieValue))
-        mvc.get("/api/v1/auth/session") { cookie(Cookie("aja_session", sessionCookieValue)) }.andExpect {
-            status { isOk() }
-            jsonPath("$.sessionId") { value(sessionId) }
-            jsonPath("$.user.email") { value(email) }
-        }
-        mvc.get("/api/v1/me") { cookie(Cookie("aja_session", sessionCookieValue)) }.andExpect {
-            status { isOk() }
-            jsonPath("$.email") { value(email) }
-        }
+        assertFalse(result.body().contains(sessionCookieValue))
+        val restoredSession = liveHttp("GET", "/auth/session", sessionCookieValue)
+        assertEquals(200, restoredSession.statusCode(), restoredSession.body())
+        assertEquals(sessionId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(restoredSession.body()).get("sessionId").asText())
+        assertEquals(email, tools.jackson.databind.json.JsonMapper.builder().build().readTree(restoredSession.body()).at("/user/email").asText())
+        val self = liveHttp("GET", "/me", sessionCookieValue)
+        assertEquals(200, self.statusCode(), self.body())
+        assertEquals(email, tools.jackson.databind.json.JsonMapper.builder().build().readTree(self.body()).get("email").asText())
         jdbc.update("update core.users set active=false where normalized_email=?", email)
-        mvc.get("/api/v1/me") { cookie(Cookie("aja_session", sessionCookieValue)) }.andExpect {
-            status { isUnauthorized() }
-            jsonPath("$.error.code") { value("SESSION_REQUIRED") }
-        }
+        val revokedSession = liveHttp("GET", "/me", sessionCookieValue)
+        assertEquals(401, revokedSession.statusCode(), revokedSession.body())
+        assertEquals("SESSION_REQUIRED", tools.jackson.databind.json.JsonMapper.builder().build().readTree(revokedSession.body()).at("/error/code").asText())
     }
 
     @Test
@@ -4733,24 +4910,16 @@ class CoreApplicationTests @Autowired constructor(
             header("Origin", "https://aja.example.test")
             content = """{"name":"Profile Student","email":"$email","password":"A long test password"}"""
         }.andExpect { status { isCreated() } }
-        val login = mvc.post("/api/v1/auth/login") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            content = """{"email":"$email","password":"A long test password"}"""
-        }.andExpect { status { isOk() } }.andReturn()
-        val sessionCookie = login.response.getHeader("Set-Cookie")!!.substringAfter("aja_session=").substringBefore(';')
-        val userId = com.jayway.jsonpath.JsonPath.read<String>(login.response.contentAsString, "$.user.id")
-        mvc.patch("/api/v1/me") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", sessionCookie))
-            content = """{"expectedRevision":1,"name":"Updated Name"}"""
-        }.andExpect {
-            status { isOk() }
-            jsonPath("$.name") { value("Updated Name") }
-            jsonPath("$.revision") { value(2) }
-            jsonPath("$.updatedBy") { value(userId) }
-        }
+        val login = liveHttp("POST", "/auth/login", null, """{"email":"$email","password":"A long test password"}""")
+        assertEquals(200, login.statusCode(), login.body())
+        val sessionCookie = login.headers().firstValue("Set-Cookie").orElseThrow().substringAfter("aja_session=").substringBefore(';')
+        val userId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(login.body()).at("/user/id").asText()
+        val profile = liveHttp("PATCH", "/me", sessionCookie, """{"expectedRevision":1,"name":"Updated Name"}""")
+        assertEquals(200, profile.statusCode(), profile.body())
+        val profileBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(profile.body())
+        assertEquals("Updated Name", profileBody.get("name").asText())
+        assertEquals(2, profileBody.get("revision").asInt())
+        assertEquals(userId, profileBody.get("updatedBy").asText())
         mvc.patch("/api/v1/me") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
@@ -5020,9 +5189,9 @@ class CoreApplicationTests @Autowired constructor(
         val classId = createB06Class(adminCookie)
         val subjectId = createB06Subject(adminCookie, classId, teacherId)
         val (studentCookie, studentId) = userSession("student")
-        createB07Enrollment(classId, studentId, teacherId)
+        createB07Enrollment(classId, studentId, teacherId, enrolledAt = Instant.parse("2026-11-12T00:00:00Z"))
         val (peerCookie, peerId) = userSession("student")
-        createB07Enrollment(classId, peerId, teacherId)
+        createB07Enrollment(classId, peerId, teacherId, enrolledAt = Instant.parse("2026-11-12T00:00:00Z"))
         val body = """{"subjectId":"$subjectId","date":"2026-11-12","time":"14:00","records":{"$studentId":true}}"""
         val key = "attendance-${UUID.randomUUID()}"
 
@@ -5088,11 +5257,11 @@ class CoreApplicationTests @Autowired constructor(
         val classId = createB06Class(adminCookie)
         val subjectId = createB06Subject(adminCookie, classId, teacherId)
         val (_, currentId) = userSession("student")
-        createB07Enrollment(classId, currentId, teacherId)
+        createB07Enrollment(classId, currentId, teacherId, enrolledAt = Instant.parse("2026-11-12T00:00:00Z"))
         val (_, futureId) = userSession("student")
         createB07Enrollment(classId, futureId, teacherId, enrolledAt = java.time.Instant.parse("2026-11-13T03:00:00Z"))
         val (_, exitedId) = userSession("student")
-        val exitedEnrollment = createB07Enrollment(classId, exitedId, teacherId)
+        val exitedEnrollment = createB07Enrollment(classId, exitedId, teacherId, enrolledAt = Instant.parse("2026-11-12T00:00:00Z"))
         jdbc.update("UPDATE core.enrollments SET status='ended',ended_at=? WHERE id=?", java.sql.Timestamp.from(java.time.Instant.parse("2026-11-12T02:00:00Z")), exitedEnrollment)
         val (legacyCookie, legacyId) = userSession("student")
         val legacyEnrollment = createB07Enrollment(classId, legacyId, teacherId, enrolledAt = null)
@@ -5152,7 +5321,7 @@ class CoreApplicationTests @Autowired constructor(
         val classId = createB06Class(adminCookie)
         val subjectId = createB06Subject(adminCookie, classId, teacherId)
         val (_, studentId) = userSession("student")
-        createB07Enrollment(classId, studentId, teacherId)
+        createB07Enrollment(classId, studentId, teacherId, enrolledAt = Instant.parse("2026-11-12T00:00:00Z"))
         val body = """{"subjectId":"$subjectId","date":"2026-11-12","time":"17:00","records":{"$studentId":true}}"""
         val key = "attendance-${UUID.randomUUID()}"
         val created = liveHttp("POST", "/attendance", teacherCookie, body, key)
@@ -5172,7 +5341,7 @@ class CoreApplicationTests @Autowired constructor(
         val classId = createB06Class(adminCookie)
         val subjectId = createB06Subject(adminCookie, classId, teacherId)
         val (_, studentId) = userSession("student")
-        createB07Enrollment(classId, studentId, teacherId)
+        createB07Enrollment(classId, studentId, teacherId, enrolledAt = Instant.parse("2026-11-12T00:00:00Z"))
         repeat(12) { index ->
             val date = java.time.LocalDate.parse("2026-11-12").plusDays(index.toLong())
             val instant = date.atTime(16, 0).toInstant(java.time.ZoneOffset.UTC)
@@ -5204,11 +5373,11 @@ class CoreApplicationTests @Autowired constructor(
         assertTrue(generateSequence(error as Throwable?) { it.cause }.filterIsInstance<SQLException>().any { it.sqlState == "42501" })
     }
 
-    private fun liveHttp(method: String, path: String, cookie: String, body: String? = null, key: String? = null): HttpResponse<String> {
+    private fun liveHttp(method: String, path: String, cookie: String?, body: String? = null, key: String? = null, origin: String = "https://aja.example.test", contentType: String = "application/json"): HttpResponse<String> {
         val builder = HttpRequest.newBuilder(URI("http://localhost:${checkNotNull(webContext.webServer).port}/api/v1$path"))
-            .header("Origin", "https://aja.example.test")
-            .header("Cookie", "aja_session=$cookie")
-            .header("Content-Type", "application/json")
+            .header("Origin", origin)
+            .header("Content-Type", contentType)
+        cookie?.let { builder.header("Cookie", "aja_session=$it") }
         key?.let { builder.header("Idempotency-Key", it) }
         val publisher = body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody()
         return HttpClient.newHttpClient().send(builder.method(method, publisher).build(), HttpResponse.BodyHandlers.ofString())
@@ -5346,27 +5515,25 @@ class CoreApplicationTests @Autowired constructor(
     }
 
     private fun createB06Class(adminCookie: String): String {
-        val result = mvc.post("/api/v1/classes") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", "class-${UUID.randomUUID()}")
-            cookie(Cookie("aja_session", adminCookie))
-            content = """{"name":"B06 gate","code":"G-${UUID.randomUUID()}","year":2026,"shift":"Noite"}"""
-        }.andExpect { status { isCreated() } }.andReturn()
-        return tools.jackson.databind.json.JsonMapper.builder().build().readTree(result.response.contentAsString).get("id").asText()
+        val response = liveHttp(
+            "POST", "/classes", adminCookie,
+            """{"name":"B06 gate","code":"G-${UUID.randomUUID()}","year":2026,"shift":"Noite"}""",
+            "class-${UUID.randomUUID()}",
+        )
+        assertEquals(201, response.statusCode(), response.body())
+        return tools.jackson.databind.json.JsonMapper.builder().build().readTree(response.body()).get("id").asText()
     }
 
     private fun createB07WorkModule(adminCookie: String, teacherCookie: String, teacherId: String): Pair<String, String> {
         val classId = createB06Class(adminCookie)
         val subjectId = createB06Subject(adminCookie, classId, teacherId)
-        val moduleResponse = mvc.post("/api/v1/modules") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", "module-${UUID.randomUUID()}")
-            cookie(Cookie("aja_session", teacherCookie))
-            content = """{"subjectId":"$subjectId","title":"B07 work fixture","description":""}"""
-        }.andExpect { status { isCreated() } }.andReturn()
-        val moduleId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(moduleResponse.response.contentAsString).get("id").asText()
+        val moduleResponse = liveHttp(
+            "POST", "/modules", teacherCookie,
+            """{"subjectId":"$subjectId","title":"B07 work fixture","description":""}""",
+            "module-${UUID.randomUUID()}",
+        )
+        assertEquals(201, moduleResponse.statusCode(), moduleResponse.body())
+        val moduleId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(moduleResponse.body()).get("id").asText()
         return classId to moduleId
     }
 
@@ -5400,14 +5567,13 @@ class CoreApplicationTests @Autowired constructor(
     }
 
     private fun createB06Subject(adminCookie: String, classId: String, teacherId: String): String {
-        val result = mvc.post("/api/v1/subjects") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            header("Idempotency-Key", "subject-${UUID.randomUUID()}")
-            cookie(Cookie("aja_session", adminCookie))
-            content = """{"classId":"$classId","name":"Gate subject","teacherIds":["$teacherId"],"color":"blue","icon":"book","description":""}"""
-        }.andExpect { status { isCreated() } }.andReturn()
-        return tools.jackson.databind.json.JsonMapper.builder().build().readTree(result.response.contentAsString).get("id").asText()
+        val response = liveHttp(
+            "POST", "/subjects", adminCookie,
+            """{"classId":"$classId","name":"Gate subject","teacherIds":["$teacherId"],"color":"blue","icon":"book","description":""}""",
+            "subject-${UUID.randomUUID()}",
+        )
+        assertEquals(201, response.statusCode(), response.body())
+        return tools.jackson.databind.json.JsonMapper.builder().build().readTree(response.body()).get("id").asText()
     }
 
     private fun awaitLockWait(queryFragment: String) {

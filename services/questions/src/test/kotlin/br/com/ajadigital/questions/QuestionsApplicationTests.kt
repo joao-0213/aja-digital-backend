@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestInstance
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
@@ -18,6 +19,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
 import java.sql.DriverManager
 import java.sql.SQLException
+import java.net.URI
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 import org.springframework.test.context.DynamicPropertyRegistry
@@ -25,20 +27,105 @@ import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.context.jdbc.Sql
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
+import jakarta.servlet.FilterChain
+import jakarta.servlet.http.HttpServletRequest
+import jakarta.servlet.http.HttpServletResponse
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Import
+import org.springframework.boot.test.context.TestConfiguration
+import org.springframework.web.filter.OncePerRequestFilter
+import org.springframework.web.util.pattern.PathPatternParser
+import org.springframework.http.server.PathContainer
+import org.springframework.mock.web.MockHttpServletRequest
+
+class QuestionsOpenApiCoverageFilter : OncePerRequestFilter() {
+    private data class Operation(val id: String, val method: String, val path: String, val target: String, val body: String?, val pattern: org.springframework.web.util.pattern.PathPattern, val responseCodes: Set<String>)
+    private val mapper = tools.jackson.databind.json.JsonMapper.builder().build()
+    private val operations by lazy {
+        val specPath = generateSequence(Path.of("").toAbsolutePath()) { it.parent }
+            .map { it.resolve("docs/http/openapi.json") }.first { Files.isRegularFile(it) }
+        mapper.readTree(Files.readString(specPath)).get("paths").properties().asSequence()
+            .filter { (path, _) -> path == "/questions" || path.startsWith("/questions/") }
+            .flatMap { (path, methods) -> methods.properties().asSequence()
+                .filter { it.key in setOf("get", "post", "patch", "put", "delete", "options", "head", "trace") }
+                .map { (method, operation) ->
+                    val body = operation.get("requestBody")?.get("content")?.get("application/json")?.get("example")?.toString()
+                    val target = path.replace(Regex("\\{[^}]+}"), "q1")
+                    Operation(operation.get("operationId").asText(), method.uppercase(), path, target, body, PathPatternParser().parse("/api/v1$path"), operation.get("responses").properties().map { it.key }.toSet())
+                }
+            }.toList()
+    }
+    private val observed = ConcurrentHashMap<Operation, MutableSet<Int>>()
+
+    fun unauthenticatedProbes(): List<Triple<String, String, String?>> = operations.map { operation ->
+        assertTrue("401" in operation.responseCodes, "OpenAPI does not declare 401 for ${operation.method} ${operation.path} (${operation.id})")
+        Triple(operation.method, operation.target, operation.body)
+    }
+
+    override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
+        try { chain.doFilter(request, response) } finally {
+            if (request !is MockHttpServletRequest) {
+                operations.firstOrNull { it.method == request.method && it.pattern.matches(PathContainer.parsePath(request.requestURI)) }
+                    ?.let { observed.computeIfAbsent(it) { ConcurrentHashMap.newKeySet() }.add(response.status) }
+            }
+        }
+    }
+
+    fun assertEveryOperationHasSuccessAndUnauthorizedDenial() {
+        val missing = operations.filter { operation -> observed[operation].orEmpty().none { it in 200..299 } }
+        assertTrue(missing.isEmpty(), "OpenAPI operations without a successful HTTP request: ${missing.joinToString { "${it.method} ${it.path} (${it.id}) status=${observed[it]}" }}")
+        val missingDenial = operations.filter { 401 !in observed[it].orEmpty() }
+        assertTrue(missingDenial.isEmpty(), "OpenAPI operations without an unauthenticated 401 response: ${missingDenial.joinToString { "${it.method} ${it.path} (${it.id}) status=${observed[it]}" }}")
+    }
+}
+
+@TestConfiguration
+class QuestionsOpenApiCoverageConfiguration {
+    @Bean
+    fun questionsOpenApiCoverageFilter() = QuestionsOpenApiCoverageFilter()
+}
 
 @Testcontainers
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@Import(QuestionsOpenApiCoverageConfiguration::class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class QuestionsApplicationTests @Autowired constructor(
     private val jdbc: JdbcTemplate,
     private val flyway: Flyway,
     @LocalServerPort private val port: Int,
+    private val openApiCoverage: QuestionsOpenApiCoverageFilter,
 ) {
+    @AfterAll
+    fun everyQuestionsOpenApiOperationHasHttpSuccessAndUnauthorizedDenial() {
+        if (System.getenv("B16_OPENAPI_COVERAGE") == "true") {
+            openApiCoverage.assertEveryOperationHasSuccessAndUnauthorizedDenial()
+        }
+    }
+
     @Test
     fun `question list requires an active session`() {
         val response = RestClient.create().get().uri("http://localhost:$port/api/v1/questions")
             .exchange { _, result -> result.statusCode.value() to result.body.readAllBytes().decodeToString() }
         assertEquals(401, response.first)
         assertTrue(response.second.contains("SESSION_REQUIRED"))
+    }
+
+    @Test
+    fun `every Questions OpenAPI operation rejects a missing session at its exact route`() {
+        val client = java.net.http.HttpClient.newHttpClient()
+        val failures = mutableListOf<String>()
+        openApiCoverage.unauthenticatedProbes().forEach { (method, path, body) ->
+            val request = java.net.http.HttpRequest.newBuilder(URI("http://localhost:$port/api/v1$path"))
+                .header("Content-Type", "application/json")
+                .method(method, body?.let(java.net.http.HttpRequest.BodyPublishers::ofString) ?: java.net.http.HttpRequest.BodyPublishers.noBody())
+                .build()
+            val response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString())
+            if (response.statusCode() != 401) failures += "$method $path returned ${response.statusCode()}: ${response.body()}"
+        }
+        assertTrue(failures.isEmpty(), failures.joinToString("\n"))
     }
 
     @Test
