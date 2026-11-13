@@ -1,30 +1,16 @@
 package br.com.ajadigital.core
 
-import br.com.ajadigital.core.application.academic.AcademicConflict
-import br.com.ajadigital.core.application.academic.QuestionSnapshotNotFound
-import br.com.ajadigital.core.application.academic.QuestionsUnavailable
 import br.com.ajadigital.core.application.academic.AcademicActor
-import br.com.ajadigital.core.application.academic.AcademicIdempotencyConflict
-import br.com.ajadigital.core.application.academic.AcademicForbidden
-import br.com.ajadigital.core.application.academic.AcademicNotFound
-import br.com.ajadigital.core.application.academic.InvalidAttemptAnswers
-import br.com.ajadigital.core.application.academic.InvalidSubmissionFeedback
 import br.com.ajadigital.core.application.academic.ManageAcademics
 import br.com.ajadigital.core.application.academic.ManageAttendance
-import br.com.ajadigital.core.application.academic.InvalidAttendanceRecords
 import br.com.ajadigital.core.application.academic.ManageSubjects
 import br.com.ajadigital.core.application.academic.ManageTopics
 import br.com.ajadigital.core.ports.out.AttendanceDraft
-import br.com.ajadigital.core.application.academic.InvalidTopicReference
-import br.com.ajadigital.core.application.academic.UnknownPublication
-import br.com.ajadigital.core.application.academic.InvalidAcademicReference
 import br.com.ajadigital.core.application.identity.AuthenticateStudent
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.CookieValue
-import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -33,62 +19,12 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.bind.annotation.RestControllerAdvice
-import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.transaction.annotation.Transactional
 import tools.jackson.databind.JsonNode
-import tools.jackson.databind.node.MissingNode
-import java.util.UUID
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeParseException
 
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class UserCreateRequest(val name: String, val email: String, val role: String)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class UserEditRequest(val expectedRevision: JsonNode = MissingNode.getInstance(), val name: JsonNode = MissingNode.getInstance(), val email: JsonNode = MissingNode.getInstance())
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class RoleRequest(val expectedRevision: JsonNode = MissingNode.getInstance(), val role: String)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class RevisionRequest(val expectedRevision: JsonNode = MissingNode.getInstance())
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class ClassCreateRequest(val name: String, val code: String, val year: Int, val shift: String)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class ClassEditRequest(val expectedRevision: JsonNode = MissingNode.getInstance(), val name: JsonNode = MissingNode.getInstance(), val code: JsonNode = MissingNode.getInstance(), val year: JsonNode = MissingNode.getInstance(), val shift: JsonNode = MissingNode.getInstance())
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class EnrollmentCreateRequest(val classId: String, val email: String)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class SubjectCreateRequest(val classId: String, val name: String, val teacherIds: List<String>, val color: String, val icon: String = "book", val description: String)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class SubjectEditRequest(val expectedRevision: JsonNode = MissingNode.getInstance(), val classId: JsonNode = MissingNode.getInstance(), val name: JsonNode = MissingNode.getInstance(), val teacherIds: JsonNode = MissingNode.getInstance(), val color: JsonNode = MissingNode.getInstance(), val icon: JsonNode = MissingNode.getInstance(), val description: JsonNode = MissingNode.getInstance())
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class ModuleCreateRequest(val subjectId: String, val title: String, val description: String)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class ModuleEditRequest(val expectedRevision: JsonNode = MissingNode.getInstance(), val title: JsonNode = MissingNode.getInstance(), val description: JsonNode = MissingNode.getInstance())
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class OrderItemRequest(val id: String, val expectedRevision: Int)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class OrderCommandRequest(val expectedRevision: JsonNode = MissingNode.getInstance(), val items: List<OrderItemRequest>)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class VisitCommandRequest(val publicationIds: List<String>)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class TopicTargetRequest(val type: String, val id: String)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class TopicCreateRequest(val classId: String, val subjectId: String, val title: String, val body: String, val tags: List<String>, val target: TopicTargetRequest?, val attachmentId: String?)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class TopicReplyRequest(val body: String)
-@JsonIgnoreProperties(ignoreUnknown = false)
-class EmptyCommandRequest
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class TopicSolutionRequest(val expectedRevision: JsonNode = MissingNode.getInstance(), val replyId: JsonNode = MissingNode.getInstance())
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class TopicRevisionRequest(val expectedRevision: Int)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class TopicVoteRequest(val voted: Boolean)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class AttendanceCreateRequest(val subjectId: String, val date: String, val time: String, val records: JsonNode)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class AttendanceEditRequest(val expectedRevision: JsonNode = MissingNode.getInstance(), val records: JsonNode)
 
 @RestController
 class AcademicController(private val auth: AuthenticateStudent, private val academics: ManageAcademics, private val subjects: ManageSubjects, private val topics: ManageTopics, private val attendance: ManageAttendance) {
@@ -245,41 +181,4 @@ class AcademicController(private val auth: AuthenticateStudent, private val acad
     private fun integer(value: JsonNode) = if (value.isMissingNode) null else value.intValue().also { require(value.isIntegralNumber && value.canConvertToInt()) }
     private fun revision(value: JsonNode) = value.intValue().also { require(value.isIntegralNumber && value.canConvertToInt() && it > 0) }
     private fun page(result: br.com.ajadigital.core.ports.out.AcademicPage) = mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
-}
-
-@RestControllerAdvice
-class AcademicExceptionHandler {
-    @ExceptionHandler(InvalidAttendanceRecords::class)
-    fun invalidAttendanceRecords() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "Attendance includes a student outside this class session"))
-    @ExceptionHandler(InvalidTopicReference::class)
-    fun invalidTopicReference() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "Referenced content is not visible in this subject"))
-    @ExceptionHandler(InvalidSubmissionFeedback::class)
-    fun invalidSubmissionFeedback() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "Feedback is invalid"))
-    @ExceptionHandler(QuestionSnapshotNotFound::class)
-    fun missingSnapshot() = ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("NOT_FOUND", "Resource was not found"))
-    @ExceptionHandler(QuestionsUnavailable::class)
-    fun unavailableSnapshots() = ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error("SERVICE_UNAVAILABLE", "Question snapshots are unavailable"))
-    @ExceptionHandler(AcademicForbidden::class)
-    fun forbidden() = ResponseEntity.status(HttpStatus.FORBIDDEN).body(error("FORBIDDEN", "This action is not allowed"))
-    @ExceptionHandler(UnknownPublication::class)
-    fun invalidPublication() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "Publication is not visible in this subject"))
-    @ExceptionHandler(InvalidAcademicReference::class)
-    fun invalidReference() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "A referenced user is not eligible"))
-    @ExceptionHandler(InvalidAttemptAnswers::class)
-    fun invalidAttemptAnswers() = ResponseEntity.unprocessableEntity().body(error("VALIDATION_ERROR", "An answer is not valid for this attempt"))
-    @ExceptionHandler(AcademicNotFound::class)
-    fun notFound() = ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("NOT_FOUND", "Resource was not found"))
-    @ExceptionHandler(AcademicConflict::class)
-    fun conflict(exception: AcademicConflict): ResponseEntity<Any> {
-        val body = mutableMapOf<String, Any?>("code" to "REVISION_CONFLICT", "message" to "Resource changed or conflicts with current state", "requestId" to UUID.randomUUID().toString())
-        exception.currentRevision?.let { body["details"] = mapOf("currentRevision" to it) }
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("error" to body))
-    }
-    @ExceptionHandler(AcademicIdempotencyConflict::class)
-    fun idempotencyConflict() = ResponseEntity.status(HttpStatus.CONFLICT).body(error("IDEMPOTENCY_CONFLICT", "Idempotency key was reused with a different request"))
-    @ExceptionHandler(DataIntegrityViolationException::class, IllegalStateException::class)
-    fun stateConflict() = ResponseEntity.status(HttpStatus.CONFLICT).body(error("BUSINESS_CONFLICT", "Resource conflicts with current state"))
-    @ExceptionHandler(NoSuchElementException::class)
-    fun missing() = ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("NOT_FOUND", "Resource was not found"))
-    private fun error(code: String, message: String) = mapOf("error" to mapOf("code" to code, "message" to message, "requestId" to UUID.randomUUID().toString()))
 }

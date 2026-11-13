@@ -3,21 +3,11 @@ package br.com.ajadigital.core
 import br.com.ajadigital.core.application.academic.AcademicActor
 import br.com.ajadigital.core.application.academic.ManageContent
 import br.com.ajadigital.core.application.identity.AuthenticateStudent
-import br.com.ajadigital.core.application.identity.SessionRequired
-import br.com.ajadigital.core.ports.out.MaterialCreate
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import jakarta.servlet.FilterChain
-import jakarta.servlet.http.HttpServletRequest
-import jakarta.servlet.http.HttpServletResponse
-import org.springframework.beans.factory.annotation.Value
-import org.springframework.core.Ordered
-import org.springframework.core.annotation.Order
 import org.springframework.http.ContentDisposition
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
-import org.springframework.stereotype.Component
 import org.springframework.web.bind.annotation.CookieValue
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
@@ -29,49 +19,9 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartHttpServletRequest
 import org.springframework.transaction.annotation.Transactional
-import org.springframework.web.filter.OncePerRequestFilter
 import tools.jackson.databind.JsonNode
-import tools.jackson.databind.node.MissingNode
 import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
-import java.util.UUID
 
-@Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
-class FileUploadSessionFilter(private val auth: AuthenticateStudent, @Value("\${core.internal.questions-token}") private val questionsToken: String) : OncePerRequestFilter() {
-    override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
-        if (request.method == "POST" && request.requestURI.startsWith("/internal/v1/question-files/")) {
-            val supplied = request.getHeader("X-AJA-Service-Token") ?: ""
-            if (!MessageDigest.isEqual(questionsToken.toByteArray(), supplied.toByteArray())) {
-                response.status = HttpServletResponse.SC_FORBIDDEN
-                response.contentType = "application/json"
-                response.writer.write("""{"error":{"code":"FORBIDDEN","message":"Service credential is invalid","requestId":"${UUID.randomUUID()}"}}""")
-                return
-            }
-            return chain.doFilter(request, response)
-        }
-        if (request.method != "POST" || request.requestURI != "/api/v1/files") return chain.doFilter(request, response)
-        val cookie = request.cookies?.firstOrNull { it.name == "aja_session" }?.value
-        try { auth.resolve(cookie) } catch (_: SessionRequired) {
-            response.status = HttpServletResponse.SC_UNAUTHORIZED
-            response.contentType = "application/json"
-            response.writer.write("""{"error":{"code":"SESSION_REQUIRED","message":"A valid session is required","requestId":"${UUID.randomUUID()}"}}""")
-            return
-        }
-        chain.doFilter(request, response)
-    }
-}
-
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class MaterialBatchRequest(val moduleId: String, val expectedRevision: JsonNode = MissingNode.getInstance(), val items: List<MaterialCreateRequest>)
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class MaterialCreateRequest(val moduleId: String, val title: String, val kind: String, val duration: Double, val content: String, val fileId: String? = null, val videoUrl: String? = null) {
-    fun command() = MaterialCreate(moduleId, title, kind, duration, content, fileId, videoUrl)
-}
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class MaterialEditRequest(val expectedRevision: JsonNode = MissingNode.getInstance(), val title: JsonNode = MissingNode.getInstance(), val duration: JsonNode = MissingNode.getInstance(), val content: JsonNode = MissingNode.getInstance(), val videoUrl: JsonNode = MissingNode.getInstance())
-@JsonIgnoreProperties(ignoreUnknown = false)
-data class ProgressCommandRequest(val materialId: String, val completed: JsonNode = MissingNode.getInstance())
 
 @RestController
 class ContentController(private val auth: AuthenticateStudent, private val content: ManageContent) {

@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.ports.out
 
-data class TopicDraft(val classId: String, val subjectId: String, val title: String, val body: String, val tags: List<String>, val targetType: String?, val targetId: String?, val attachmentId: String?)
+
 
 interface TopicStore {
     fun authorizeAndFindReplay(actorId: String, role: String, sessionHash: String, draft: TopicDraft, idempotencyKey: String, requestHash: String): Map<String, Any?>?

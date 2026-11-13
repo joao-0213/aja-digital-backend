@@ -1,27 +1,6 @@
 package br.com.ajadigital.core.ports.out
 
-import java.time.Instant
 
-data class AssessmentDraft(
-    val moduleId: String,
-    val title: String,
-    val description: String,
-    val kind: String,
-    val maxGrade: Double?,
-    val deadline: Instant?,
-    val required: Boolean,
-    val allowLate: Boolean,
-)
-
-data class AssessmentQuestion(
-    val id: String,
-    val source: String,
-    val snapshot: Map<String, Any?>?,
-    val sourceRevision: Int? = null,
-    val contentHash: String? = null,
-)
-
-data class AssessmentPage(val items: List<Map<String, Any?>>, val page: Int, val pageSize: Int, val total: Long)
 
 interface AssessmentStore {
     fun authorizeWrite(actorId: String, role: String, sessionHash: String, moduleId: String)
@@ -33,49 +12,3 @@ interface AssessmentStore {
     fun dashboardAssessments(actorId: String, role: String, sessionHash: String, pageSize: Int): AssessmentPage
     fun pendingStudentCount(actorId: String, sessionHash: String): Int
 }
-
-interface AttemptStore {
-    fun practiceBlocked(actorId: String, role: String, sessionHash: String, questionId: String): Boolean
-    fun start(actorId: String, role: String, sessionHash: String, assessmentId: String, key: String, requestHash: String): Map<String, Any?>
-    fun attempts(actorId: String, role: String, sessionHash: String, page: Int, pageSize: Int, sort: String, assessmentId: String?, studentId: String?): AssessmentPage
-    fun attempt(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>?
-    fun saveAnswers(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, answers: Map<String, Int?>): Map<String, Any?>?
-    fun submit(actorId: String, role: String, sessionHash: String, id: String, key: String, requestHash: String, expectedRevision: Int): Map<String, Any?>?
-    fun result(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>?
-}
-
-data class SubmissionAttachment(val kind: String, val name: String, val fileId: String? = null, val url: String? = null)
-data class SubmissionPage(val items: List<Map<String, Any?>>, val page: Int, val pageSize: Int, val total: Long)
-
-interface SubmissionStore {
-    fun create(actorId: String, role: String, sessionHash: String, assessmentId: String, attachments: List<SubmissionAttachment>, key: String, requestHash: String): Map<String, Any?>
-    fun submissions(actorId: String, role: String, sessionHash: String, page: Int, pageSize: Int, sort: String, assessmentId: String?, studentId: String?): SubmissionPage
-    fun pendingFeedbackCount(actorId: String, role: String, sessionHash: String): Int
-    fun submission(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>?
-    fun update(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, attachments: List<SubmissionAttachment>?): Map<String, Any?>?
-    fun submit(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, key: String, requestHash: String): Map<String, Any?>?
-    fun saveFeedback(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, comment: String, grade: java.math.BigDecimal?): Map<String, Any?>?
-    fun publishFeedback(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, key: String, requestHash: String): Map<String, Any?>?
-}
-
-interface QuestionSnapshotProvider {
-    fun snapshots(ids: List<String>): List<BankQuestionSnapshot>
-}
-
-data class BankQuestionSnapshot(
-    val questionId: String,
-    val revision: Int,
-    val contentHash: String,
-    val subject: String,
-    val topic: String,
-    val difficulty: String,
-    val institution: String,
-    val year: Int,
-    val statement: String,
-    val options: List<String>,
-    val correctOption: Int,
-    val explanation: String,
-    val image: BankQuestionImage?,
-)
-
-data class BankQuestionImage(val fileId: String, val alt: String)

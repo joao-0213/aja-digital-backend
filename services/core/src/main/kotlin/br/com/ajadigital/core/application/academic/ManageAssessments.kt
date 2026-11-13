@@ -13,8 +13,6 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 
-class QuestionSnapshotNotFound : RuntimeException()
-class QuestionsUnavailable : RuntimeException()
 
 class ManageAssessments(private val store: AssessmentStore, private val snapshots: QuestionSnapshotProvider, private val idempotency: IdempotencyStore, private val mapper: ObjectMapper) {
     fun create(actor: AcademicActor, key: String, body: JsonNode): Map<String, Any?> {

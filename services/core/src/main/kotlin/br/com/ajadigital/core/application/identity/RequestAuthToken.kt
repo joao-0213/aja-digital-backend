@@ -3,10 +3,7 @@ package br.com.ajadigital.core.application.identity
 import br.com.ajadigital.core.domain.identity.User
 import br.com.ajadigital.core.domain.identity.EmailAddress
 import br.com.ajadigital.core.ports.out.AuthTokenIssue
-import br.com.ajadigital.core.ports.out.AuthTokenResult
 import br.com.ajadigital.core.ports.out.IdentityStore
-import br.com.ajadigital.core.ports.out.TokenFailure
-import br.com.ajadigital.core.ports.out.PasswordHasher
 import tools.jackson.databind.ObjectMapper
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -16,11 +13,6 @@ import java.time.Instant
 import java.util.Base64
 import java.util.UUID
 
-class AuthTokenInvalid : RuntimeException()
-class AuthTokenExpired : RuntimeException()
-data class TokenCommand(val token: String)
-data class PasswordResetCommand(val token: String, val password: String)
-data class AcceptedResponse(val message: String = "Solicitação recebida. Consulte as instruções disponíveis para continuar.")
 
 class RequestAuthToken(
     private val store: IdentityStore,
@@ -65,28 +57,4 @@ class RequestAuthToken(
 
     private fun sha256(value: String) = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
-}
-
-class ResetPassword(
-    private val store: IdentityStore,
-    private val passwordHasher: PasswordHasher,
-) {
-    fun reset(command: PasswordResetCommand): AcceptedResponse {
-        require(command.token.isNotBlank() && command.token.length <= 256 && command.password.length in 8..128)
-        val passwordHash = passwordHasher.hash(command.password)
-        when (store.resetPassword(sha256(command.token), passwordHash)) {
-            null -> return AcceptedResponse()
-            TokenFailure.INVALID -> throw AuthTokenInvalid()
-            TokenFailure.EXPIRED -> throw AuthTokenExpired()
-        }
-    }
-
-    private fun sha256(value: String) = MessageDigest.getInstance("SHA-256")
-        .digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
-}
-
-private fun AuthTokenResult.toUserOrThrow(): User = when {
-    user != null -> user
-    failure == TokenFailure.EXPIRED -> throw AuthTokenExpired()
-    else -> throw AuthTokenInvalid()
 }

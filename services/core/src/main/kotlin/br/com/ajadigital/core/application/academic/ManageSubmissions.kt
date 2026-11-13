@@ -9,7 +9,6 @@ import java.math.BigDecimal
 import java.net.URI
 import java.security.MessageDigest
 
-class InvalidSubmissionFeedback : RuntimeException()
 
 class ManageSubmissions(private val store: SubmissionStore, private val mapper: ObjectMapper) {
     fun create(actor: AcademicActor, key: String, body: JsonNode): Map<String, Any?> {

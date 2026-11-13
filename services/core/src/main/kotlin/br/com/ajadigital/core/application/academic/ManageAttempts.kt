@@ -6,7 +6,6 @@ import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import java.security.MessageDigest
 
-class InvalidAttemptAnswers : RuntimeException()
 
 class ManageAttempts(private val store: AttemptStore, private val mapper: ObjectMapper) {
     fun practiceBlocked(actor: AcademicActor, questionId: String): Boolean {

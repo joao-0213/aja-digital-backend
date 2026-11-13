@@ -1,6 +1,5 @@
 package br.com.ajadigital.core.application.identity
 
-import br.com.ajadigital.core.domain.identity.User
 import br.com.ajadigital.core.ports.out.IdentityStore
 import br.com.ajadigital.core.ports.out.PasswordHasher
 import br.com.ajadigital.core.ports.out.SessionRecord
@@ -12,10 +11,6 @@ import java.time.Instant
 import java.util.Base64
 import java.util.UUID
 
-class InvalidCredentials : RuntimeException()
-class SessionRequired : RuntimeException()
-data class LoginCommand(val email: String, val password: String, val previousSessionCookie: String?)
-data class AuthenticatedSession(val session: SessionRecord, val cookieValue: String)
 
 class AuthenticateStudent(
     private val store: IdentityStore,
@@ -61,6 +56,3 @@ class AuthenticateStudent(
     private fun sha256(value: String) = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
 }
-
-data class SessionResponse(val user: User, val expiresAt: Instant, val sessionId: String)
-fun SessionRecord.toResponse() = SessionResponse(user, expiresAt, id)

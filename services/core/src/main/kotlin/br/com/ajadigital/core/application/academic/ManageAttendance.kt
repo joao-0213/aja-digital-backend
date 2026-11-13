@@ -10,7 +10,6 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeParseException
 
-class InvalidAttendanceRecords : RuntimeException()
 
 class ManageAttendance(private val store: AttendanceStore, private val idempotency: IdempotencyStore, private val mapper: ObjectMapper) {
     fun list(actor: AcademicActor, page: Int, size: Int, sort: String, subjectId: String?, studentId: String?, from: String?, to: String?) = run {

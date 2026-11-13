@@ -1,16 +1,6 @@
 package br.com.ajadigital.core.ports.out
 
-import java.time.Instant
 
-data class AcademicPage(val items: List<Map<String, Any?>>, val page: Int, val pageSize: Int, val total: Int)
-data class ProvisionedIdentity(
-    val id: String, val actorId: String, val name: String, val email: String, val role: String, val now: Instant,
-    val passwordHash: String,
-    val passwordTokenId: String, val passwordTokenHash: String, val passwordEventId: String,
-    val passwordCiphertext: ByteArray, val passwordNonce: ByteArray,
-    val confirmationTokenId: String, val confirmationTokenHash: String, val confirmationEventId: String,
-    val confirmationCiphertext: ByteArray, val confirmationNonce: ByteArray, val keyId: String,
-)
 
 interface AcademicStore {
     fun isCurrentAdminSession(actorId: String, sessionTokenHash: String, serializeAdminInvariant: Boolean): Boolean

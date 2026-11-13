@@ -12,16 +12,10 @@ import tools.jackson.databind.ObjectMapper
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Clock
-import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import java.util.UUID
 
-class AcademicForbidden : RuntimeException()
-class AcademicNotFound : RuntimeException()
-class AcademicConflict(val currentRevision: Int? = null) : RuntimeException()
-class AcademicIdempotencyConflict : RuntimeException()
-data class AcademicActor(val id: String, val role: String, val active: Boolean, val emailConfirmedAt: Instant?, val sessionTokenHash: String)
 
 class ManageAcademics(
     private val store: AcademicStore,

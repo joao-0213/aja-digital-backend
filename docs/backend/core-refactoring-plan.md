@@ -145,7 +145,7 @@ The issues below are concrete work items that implement phases 0–7 of the phas
 
 ### R-01 — Split co-located types into one-type-per-file
 
-**Implements:** phase 1. **Depends on:** R-00. **Status:** all criteria **pending**.
+**Implements:** phase 1. **Depends on:** R-00. **Status:** all criteria **verified** — evidence in [core-refactoring-r01-evidence.md](core-refactoring-r01-evidence.md).
 
 **Scope:** all files in the source inventory that contain more than one named top-level type. Split controller DTOs, request/response types, exception types, sealed subtypes, handler classes, use-case commands/results, port interfaces, model classes, outbox types, and test-support types from their current files into individual files. Each file is named after its single top-level type.
 
@@ -166,7 +166,7 @@ These are the only permitted departures from "splits only"; anything else requir
 
 **Acceptance criteria:**
 
-- **Pending:** every named type has one matching source file with `fileName == typeName`; no file contains more than one named top-level type (interfaces, enums, exception subtypes, sealed subtypes, and test support included); imports compile; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes; no contract or behavioral change.
+- **Verified:** every named type has one matching source file with `fileName == typeName`; no file contains more than one named top-level type (interfaces, enums, exception subtypes, sealed subtypes, and test support included); imports compile; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes; no contract or behavioral change.
 
 ---
 

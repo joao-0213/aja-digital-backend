@@ -20,29 +20,6 @@ import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import tools.jackson.databind.node.MissingNode
 
-@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = false)
-data class AnnouncementCreateRequest(
-    val classId: String,
-    val subjectId: JsonNode = MissingNode.getInstance(),
-    val title: String,
-    val body: String,
-    val notify: JsonNode = MissingNode.getInstance(),
-    val occurrence: JsonNode = MissingNode.getInstance(),
-)
-
-@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = false)
-data class AnnouncementEditRequest(
-    val expectedRevision: JsonNode = MissingNode.getInstance(),
-    val classId: JsonNode = MissingNode.getInstance(),
-    val subjectId: JsonNode = MissingNode.getInstance(),
-    val title: JsonNode = MissingNode.getInstance(),
-    val body: JsonNode = MissingNode.getInstance(),
-    val notify: JsonNode = MissingNode.getInstance(),
-    val occurrence: JsonNode = MissingNode.getInstance(),
-)
-
-@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = false)
-data class AnnouncementRevisionRequest(val expectedRevision: JsonNode = MissingNode.getInstance())
 
 @RestController
 class AnnouncementController(private val auth: br.com.ajadigital.core.application.identity.AuthenticateStudent, private val announcements: ManageAnnouncements, private val mapper: ObjectMapper) {

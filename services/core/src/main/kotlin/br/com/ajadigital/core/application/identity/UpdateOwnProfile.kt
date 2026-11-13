@@ -5,8 +5,6 @@ import br.com.ajadigital.core.ports.out.IdentityStore
 import br.com.ajadigital.core.ports.out.ProfileUpdateResult
 import java.security.MessageDigest
 
-class ProfileRevisionConflict(val currentRevision: Int) : RuntimeException()
-data class ProfileEditCommand(val expectedRevision: Int, val name: String?)
 
 class UpdateOwnProfile(private val store: IdentityStore) {
     fun update(cookie: String?, command: ProfileEditCommand): User {

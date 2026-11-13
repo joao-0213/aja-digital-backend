@@ -8,7 +8,6 @@ import br.com.ajadigital.core.ports.out.TopicStore
 import tools.jackson.databind.ObjectMapper
 import java.security.MessageDigest
 
-class InvalidTopicReference : RuntimeException()
 
 class ManageTopics(private val store: TopicStore, private val questions: QuestionSnapshotProvider, private val idempotency: IdempotencyStore, private val mapper: ObjectMapper) {
     fun create(actor: AcademicActor, draft: TopicDraft, key: String): Map<String, Any?> {

@@ -6,8 +6,6 @@ import br.com.ajadigital.core.ports.out.SubjectStore
 import tools.jackson.databind.ObjectMapper
 import java.security.MessageDigest
 
-class UnknownPublication : RuntimeException()
-class InvalidAcademicReference : RuntimeException()
 
 class ManageSubjects(private val store: SubjectStore, private val mapper: ObjectMapper, private val idempotency: IdempotencyStore) {
     fun subjects(actor: AcademicActor, page: Int, size: Int, sort: String, classId: String?, query: String?) = run {

@@ -12,13 +12,7 @@ import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import java.util.UUID
-import javax.crypto.Cipher
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 
-class RegistrationConflict : RuntimeException()
-data class RegistrationCommand(val name: String, val email: String, val password: String)
-data class RegistrationResult(val user: User)
 
 class RegisterStudent(
     private val store: IdentityStore,
@@ -59,19 +53,4 @@ class RegisterStudent(
 
     private fun sha256(value: String) = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
-}
-
-data class EncryptedOutboxPayload(val keyId: String, val nonce: ByteArray, val ciphertext: ByteArray)
-
-class OutboxEncryption(keyBase64: String) {
-    private val key = Base64.getDecoder().decode(keyBase64).also { require(it.size == 32) }
-    val keyId = MessageDigest.getInstance("SHA-256").digest(key).take(8).joinToString("") { "%02x".format(it) }
-
-    fun encrypt(eventId: String, eventType: String, version: Int, plaintext: ByteArray): EncryptedOutboxPayload {
-        val nonce = ByteArray(12).also { SecureRandom().nextBytes(it) }
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce))
-        cipher.updateAAD("$eventId|$eventType|$version".toByteArray())
-        return EncryptedOutboxPayload(keyId, nonce, cipher.doFinal(plaintext))
-    }
 }

@@ -2,6 +2,7 @@ package br.com.ajadigital.core.ports.out
 
 import br.com.ajadigital.core.ports.out.AcademicPage
 
+
 interface ContentStore {
     fun upload(actorId: String, role: String, sessionHash: String, key: String, name: String, declaredMime: String, purpose: String, parentId: String, bytes: ByteArray): Map<String, Any?>
     fun provisionQuestionImage(id: String, questionId: String, name: String, mime: String, bytes: ByteArray): Map<String, Any?>
@@ -18,8 +19,3 @@ interface ContentStore {
     fun dashboard(actorId: String, role: String, sessionHash: String, progressLimit: Int): DashboardContent
     fun recordProgress(actorId: String, role: String, sessionHash: String, materialId: String, completed: Boolean): Map<String, Any?>?
 }
-
-data class DashboardContent(val progress: List<Map<String, Any?>>, val completedMaterials: Int, val totalMaterials: Int, val resume: Map<String, Any?>?)
-
-data class DownloadedFile(val name: String, val mime: String, val bytes: ByteArray, val inline: Boolean)
-data class MaterialCreate(val moduleId: String, val title: String, val kind: String, val duration: Double, val content: String, val fileId: String?, val videoUrl: String?)
