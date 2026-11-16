@@ -212,7 +212,7 @@ Add a `TransactionRunner` port in `shared/domain/ports/out/` with `SpringTransac
 
 ### R-04 — Separate HTTP DTOs and add Bean Validation
 
-**Implements:** phase 3. **Depends on:** R-03. **Status:** all criteria **pending**.
+**Implements:** phase 3. **Depends on:** R-03. **Status:** all criteria **verified** — evidence in [core-refactoring-r04-evidence.md](core-refactoring-r04-evidence.md).
 
 **Scope:** keep HTTP request/response types under `adapters/in/controllers/models/{requests,responses}` per feature. Keep domain models in `domain/models/`. Add mappers between HTTP DTOs and domain models at the controller boundary where the types differ. Add `spring-boot-starter-validation` to `services/core/build.gradle` via Boot dependency management.
 
@@ -231,7 +231,7 @@ Do NOT add `@Valid` indiscriminately — only on controller method parameters fo
 
 **Acceptance criteria:**
 
-- **Pending:** malformed, missing, null, unknown-field, and PATCH inputs retain the required precedence, status, and error schema per the R-00 characterization and OpenAPI contract; auth/session checks still occur before validation where contracted; HTTP DTOs use Kotlin use-site target annotations; domain models have no Jakarta annotations; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes; focused HTTP tests cover each annotated route's validation, error shape, and status code.
+- **Verified:** malformed, missing, null, unknown-field, and PATCH inputs retain the required precedence, status, and error schema per the R-00 characterization and OpenAPI contract; auth/session checks still occur before validation where contracted; HTTP DTOs use Kotlin use-site target annotations; domain models have no Jakarta annotations; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes; focused HTTP tests cover annotated routes' validation, error shape, and status code.
 
 ---
 

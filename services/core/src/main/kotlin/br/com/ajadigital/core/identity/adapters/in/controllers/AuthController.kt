@@ -1,7 +1,10 @@
 package br.com.ajadigital.core.identity.adapters.`in`.controllers
 import br.com.ajadigital.core.identity.adapters.`in`.controllers.models.requests.EmailRequest
 import br.com.ajadigital.core.identity.adapters.`in`.controllers.models.requests.LoginRequest
+import br.com.ajadigital.core.identity.adapters.`in`.controllers.models.requests.PasswordResetRequest
 import br.com.ajadigital.core.identity.adapters.`in`.controllers.models.requests.RegisterRequest
+import br.com.ajadigital.core.identity.adapters.`in`.controllers.models.requests.TokenRequest
+import jakarta.validation.Valid
 
 import br.com.ajadigital.core.identity.domain.ports.`in`.RegisterStudentUseCase
 import br.com.ajadigital.core.identity.domain.models.RegistrationCommand
@@ -10,7 +13,6 @@ import br.com.ajadigital.core.identity.domain.exceptions.InvalidCredentials
 import br.com.ajadigital.core.identity.domain.models.LoginCommand
 import br.com.ajadigital.core.identity.domain.usecases.toResponse
 import br.com.ajadigital.core.identity.domain.ports.`in`.RequestAuthTokenUseCase
-import br.com.ajadigital.core.identity.domain.models.TokenCommand
 import br.com.ajadigital.core.identity.domain.ports.`in`.ResetPasswordUseCase
 import br.com.ajadigital.core.identity.domain.models.PasswordResetCommand
 import br.com.ajadigital.core.identity.domain.models.User
@@ -41,14 +43,14 @@ class AuthController(
     @Value("\${aja.cookie.secure:false}") private val cookieSecure: Boolean,
 ) {
     @PostMapping("/register")
-    fun register(@RequestBody request: RegisterRequest): ResponseEntity<User> =
+    fun register(@Valid @RequestBody request: RegisterRequest): ResponseEntity<User> =
         ResponseEntity.status(HttpStatus.CREATED).body(
             registerStudent.register(RegistrationCommand(request.name, request.email, request.password)).user,
         )
 
     @PostMapping("/login")
     fun login(
-        @RequestBody request: LoginRequest,
+        @Valid @RequestBody request: LoginRequest,
         @CookieValue(name = "aja_session", required = false) previousCookie: String?,
         servletRequest: HttpServletRequest,
     ): ResponseEntity<Any> {
@@ -78,18 +80,19 @@ class AuthController(
     }
 
     @PostMapping("/email-confirmation-requests")
-    fun requestEmailConfirmation(@RequestBody request: EmailRequest) =
+    fun requestEmailConfirmation(@Valid @RequestBody request: EmailRequest) =
         ResponseEntity.status(HttpStatus.ACCEPTED).body(requestAuthToken.request(request.email, "email_confirmation"))
 
     @PostMapping("/email-confirmations")
-    fun confirmEmail(@RequestBody request: TokenCommand): User = requestAuthToken.confirmEmail(request.token)
+    fun confirmEmail(@Valid @RequestBody request: TokenRequest): User = requestAuthToken.confirmEmail(request.token)
 
     @PostMapping("/password-reset-requests")
-    fun requestPasswordReset(@RequestBody request: EmailRequest) =
+    fun requestPasswordReset(@Valid @RequestBody request: EmailRequest) =
         ResponseEntity.status(HttpStatus.ACCEPTED).body(requestAuthToken.request(request.email, "password_reset"))
 
     @PostMapping("/password-resets")
-    fun resetPassword(@RequestBody request: PasswordResetCommand) = resetPassword.reset(request)
+    fun resetPassword(@Valid @RequestBody request: PasswordResetRequest) =
+        resetPassword.reset(PasswordResetCommand(request.token, request.password))
 
     private fun sessionCookie(value: String, maxAge: Duration, isSecureRequest: Boolean): ResponseCookie =
         createSessionCookie(value, maxAge, cookieSecure || isSecureRequest)
