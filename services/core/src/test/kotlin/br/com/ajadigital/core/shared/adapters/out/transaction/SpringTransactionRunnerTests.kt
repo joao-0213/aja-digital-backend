@@ -6,17 +6,19 @@ import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestion
 import br.com.ajadigital.core.assessment.domain.models.BankQuestionSnapshot
 import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStore
 import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProvider
-import br.com.ajadigital.core.assessment.domain.usecases.ManageAssessments
+import br.com.ajadigital.core.assessment.domain.usecases.CreateAssessment
+import br.com.ajadigital.core.assessment.domain.usecases.UpdateAssessment
 import br.com.ajadigital.core.classroom.domain.models.AcademicActor
 import br.com.ajadigital.core.classroom.domain.ports.out.AcademicPage
 import br.com.ajadigital.core.forum.domain.models.TopicDraft
 import br.com.ajadigital.core.forum.domain.ports.out.TopicStore
-import br.com.ajadigital.core.forum.domain.usecases.ManageTopics
+import br.com.ajadigital.core.forum.domain.usecases.CreateTopic
+import br.com.ajadigital.core.forum.domain.usecases.ReplyToTopic
 import br.com.ajadigital.core.materials.domain.models.DashboardContent
 import br.com.ajadigital.core.materials.domain.models.DownloadedFile
 import br.com.ajadigital.core.materials.domain.models.MaterialCreate
 import br.com.ajadigital.core.materials.domain.ports.out.ContentStore
-import br.com.ajadigital.core.materials.domain.usecases.ManageContent
+import br.com.ajadigital.core.materials.domain.usecases.PublishMaterials
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
 import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunner
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -70,7 +72,7 @@ class SpringTransactionRunnerTests {
             override fun save(actorId: String, operation: String, target: String, key: String, requestHash: String, response: Map<String, Any?>) {}
         }
 
-        val useCase = ManageTopics(store, snapshots, idempotency, mapper, runner)
+        val useCase = CreateTopic(store, snapshots, mapper)
         val result = useCase.create(teacher, TopicDraft("class-1", "sub-1", "Title", "Body", emptyList(), "question", "q-1", null), "idem-key-1234")
 
         assertEquals("topic-1", result["id"])
@@ -108,12 +110,13 @@ class SpringTransactionRunnerTests {
             override fun save(actorId: String, operation: String, target: String, key: String, requestHash: String, response: Map<String, Any?>) {}
         }
 
-        val useCase = ManageAssessments(store, snapshots, idempotency, mapper)
+        val createUseCase = CreateAssessment(store, snapshots, idempotency, mapper)
+        val updateUseCase = UpdateAssessment(store, snapshots, idempotency, mapper)
         val createBody = mapper.readTree("""{"moduleId":"mod-1","title":"Quiz","description":"Desc","kind":"quiz","maxGrade":10,"deadline":null,"required":true,"allowLate":false,"questions":[{"source":"bank","questionId":"q-1"}]}""")
         val updateBody = mapper.readTree("""{"expectedRevision":1,"confirmResetDrafts":true,"questions":[{"source":"bank","questionId":"q-2"}]}""")
 
-        assertEquals("assess-1", useCase.create(teacher, "idem-create-1234", createBody)["id"])
-        assertEquals(2, useCase.update(teacher, "assess-1", "idem-update-1234", updateBody)["revision"])
+        assertEquals("assess-1", createUseCase.create(teacher, "idem-create-1234", createBody)["id"])
+        assertEquals(2, updateUseCase.update(teacher, "assess-1", "idem-update-1234", updateBody)["revision"])
         assertEquals(2, snapshotCalls)
     }
 
@@ -163,7 +166,7 @@ class SpringTransactionRunnerTests {
             }
         }
 
-        val contentUseCase = ManageContent(contentStore, failingIdempotency, mapper, runner)
+        val contentUseCase = PublishMaterials(contentStore, failingIdempotency, mapper, runner)
         assertThrows(IllegalStateException::class.java) {
             contentUseCase.publish(teacher, "idem-pub-1234", "mod-1", 1, listOf(MaterialCreate("mod-1", "L1", "lesson", 10.0, "Body", null, null)))
         }
@@ -226,7 +229,7 @@ class SpringTransactionRunnerTests {
             }
         }
 
-        val topicsUseCase = ManageTopics(topicStore, snapshots, failingIdempotency, mapper, runner)
+        val topicsUseCase = ReplyToTopic(topicStore, failingIdempotency, mapper, runner)
         assertThrows(IllegalStateException::class.java) {
             topicsUseCase.reply(teacher, "topic-1", "Helpful reply", "idem-reply-1234")
         }

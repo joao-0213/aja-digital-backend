@@ -869,7 +869,7 @@ class CurriculumIntegrationTests : CoreIntegrationTestBase() {
         val actor = AcademicActor(adminId, "admin", true, mutableClock.instant(), sessionHash)
         val before = jdbc.queryForObject("select count(*) from core.classes", Int::class.java)
         assertThrows(AcademicForbidden::class.java) {
-            manageAcademics.createClass(actor, "Rejected class", "REJECT-${UUID.randomUUID()}", 2026, "Tarde", "rejected-${UUID.randomUUID()}")
+            createClassUseCase.createClass(actor, "Rejected class", "REJECT-${UUID.randomUUID()}", 2026, "Tarde", "rejected-${UUID.randomUUID()}")
         }
         assertEquals(before, jdbc.queryForObject("select count(*) from core.classes", Int::class.java))
     }

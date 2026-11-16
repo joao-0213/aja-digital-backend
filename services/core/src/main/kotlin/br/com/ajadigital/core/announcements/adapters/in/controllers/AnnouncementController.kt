@@ -4,7 +4,12 @@ import br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.req
 import br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.requests.AnnouncementRevisionRequest
 
 import br.com.ajadigital.core.classroom.domain.models.AcademicActor
-import br.com.ajadigital.core.announcements.domain.ports.`in`.ManageAnnouncementsUseCase
+import br.com.ajadigital.core.announcements.domain.ports.`in`.CreateAnnouncementUseCase
+import br.com.ajadigital.core.announcements.domain.ports.`in`.GetAnnouncementUseCase
+import br.com.ajadigital.core.announcements.domain.ports.`in`.ListAnnouncementsUseCase
+import br.com.ajadigital.core.announcements.domain.ports.`in`.ListCalendarEventsUseCase
+import br.com.ajadigital.core.announcements.domain.ports.`in`.UpdateAnnouncementUseCase
+import br.com.ajadigital.core.announcements.domain.ports.`in`.WithdrawAnnouncementUseCase
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementDraft
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementOccurrence
 import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
@@ -25,7 +30,16 @@ import tools.jackson.databind.node.MissingNode
 
 
 @RestController
-class AnnouncementController(private val auth: AuthenticateStudentUseCase, private val announcements: ManageAnnouncementsUseCase, private val mapper: ObjectMapper) {
+class AnnouncementController(
+    private val auth: AuthenticateStudentUseCase,
+    private val createAnnouncement: CreateAnnouncementUseCase,
+    private val updateAnnouncement: UpdateAnnouncementUseCase,
+    private val withdrawAnnouncement: WithdrawAnnouncementUseCase,
+    private val getAnnouncement: GetAnnouncementUseCase,
+    private val listAnnouncements: ListAnnouncementsUseCase,
+    private val listCalendarEvents: ListCalendarEventsUseCase,
+    private val mapper: ObjectMapper,
+) {
     @GetMapping("/api/v1/announcements")
     fun list(
         @CookieValue(name = "aja_session", required = false) cookie: String?,
@@ -35,7 +49,7 @@ class AnnouncementController(private val auth: AuthenticateStudentUseCase, priva
         @RequestParam(required = false) classId: String?,
         @RequestParam(required = false) subjectId: String?,
         @RequestParam(required = false) q: String?,
-    ) = page(announcements.announcements(actor(cookie), page, pageSize, sort, classId?.let(::id), subjectId?.let(::id), q))
+    ) = page(listAnnouncements.announcements(actor(cookie), page, pageSize, sort, classId?.let(::id), subjectId?.let(::id), q))
 
     @PostMapping("/api/v1/announcements")
     fun create(
@@ -44,17 +58,17 @@ class AnnouncementController(private val auth: AuthenticateStudentUseCase, priva
         @RequestBody body: AnnouncementCreateRequest,
     ): ResponseEntity<Map<String, Any?>> {
         val draft = AnnouncementDraft(id(body.classId), nullableId(body.subjectId), body.title, body.body, boolean(body.notify), occurrence(body.occurrence))
-        return ResponseEntity.status(HttpStatus.CREATED).body(announcements.create(actor(cookie), draft, key ?: throw IllegalArgumentException()))
+        return ResponseEntity.status(HttpStatus.CREATED).body(createAnnouncement.create(actor(cookie), draft, key ?: throw IllegalArgumentException()))
     }
 
     @GetMapping("/api/v1/announcements/{id}")
-    fun get(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = announcements.announcement(actor(cookie), id(id))
+    fun get(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = getAnnouncement.announcement(actor(cookie), id(id))
 
     @PatchMapping("/api/v1/announcements/{id}")
     fun update(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: AnnouncementEditRequest): Map<String, Any?> {
         val principal = actor(cookie)
         val announcementId = id(id)
-        val current = announcements.announcement(principal, announcementId)
+        val current = getAnnouncement.announcement(principal, announcementId)
         val occurrence = if (body.occurrence.isMissingNode) current["occurrence"]?.let(::mapperNode)?.let(::occurrence) else occurrence(body.occurrence)
         val draft = AnnouncementDraft(
             if (body.classId.isMissingNode) current.getValue("classId") as String else text(body.classId).let(::id),
@@ -64,12 +78,12 @@ class AnnouncementController(private val auth: AuthenticateStudentUseCase, priva
             if (body.notify.isMissingNode) current.getValue("notify") as Boolean else boolean(body.notify),
             occurrence,
         )
-        return announcements.update(principal, announcementId, revision(body.expectedRevision), draft)
+        return updateAnnouncement.update(principal, announcementId, revision(body.expectedRevision), draft)
     }
 
     @PostMapping("/api/v1/announcements/{id}/withdraw")
     fun withdraw(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: AnnouncementRevisionRequest): Map<String, Any?> =
-        announcements.withdraw(actor(cookie), id(id), revision(body.expectedRevision))
+        withdrawAnnouncement.withdraw(actor(cookie), id(id), revision(body.expectedRevision))
 
     @GetMapping("/api/v1/calendar")
     fun calendar(
@@ -80,7 +94,7 @@ class AnnouncementController(private val auth: AuthenticateStudentUseCase, priva
         @RequestParam(required = false) from: String?,
         @RequestParam(required = false) to: String?,
         @RequestParam(required = false) subjectId: String?,
-    ) = page(announcements.calendar(actor(cookie), page, pageSize, sort, from, to, subjectId?.let(::id)))
+    ) = page(listCalendarEvents.calendar(actor(cookie), page, pageSize, sort, from, to, subjectId?.let(::id)))
 
     private fun actor(cookie: String?): AcademicActor = auth.resolve(cookie).let { AcademicActor(it.user.id, it.user.role, it.user.active, it.user.emailConfirmedAt, it.tokenHash) }
     private fun page(result: br.com.ajadigital.core.classroom.domain.ports.out.AcademicPage) = mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)

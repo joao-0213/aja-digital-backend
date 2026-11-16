@@ -47,7 +47,7 @@ class ArchitectureTests {
                 val norm = it.normalized()
                 (norm.endsWith("Controller.kt") && !norm.endsWith("OutboxOperationsController.kt")) ||
                     norm.endsWith("/FileUploadSessionFilter.kt") ||
-                    norm.endsWith("/ManageDashboard.kt")
+                    norm.endsWith("/GetDashboard.kt")
             }.map { it.fileName.toString() to Files.readString(it) }.toList()
         }
         assertTrue(callers.isNotEmpty())

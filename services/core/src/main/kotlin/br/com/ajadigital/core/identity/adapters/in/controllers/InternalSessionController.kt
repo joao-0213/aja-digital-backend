@@ -6,7 +6,7 @@ import br.com.ajadigital.core.identity.domain.exceptions.InvalidInternalServiceC
 
 import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
 import br.com.ajadigital.core.classroom.domain.models.AcademicActor
-import br.com.ajadigital.core.assessment.domain.ports.`in`.ManageAttemptsUseCase
+import br.com.ajadigital.core.assessment.domain.ports.`in`.CheckPracticeBlockedUseCase
 import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.web.bind.annotation.PostMapping
@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RequestHeader
 @RestController
 class InternalSessionController(
     private val authenticateStudent: AuthenticateStudentUseCase,
-    private val attempts: ManageAttemptsUseCase,
+    private val checkPracticeBlocked: CheckPracticeBlockedUseCase,
     @Value("\${core.internal.questions-token}") serviceToken: String,
 ) {
     private val expectedToken = serviceToken.toByteArray(StandardCharsets.UTF_8)
@@ -54,7 +54,7 @@ class InternalSessionController(
         if (session.user.role !in setOf("student", "teacher", "admin")) throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden()
         val actor = AcademicActor(session.user.id, session.user.role, session.user.active, session.user.emailConfirmedAt, session.tokenHash)
         return try {
-            InternalPracticeResponse(attempts.practiceBlocked(actor, request.questionId))
+            InternalPracticeResponse(checkPracticeBlocked.practiceBlocked(actor, request.questionId))
         } catch (_: br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden) {
             throw SessionRequired()
         }

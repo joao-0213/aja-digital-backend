@@ -7,7 +7,17 @@ import br.com.ajadigital.core.curriculum.adapters.`in`.controllers.models.reques
 import br.com.ajadigital.core.curriculum.adapters.`in`.controllers.models.requests.VisitCommandRequest
 import br.com.ajadigital.core.classroom.domain.models.AcademicActor
 import br.com.ajadigital.core.classroom.domain.ports.out.AcademicPage
-import br.com.ajadigital.core.curriculum.domain.ports.`in`.ManageSubjectsUseCase
+import br.com.ajadigital.core.curriculum.domain.ports.`in`.CreateModuleUseCase
+import br.com.ajadigital.core.curriculum.domain.ports.`in`.CreateSubjectUseCase
+import br.com.ajadigital.core.curriculum.domain.ports.`in`.GetModuleUseCase
+import br.com.ajadigital.core.curriculum.domain.ports.`in`.GetSubjectUseCase
+import br.com.ajadigital.core.curriculum.domain.ports.`in`.ListModulesUseCase
+import br.com.ajadigital.core.curriculum.domain.ports.`in`.ListSubjectModulesUseCase
+import br.com.ajadigital.core.curriculum.domain.ports.`in`.ListSubjectsUseCase
+import br.com.ajadigital.core.curriculum.domain.ports.`in`.ReorderModulesUseCase
+import br.com.ajadigital.core.curriculum.domain.ports.`in`.UpdateModuleUseCase
+import br.com.ajadigital.core.curriculum.domain.ports.`in`.UpdateSubjectUseCase
+import br.com.ajadigital.core.curriculum.domain.ports.`in`.VisitSubjectUseCase
 import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
 import br.com.ajadigital.core.shared.adapters.`in`.web.requests.OrderCommandRequest
 import br.com.ajadigital.core.shared.adapters.`in`.web.requests.requestId
@@ -29,34 +39,47 @@ import tools.jackson.databind.JsonNode
 
 
 @RestController
-class CurriculumController(private val auth: AuthenticateStudentUseCase, private val subjects: ManageSubjectsUseCase) {
+class CurriculumController(
+    private val auth: AuthenticateStudentUseCase,
+    private val listSubjects: ListSubjectsUseCase,
+    private val getSubject: GetSubjectUseCase,
+    private val listSubjectModules: ListSubjectModulesUseCase,
+    private val createSubject: CreateSubjectUseCase,
+    private val updateSubject: UpdateSubjectUseCase,
+    private val listModules: ListModulesUseCase,
+    private val getModule: GetModuleUseCase,
+    private val createModule: CreateModuleUseCase,
+    private val updateModule: UpdateModuleUseCase,
+    private val reorderModules: ReorderModulesUseCase,
+    private val visitSubject: VisitSubjectUseCase,
+) {
     @GetMapping("/api/v1/subjects")
-    fun subjects(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "id") sort: String, @RequestParam(required = false) classId: String?, @RequestParam(required = false) q: String?) = pagedBody(subjects.subjects(actor(cookie), page, pageSize, sort, classId?.let(::requestId), q))
+    fun subjects(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "id") sort: String, @RequestParam(required = false) classId: String?, @RequestParam(required = false) q: String?) = pagedBody(listSubjects.subjects(actor(cookie), page, pageSize, sort, classId?.let(::requestId), q))
     @PostMapping("/api/v1/subjects")
-    fun createSubject(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: SubjectCreateRequest) = ResponseEntity.status(HttpStatus.CREATED).body(subjects.createSubject(actor(cookie), requestId(body.classId), body.name, body.teacherIds.map(::requestId), body.color, body.icon, body.description, requestIdempotencyKey(key)))
+    fun createSubject(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: SubjectCreateRequest) = ResponseEntity.status(HttpStatus.CREATED).body(createSubject.createSubject(actor(cookie), requestId(body.classId), body.name, body.teacherIds.map(::requestId), body.color, body.icon, body.description, requestIdempotencyKey(key)))
     @GetMapping("/api/v1/subjects/{id}")
     fun subject(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String): Map<String, Any?> {
-        val principal = actor(cookie); val subjectId = requestId(id); val subject = subjects.subject(principal, subjectId)
+        val principal = actor(cookie); val subjectId = requestId(id); val subject = getSubject.subject(principal, subjectId)
         val publicationIds = subject["publicationIds"] as List<*>
-        return mapOf("subject" to subject, "modules" to subjects.subjectModules(principal, subjectId), "projections" to mapOf("materials" to mapOf("count" to publicationIds.count { (it as String).startsWith("material:") }), "assessments" to mapOf("count" to publicationIds.count { (it as String).startsWith("assessment:") }), "announcements" to mapOf("count" to publicationIds.count { (it as String).startsWith("notice:") })))
+        return mapOf("subject" to subject, "modules" to listSubjectModules.subjectModules(principal, subjectId), "projections" to mapOf("materials" to mapOf("count" to publicationIds.count { (it as String).startsWith("material:") }), "assessments" to mapOf("count" to publicationIds.count { (it as String).startsWith("assessment:") }), "announcements" to mapOf("count" to publicationIds.count { (it as String).startsWith("notice:") })))
     }
     @PatchMapping("/api/v1/subjects/{id}")
-    fun updateSubject(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: SubjectEditRequest) = subjects.updateSubject(actor(cookie), requestId(id), requestRevision(body.expectedRevision), requestText(body.classId), requestText(body.name), requestStrings(body.teacherIds), requestText(body.color), requestText(body.icon), requestText(body.description))
+    fun updateSubject(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: SubjectEditRequest) = updateSubject.updateSubject(actor(cookie), requestId(id), requestRevision(body.expectedRevision), requestText(body.classId), requestText(body.name), requestStrings(body.teacherIds), requestText(body.color), requestText(body.icon), requestText(body.description))
     @GetMapping("/api/v1/subjects/{id}/visits")
-    fun getVisit(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = subjects.visit(actor(cookie), requestId(id))
+    fun getVisit(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = visitSubject.visit(actor(cookie), requestId(id))
     @PostMapping("/api/v1/subjects/{id}/visits")
-    fun recordVisit(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: VisitCommandRequest) = subjects.visit(actor(cookie), requestId(id), body.publicationIds)
+    fun recordVisit(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: VisitCommandRequest) = visitSubject.visit(actor(cookie), requestId(id), body.publicationIds)
 
     @GetMapping("/api/v1/modules")
-    fun modules(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "order") sort: String, @RequestParam(required = false) subjectId: String?) = pagedBody(subjects.modules(actor(cookie), page, pageSize, sort, subjectId?.let(::requestId)))
+    fun modules(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "order") sort: String, @RequestParam(required = false) subjectId: String?) = pagedBody(listModules.modules(actor(cookie), page, pageSize, sort, subjectId?.let(::requestId)))
     @PostMapping("/api/v1/modules")
-    fun createModule(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: ModuleCreateRequest) = ResponseEntity.status(HttpStatus.CREATED).body(subjects.createModule(actor(cookie), requestId(body.subjectId), body.title, body.description, requestIdempotencyKey(key)))
+    fun createModule(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: ModuleCreateRequest) = ResponseEntity.status(HttpStatus.CREATED).body(createModule.createModule(actor(cookie), requestId(body.subjectId), body.title, body.description, requestIdempotencyKey(key)))
     @GetMapping("/api/v1/modules/{id}")
-    fun module(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = subjects.module(actor(cookie), requestId(id))
+    fun module(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = getModule.module(actor(cookie), requestId(id))
     @PatchMapping("/api/v1/modules/{id}")
-    fun updateModule(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: ModuleEditRequest) = subjects.updateModule(actor(cookie), requestId(id), requestRevision(body.expectedRevision), requestText(body.title), requestText(body.description))
+    fun updateModule(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: ModuleEditRequest) = updateModule.updateModule(actor(cookie), requestId(id), requestRevision(body.expectedRevision), requestText(body.title), requestText(body.description))
     @PostMapping("/api/v1/subjects/{id}/reorder-modules")
-    fun reorderModules(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestBody body: OrderCommandRequest) = subjects.reorder(actor(cookie), requestId(id), requestRevision(body.expectedRevision), body.items.map { requestId(it.id) to it.expectedRevision }, page, pageSize)
+    fun reorderModules(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestBody body: OrderCommandRequest) = reorderModules.reorder(actor(cookie), requestId(id), requestRevision(body.expectedRevision), body.items.map { requestId(it.id) to it.expectedRevision }, page, pageSize)
 
     private fun actor(cookie: String?): AcademicActor = auth.resolve(cookie).let { AcademicActor(it.user.id, it.user.role, it.user.active, it.user.emailConfirmedAt, it.tokenHash) }
     private fun pagedBody(result: AcademicPage): Map<String, Any?> = mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
