@@ -6,6 +6,7 @@ import br.com.ajadigital.core.identity.domain.models.RegistrationResult
 
 import br.com.ajadigital.core.identity.domain.models.User
 import br.com.ajadigital.core.identity.domain.policies.EmailAddress
+import br.com.ajadigital.core.identity.domain.ports.`in`.RegisterStudentUseCase
 import br.com.ajadigital.core.identity.domain.ports.out.IdentityStore
 import br.com.ajadigital.core.identity.domain.ports.out.PasswordHasher
 import tools.jackson.databind.ObjectMapper
@@ -24,8 +25,8 @@ class RegisterStudent(
     private val objectMapper: ObjectMapper,
     private val clock: Clock,
     private val encryption: OutboxEncryption,
-) {
-    fun register(command: RegistrationCommand): RegistrationResult {
+) : RegisterStudentUseCase {
+    override fun register(command: RegistrationCommand): RegistrationResult {
         val email = command.email.trim()
         val normalizedEmail = email.lowercase()
         require(

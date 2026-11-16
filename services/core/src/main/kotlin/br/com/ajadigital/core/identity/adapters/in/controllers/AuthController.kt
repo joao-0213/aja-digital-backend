@@ -3,15 +3,15 @@ import br.com.ajadigital.core.identity.adapters.`in`.controllers.models.requests
 import br.com.ajadigital.core.identity.adapters.`in`.controllers.models.requests.LoginRequest
 import br.com.ajadigital.core.identity.adapters.`in`.controllers.models.requests.RegisterRequest
 
-import br.com.ajadigital.core.identity.domain.usecases.RegisterStudent
+import br.com.ajadigital.core.identity.domain.ports.`in`.RegisterStudentUseCase
 import br.com.ajadigital.core.identity.domain.models.RegistrationCommand
-import br.com.ajadigital.core.identity.domain.usecases.AuthenticateStudent
+import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
 import br.com.ajadigital.core.identity.domain.exceptions.InvalidCredentials
 import br.com.ajadigital.core.identity.domain.models.LoginCommand
 import br.com.ajadigital.core.identity.domain.usecases.toResponse
-import br.com.ajadigital.core.identity.domain.usecases.RequestAuthToken
+import br.com.ajadigital.core.identity.domain.ports.`in`.RequestAuthTokenUseCase
 import br.com.ajadigital.core.identity.domain.models.TokenCommand
-import br.com.ajadigital.core.identity.domain.usecases.ResetPassword
+import br.com.ajadigital.core.identity.domain.ports.`in`.ResetPasswordUseCase
 import br.com.ajadigital.core.identity.domain.models.PasswordResetCommand
 import br.com.ajadigital.core.identity.domain.models.User
 import br.com.ajadigital.core.identity.domain.policies.EmailAddress
@@ -34,10 +34,10 @@ import jakarta.servlet.http.HttpServletRequest
 @RestController
 @RequestMapping("/api/v1/auth")
 class AuthController(
-    private val registerStudent: RegisterStudent,
-    private val authenticateStudent: AuthenticateStudent,
-    private val requestAuthToken: RequestAuthToken,
-    private val resetPassword: ResetPassword,
+    private val registerStudent: RegisterStudentUseCase,
+    private val authenticateStudent: AuthenticateStudentUseCase,
+    private val requestAuthToken: RequestAuthTokenUseCase,
+    private val resetPassword: ResetPasswordUseCase,
     @Value("\${aja.cookie.secure:false}") private val cookieSecure: Boolean,
 ) {
     @PostMapping("/register")

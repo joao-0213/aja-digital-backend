@@ -192,7 +192,7 @@ Update `ArchitectureTests.kt` package discovery to match the new tree structure 
 
 ### R-03 — Wire controllers through ports and extract use cases
 
-**Implements:** phase 4, first half (incoming/outgoing port wiring and use-case extraction from JDBC orchestration). **Depends on:** R-02. **Status:** all criteria **pending**.
+**Implements:** phase 4, first half (incoming/outgoing port wiring and use-case extraction from JDBC orchestration). **Depends on:** R-02. **Status:** all criteria **verified** — evidence in [core-refactoring-r03-evidence.md](core-refactoring-r03-evidence.md).
 
 **Scope:** for each feature, define incoming port interfaces in `domain/ports/in/` and outgoing port interfaces in `domain/ports/out/`. Use cases in `domain/usecases/` implement incoming ports. Persistence adapters, messaging adapters, and integration clients implement outgoing ports. Controllers call incoming ports, not concrete implementations. Each feature gets a `configuration/` class that wires port implementations via Spring.
 
@@ -206,7 +206,7 @@ Add a `TransactionRunner` port in `shared/domain/ports/out/` with `SpringTransac
 
 **Acceptance criteria:**
 
-- **Pending:** controllers depend on incoming port interfaces, not concrete use cases; use cases depend on outgoing port interfaces, not concrete adapters; adapters do not depend on one another; feature `configuration/` classes concentrate wiring; focused characterization/regression tests prove unchanged behavior for each extracted use case; each write operation's actor/session/revision/idempotency revalidation, lock order, and atomicity match R-00 characterization; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes.
+- **Verified:** controllers depend on incoming port interfaces, not concrete use cases (`OutboxOperationsController` deferred to R-06); use cases depend on outgoing port interfaces, not concrete adapters (`OutboxEncryption` -> `OutboxPayloadProtector` deferred to R-06 per R-02); adapters do not depend on one another (aside from the R-06 outbox/crypto deferrals); feature `configuration/` classes concentrate wiring; focused characterization/regression tests prove unchanged behavior for extracted use cases and `TransactionRunner` boundaries; each write operation's actor/session/revision/idempotency revalidation, lock order, and atomicity match R-00 characterization; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes.
 
 ---
 

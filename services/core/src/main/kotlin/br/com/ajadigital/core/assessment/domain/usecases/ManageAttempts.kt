@@ -4,19 +4,20 @@ import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
 
 import br.com.ajadigital.core.assessment.domain.models.AssessmentPage
+import br.com.ajadigital.core.assessment.domain.ports.`in`.ManageAttemptsUseCase
 import br.com.ajadigital.core.assessment.domain.ports.out.AttemptStore
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import java.security.MessageDigest
 
 
-class ManageAttempts(private val store: AttemptStore, private val mapper: ObjectMapper) {
-    fun practiceBlocked(actor: AcademicActor, questionId: String): Boolean {
+class ManageAttempts(private val store: AttemptStore, private val mapper: ObjectMapper) : ManageAttemptsUseCase {
+    override fun practiceBlocked(actor: AcademicActor, questionId: String): Boolean {
         id(questionId)
         return store.practiceBlocked(actor.id, actor.role, actor.sessionTokenHash, questionId)
     }
 
-    fun start(actor: AcademicActor, key: String, body: JsonNode): Map<String, Any?> {
+    override fun start(actor: AcademicActor, key: String, body: JsonNode): Map<String, Any?> {
         student(actor)
         validKey(key)
         require(body.isObject && fields(body) == setOf("assessmentId"))
@@ -24,7 +25,7 @@ class ManageAttempts(private val store: AttemptStore, private val mapper: Object
         return store.start(actor.id, actor.role, actor.sessionTokenHash, assessmentId, key, hash(body))
     }
 
-    fun attempts(actor: AcademicActor, page: Int, pageSize: Int, sort: String, assessmentId: String?, studentId: String?): Map<String, Any?> {
+    override fun attempts(actor: AcademicActor, page: Int, pageSize: Int, sort: String, assessmentId: String?, studentId: String?): Map<String, Any?> {
         reader(actor)
         require(page > 0 && pageSize in 1..100 && sort in setOf("id", "-id"))
         require(assessmentId == null || validId(assessmentId))
@@ -33,12 +34,12 @@ class ManageAttempts(private val store: AttemptStore, private val mapper: Object
         return mapOf("items" to found.items, "page" to found.page, "pageSize" to found.pageSize, "total" to found.total)
     }
 
-    fun attempt(actor: AcademicActor, id: String): Map<String, Any?> {
+    override fun attempt(actor: AcademicActor, id: String): Map<String, Any?> {
         reader(actor); id(id)
         return store.attempt(actor.id, actor.role, actor.sessionTokenHash, id) ?: throw AcademicNotFound()
     }
 
-    fun saveAnswers(actor: AcademicActor, id: String, body: JsonNode): Map<String, Any?> {
+    override fun saveAnswers(actor: AcademicActor, id: String, body: JsonNode): Map<String, Any?> {
         student(actor); id(id)
         require(body.isObject && fields(body) == setOf("expectedRevision", "answers"))
         val revision = integer(body, "expectedRevision").also { require(it > 0) }
@@ -55,14 +56,14 @@ class ManageAttempts(private val store: AttemptStore, private val mapper: Object
         return store.saveAnswers(actor.id, actor.role, actor.sessionTokenHash, id, revision, answers) ?: throw AcademicNotFound()
     }
 
-    fun submit(actor: AcademicActor, id: String, key: String, body: JsonNode): Map<String, Any?> {
+    override fun submit(actor: AcademicActor, id: String, key: String, body: JsonNode): Map<String, Any?> {
         student(actor); id(id); validKey(key)
         require(body.isObject && fields(body) == setOf("expectedRevision"))
         val revision = integer(body, "expectedRevision").also { require(it > 0) }
         return store.submit(actor.id, actor.role, actor.sessionTokenHash, id, key, hash(body), revision) ?: throw AcademicNotFound()
     }
 
-    fun result(actor: AcademicActor, id: String): Map<String, Any?> {
+    override fun result(actor: AcademicActor, id: String): Map<String, Any?> {
         reader(actor); id(id)
         return store.result(actor.id, actor.role, actor.sessionTokenHash, id) ?: throw AcademicNotFound()
     }

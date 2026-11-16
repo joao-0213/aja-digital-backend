@@ -5,58 +5,65 @@ import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.classroom.domain.exceptions.AcademicIdempotencyConflict
 import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
 
+import br.com.ajadigital.core.curriculum.domain.ports.`in`.ManageSubjectsUseCase
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
+import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunner
 import br.com.ajadigital.core.curriculum.domain.ports.out.SubjectStore
 import tools.jackson.databind.ObjectMapper
 import java.security.MessageDigest
 
 
-class ManageSubjects(private val store: SubjectStore, private val mapper: ObjectMapper, private val idempotency: IdempotencyStore) {
-    fun subjects(actor: AcademicActor, page: Int, size: Int, sort: String, classId: String?, query: String?) = run {
+class ManageSubjects(
+    private val store: SubjectStore,
+    private val mapper: ObjectMapper,
+    private val idempotency: IdempotencyStore,
+    private val transactionRunner: TransactionRunner,
+) : ManageSubjectsUseCase {
+    override fun subjects(actor: AcademicActor, page: Int, size: Int, sort: String, classId: String?, query: String?) = run {
         requireReader(actor)
         store.subjects(actor.id, actor.role, actor.sessionTokenHash, checkedPage(page), checkedSize(size), checkedSort(sort), classId, query?.trim())
     }
 
-    fun subject(actor: AcademicActor, id: String): Map<String, Any?> {
+    override fun subject(actor: AcademicActor, id: String): Map<String, Any?> {
         requireReader(actor)
         return store.subject(id, actor.id, actor.role, actor.sessionTokenHash) ?: throw AcademicNotFound()
     }
 
-    fun subjectModules(actor: AcademicActor, subjectId: String): List<Map<String, Any?>> {
+    override fun subjectModules(actor: AcademicActor, subjectId: String): List<Map<String, Any?>> {
         requireReader(actor)
         return store.subjectModules(subjectId, actor.id, actor.role, actor.sessionTokenHash)
     }
 
-    fun createSubject(actor: AcademicActor, classId: String, name: String, teacherIds: List<String>, color: String, icon: String, description: String, key: String): Map<String, Any?> {
+    override fun createSubject(actor: AcademicActor, classId: String, name: String, teacherIds: List<String>, color: String, icon: String, description: String, key: String): Map<String, Any?> = transactionRunner.run {
         requireAdmin(actor)
         store.authorize(actor.id, actor.role, actor.sessionTokenHash)
-        return idempotent(actor, "createSubject", "/subjects", key, mapOf("classId" to classId, "name" to name, "teacherIds" to teacherIds, "color" to color, "icon" to icon, "description" to description)) {
+        idempotent(actor, "createSubject", "/subjects", key, mapOf("classId" to classId, "name" to name, "teacherIds" to teacherIds, "color" to color, "icon" to icon, "description" to description)) {
             require(name.isNotBlank() && name.length <= 100 && description.length <= 10000 && color in colors && icon in icons)
             require(teacherIds.size <= 100 && teacherIds.distinct().size == teacherIds.size)
             subjectCommand(store.createSubject(actor.id, actor.sessionTokenHash, classId, name.trim(), teacherIds, color, icon, description))
         }
     }
 
-    fun updateSubject(actor: AcademicActor, id: String, revision: Int, classId: String?, name: String?, teacherIds: List<String>?, color: String?, icon: String?, description: String?): Map<String, Any?> {
+    override fun updateSubject(actor: AcademicActor, id: String, revision: Int, classId: String?, name: String?, teacherIds: List<String>?, color: String?, icon: String?, description: String?): Map<String, Any?> = transactionRunner.run {
         requireAdmin(actor)
         require(revision > 0 && (name == null || name.isNotBlank() && name.length <= 100) && (description == null || description.length <= 10000) && (color == null || color in colors) && (icon == null || icon in icons))
         require(teacherIds == null || teacherIds.size <= 100 && teacherIds.distinct().size == teacherIds.size)
-        return subjectCommand(store.updateSubject(id, actor.id, actor.sessionTokenHash, revision, classId, name?.trim(), teacherIds, color, icon, description) ?: conflict(store.subject(id, actor.id, "admin", actor.sessionTokenHash)))
+        subjectCommand(store.updateSubject(id, actor.id, actor.sessionTokenHash, revision, classId, name?.trim(), teacherIds, color, icon, description) ?: conflict(store.subject(id, actor.id, "admin", actor.sessionTokenHash)))
     }
 
-    fun modules(actor: AcademicActor, page: Int, size: Int, sort: String, subjectId: String?) = run {
+    override fun modules(actor: AcademicActor, page: Int, size: Int, sort: String, subjectId: String?) = run {
         requireReader(actor)
         store.modules(actor.id, actor.role, actor.sessionTokenHash, checkedPage(page), checkedSize(size), checkedModuleSort(sort), subjectId)
     }
 
-    fun module(actor: AcademicActor, id: String): Map<String, Any?> {
+    override fun module(actor: AcademicActor, id: String): Map<String, Any?> {
         requireReader(actor)
         return store.module(id, actor.id, actor.role, actor.sessionTokenHash) ?: throw AcademicNotFound()
     }
 
-    fun createModule(actor: AcademicActor, subjectId: String, title: String, description: String, key: String) =
-        run {
+    override fun createModule(actor: AcademicActor, subjectId: String, title: String, description: String, key: String) =
+        transactionRunner.run {
             requireWriterRole(actor)
             store.authorize(actor.id, actor.role, actor.sessionTokenHash, subjectId)
             idempotent(actor, "createModule", "/modules", key, mapOf("subjectId" to subjectId, "title" to title, "description" to description)) {
@@ -65,23 +72,26 @@ class ManageSubjects(private val store: SubjectStore, private val mapper: Object
             }
         }
 
-    fun updateModule(actor: AcademicActor, id: String, revision: Int, title: String?, description: String?): Map<String, Any?> {
+    override fun updateModule(actor: AcademicActor, id: String, revision: Int, title: String?, description: String?): Map<String, Any?> = transactionRunner.run {
         requireWriterRole(actor)
         require(revision > 0 && (title == null || title.isNotBlank() && title.length <= 160) && (description == null || description.length <= 10000))
-        return store.updateModule(id, actor.id, actor.role, actor.sessionTokenHash, revision, title?.trim(), description) ?: conflict(store.module(id, actor.id, actor.role, actor.sessionTokenHash))
+        store.updateModule(id, actor.id, actor.role, actor.sessionTokenHash, revision, title?.trim(), description) ?: conflict(store.module(id, actor.id, actor.role, actor.sessionTokenHash))
     }
 
-    fun reorder(actor: AcademicActor, subjectId: String, revision: Int, items: List<Pair<String, Int>>, page: Int, pageSize: Int): Map<String, Any?> {
+    override fun reorder(actor: AcademicActor, subjectId: String, revision: Int, items: List<Pair<String, Int>>, page: Int, pageSize: Int): Map<String, Any?> = transactionRunner.run {
         requireWriterRole(actor)
         require(revision > 0 && items.isNotEmpty() && items.map { it.first }.distinct().size == items.size && items.all { it.second > 0 })
         val result = store.reorderModules(subjectId, actor.id, actor.role, actor.sessionTokenHash, revision, items, checkedPage(page), checkedSize(pageSize)) ?: conflict(store.subject(subjectId, actor.id, actor.role, actor.sessionTokenHash))
-        return mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
+        mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     }
 
-    fun visit(actor: AcademicActor, subjectId: String, publicationIds: List<String>? = null): Map<String, Any?> {
-        requireReader(actor)
-        require(publicationIds == null || publicationIds.distinct().size == publicationIds.size && publicationIds.all { it.length <= 139 && it.matches(Regex("^(material|notice|assessment):[A-Za-z0-9][A-Za-z0-9._:-]*$")) })
-        return store.visit(subjectId, actor.id, actor.role, actor.sessionTokenHash, publicationIds) ?: throw AcademicNotFound()
+    override fun visit(actor: AcademicActor, subjectId: String, publicationIds: List<String>?): Map<String, Any?> {
+        val execute = {
+            requireReader(actor)
+            require(publicationIds == null || publicationIds.distinct().size == publicationIds.size && publicationIds.all { it.length <= 139 && it.matches(Regex("^(material|notice|assessment):[A-Za-z0-9][A-Za-z0-9._:-]*$")) })
+            store.visit(subjectId, actor.id, actor.role, actor.sessionTokenHash, publicationIds) ?: throw AcademicNotFound()
+        }
+        return if (publicationIds != null) transactionRunner.run(execute) else execute()
     }
 
     private fun requireAdmin(actor: AcademicActor) { if (!actor.active || actor.role != "admin") throw AcademicForbidden() }

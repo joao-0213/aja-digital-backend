@@ -10,6 +10,7 @@ import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
 import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestion
 import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStore
 import br.com.ajadigital.core.assessment.domain.models.BankQuestionSnapshot
+import br.com.ajadigital.core.assessment.domain.ports.`in`.ManageAssessmentsUseCase
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
 import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProvider
@@ -20,8 +21,8 @@ import java.time.Instant
 import java.util.UUID
 
 
-class ManageAssessments(private val store: AssessmentStore, private val snapshots: QuestionSnapshotProvider, private val idempotency: IdempotencyStore, private val mapper: ObjectMapper) {
-    fun create(actor: AcademicActor, key: String, body: JsonNode): Map<String, Any?> {
+class ManageAssessments(private val store: AssessmentStore, private val snapshots: QuestionSnapshotProvider, private val idempotency: IdempotencyStore, private val mapper: ObjectMapper) : ManageAssessmentsUseCase {
+    override fun create(actor: AcademicActor, key: String, body: JsonNode): Map<String, Any?> {
         writer(actor)
         validKey(key)
         val draft = draft(body)
@@ -33,7 +34,7 @@ class ManageAssessments(private val store: AssessmentStore, private val snapshot
         return store.create(actor.id, actor.role, actor.sessionTokenHash, key, hash, draft, prepared)
     }
 
-    fun update(actor: AcademicActor, id: String, key: String, body: JsonNode): Map<String, Any?> {
+    override fun update(actor: AcademicActor, id: String, key: String, body: JsonNode): Map<String, Any?> {
         writer(actor)
         id(id)
         validKey(key)
@@ -58,7 +59,7 @@ class ManageAssessments(private val store: AssessmentStore, private val snapshot
             ?: throw AcademicConflict(current["revision"] as? Int)
     }
 
-    fun publish(actor: AcademicActor, id: String, key: String, expectedRevision: Int, body: JsonNode): Map<String, Any?> {
+    override fun publish(actor: AcademicActor, id: String, key: String, expectedRevision: Int, body: JsonNode): Map<String, Any?> {
         writer(actor)
         id(id); require(expectedRevision > 0)
         validKey(key)
@@ -71,13 +72,13 @@ class ManageAssessments(private val store: AssessmentStore, private val snapshot
         return current
     }
 
-    fun assessment(actor: AcademicActor, id: String) = run {
+    override fun assessment(actor: AcademicActor, id: String) = run {
         reader(actor)
         id(id)
         store.assessment(actor.id, actor.role, actor.sessionTokenHash, id) ?: throw AcademicNotFound()
     }
 
-    fun assessments(actor: AcademicActor, page: Int, pageSize: Int, sort: String, subjectId: String?, moduleId: String?, kind: String?, status: String?): Map<String, Any?> = run {
+    override fun assessments(actor: AcademicActor, page: Int, pageSize: Int, sort: String, subjectId: String?, moduleId: String?, kind: String?, status: String?): Map<String, Any?> = run {
         reader(actor)
         require(page > 0 && pageSize in 1..100 && sort in setOf("id", "-id"))
         require(subjectId == null || validId(subjectId)); require(moduleId == null || validId(moduleId))
@@ -86,12 +87,12 @@ class ManageAssessments(private val store: AssessmentStore, private val snapshot
         mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     }
 
-    fun dashboardAssessments(actor: AcademicActor, pageSize: Int = 100): Map<String, Any?> = reader(actor).let {
+    override fun dashboardAssessments(actor: AcademicActor, pageSize: Int): Map<String, Any?> = reader(actor).let {
         val page = store.dashboardAssessments(actor.id, actor.role, actor.sessionTokenHash, pageSize)
         mapOf("items" to page.items, "page" to page.page, "pageSize" to page.pageSize, "total" to page.total)
     }
 
-    fun pendingStudentCount(actor: AcademicActor): Int {
+    override fun pendingStudentCount(actor: AcademicActor): Int {
         reader(actor)
         require(actor.role == "student") { throw AcademicForbidden() }
         return store.pendingStudentCount(actor.id, actor.sessionTokenHash)

@@ -5,17 +5,24 @@ import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.classroom.domain.exceptions.AcademicIdempotencyConflict
 import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
 
+import br.com.ajadigital.core.materials.domain.ports.`in`.ManageContentUseCase
 import br.com.ajadigital.core.materials.domain.ports.out.ContentStore
 import br.com.ajadigital.core.materials.domain.models.DashboardContent
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
+import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunner
 import br.com.ajadigital.core.materials.domain.models.MaterialCreate
 import tools.jackson.databind.ObjectMapper
 import java.net.URI
 import java.security.MessageDigest
 
-class ManageContent(private val store: ContentStore, private val idempotency: IdempotencyStore, private val mapper: ObjectMapper) {
-    fun upload(actor: AcademicActor, key: String, name: String, mime: String, purpose: String, parentId: String, bytes: ByteArray): Map<String, Any?> {
+class ManageContent(
+    private val store: ContentStore,
+    private val idempotency: IdempotencyStore,
+    private val mapper: ObjectMapper,
+    private val transactionRunner: TransactionRunner,
+) : ManageContentUseCase {
+    override fun upload(actor: AcademicActor, key: String, name: String, mime: String, purpose: String, parentId: String, bytes: ByteArray): Map<String, Any?> {
         reader(actor)
         require(key.length in 8..128 && validId(parentId))
         require(name.isNotBlank() && name.length <= 255 && name.none { it.isISOControl() } && '/' !in name && '\\' !in name && name != "." && name != "..")
@@ -28,60 +35,60 @@ class ManageContent(private val store: ContentStore, private val idempotency: Id
         return store.upload(actor.id, actor.role, actor.sessionTokenHash, key, name, normalizedMime(mime), purpose, parentId, bytes)
     }
 
-    fun provisionQuestionImage(id: String, questionId: String, name: String, mime: String, bytes: ByteArray): Map<String, Any?> {
+    override fun provisionQuestionImage(id: String, questionId: String, name: String, mime: String, bytes: ByteArray): Map<String, Any?> {
         require(validId(id) && validId(questionId) && name.isNotBlank() && name.length <= 255 && name.none { it.isISOControl() } && '/' !in name && '\\' !in name)
         val normalized = normalizedMime(mime)
         require(bytes.size in 1..(5 * 1024 * 1024) && normalized in setOf("image/png", "image/jpeg", "image/webp") && validForumFile(name, normalized, bytes))
         return store.provisionQuestionImage(id, questionId, name, normalized, bytes)
     }
 
-    fun file(actor: AcademicActor, id: String) = store.file(id(id), actor.id, actor.role, actor.sessionTokenHash) ?: throw AcademicNotFound()
-    fun download(actor: AcademicActor, id: String, disposition: String?) = store.download(id(id), actor.id, actor.role, actor.sessionTokenHash, disposition) ?: throw AcademicNotFound()
-    fun discard(actor: AcademicActor, id: String) = store.discard(id(id), actor.id, actor.role, actor.sessionTokenHash)
+    override fun file(actor: AcademicActor, id: String) = store.file(id(id), actor.id, actor.role, actor.sessionTokenHash) ?: throw AcademicNotFound()
+    override fun download(actor: AcademicActor, id: String, disposition: String?) = store.download(id(id), actor.id, actor.role, actor.sessionTokenHash, disposition) ?: throw AcademicNotFound()
+    override fun discard(actor: AcademicActor, id: String) = store.discard(id(id), actor.id, actor.role, actor.sessionTokenHash)
 
-    fun materials(actor: AcademicActor, page: Int, size: Int, sort: String, moduleId: String?, subjectId: String?) = run {
+    override fun materials(actor: AcademicActor, page: Int, size: Int, sort: String, moduleId: String?, subjectId: String?) = run {
         reader(actor); require(page > 0 && size in 1..100 && sort in setOf("order", "-order"))
         require(moduleId == null || validId(moduleId)); require(subjectId == null || validId(subjectId))
         store.materials(actor.id, actor.role, actor.sessionTokenHash, page, size, sort, moduleId, subjectId)
     }
 
-    fun material(actor: AcademicActor, id: String) = store.material(id(id), actor.id, actor.role, actor.sessionTokenHash) ?: throw AcademicNotFound()
+    override fun material(actor: AcademicActor, id: String) = store.material(id(id), actor.id, actor.role, actor.sessionTokenHash) ?: throw AcademicNotFound()
 
-    fun publish(actor: AcademicActor, key: String, moduleId: String, revision: Int, items: List<MaterialCreate>): Map<String, Any?> {
+    override fun publish(actor: AcademicActor, key: String, moduleId: String, revision: Int, items: List<MaterialCreate>): Map<String, Any?> = transactionRunner.run {
         writer(actor); require(key.length in 8..128 && validId(moduleId) && revision > 0 && items.size in 1..10)
         require(items.all { it.moduleId == moduleId && validId(it.moduleId) && validMaterial(it) })
         store.authorizeMaterialPublication(actor.id, actor.role, actor.sessionTokenHash, moduleId)
         val body = mapOf("moduleId" to moduleId, "expectedRevision" to revision, "items" to items)
-        return idempotent(actor, "publishMaterials", "/materials/batch", key, body) {
+        idempotent(actor, "publishMaterials", "/materials/batch", key, body) {
             val result = store.publishMaterials(actor.id, actor.role, actor.sessionTokenHash, moduleId, revision, items) ?: throw AcademicConflict()
             page(result)
         }
     }
 
-    fun update(actor: AcademicActor, id: String, revision: Int, title: String?, duration: Double?, content: String?, videoUrl: String?): Map<String, Any?> {
+    override fun update(actor: AcademicActor, id: String, revision: Int, title: String?, duration: Double?, content: String?, videoUrl: String?): Map<String, Any?> {
         writer(actor); require(revision > 0 && (title == null || title.isNotBlank() && title.length <= 160) && (duration == null || duration in 1.0..600.0) && (content == null || content.length <= 1_000_000) && (videoUrl == null || validVideoUrl(videoUrl)))
         return store.updateMaterial(actor.id, actor.role, actor.sessionTokenHash, id(id), revision, title?.trim(), duration, content, videoUrl) ?: throw AcademicConflict()
     }
 
-    fun reorder(actor: AcademicActor, moduleId: String, revision: Int, items: List<Pair<String, Int>>, page: Int, size: Int): Map<String, Any?> {
+    override fun reorder(actor: AcademicActor, moduleId: String, revision: Int, items: List<Pair<String, Int>>, page: Int, size: Int): Map<String, Any?> {
         writer(actor); require(validId(moduleId) && revision > 0 && items.isNotEmpty() && items.map { it.first }.distinct().size == items.size && items.all { validId(it.first) && it.second > 0 } && page > 0 && size in 1..100)
         return store.reorderMaterials(actor.id, actor.role, actor.sessionTokenHash, moduleId, revision, items, page, size)?.let(::page) ?: throw AcademicConflict()
     }
 
-    fun progress(actor: AcademicActor, page: Int, size: Int, sort: String, subjectId: String?, materialId: String?) = run {
+    override fun progress(actor: AcademicActor, page: Int, size: Int, sort: String, subjectId: String?, materialId: String?) = run {
         reader(actor); require(page > 0 && size in 1..100 && sort in setOf("id", "-id"))
         require(subjectId == null || validId(subjectId)); require(materialId == null || validId(materialId))
         val result = store.progress(actor.id, actor.role, actor.sessionTokenHash, page, size, sort, subjectId, materialId)
         mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     }
 
-    fun dashboard(actor: AcademicActor): DashboardContent {
+    override fun dashboard(actor: AcademicActor): DashboardContent {
         reader(actor)
         require(actor.role == "student") { throw AcademicForbidden() }
         return store.dashboard(actor.id, actor.role, actor.sessionTokenHash, 100)
     }
 
-    fun recordProgress(actor: AcademicActor, materialId: String, completed: Boolean?) : Map<String, Any?> {
+    override fun recordProgress(actor: AcademicActor, materialId: String, completed: Boolean?) : Map<String, Any?> {
         reader(actor); require(validId(materialId) && completed != false)
         return store.recordProgress(actor.id, actor.role, actor.sessionTokenHash, materialId, completed == true) ?: throw AcademicNotFound()
     }

@@ -4,6 +4,7 @@ import br.com.ajadigital.core.identity.adapters.out.security.OutboxEncryption
 
 import br.com.ajadigital.core.identity.domain.models.User
 import br.com.ajadigital.core.identity.domain.policies.EmailAddress
+import br.com.ajadigital.core.identity.domain.ports.`in`.RequestAuthTokenUseCase
 import br.com.ajadigital.core.identity.domain.ports.out.AuthTokenIssue
 import br.com.ajadigital.core.identity.domain.ports.out.IdentityStore
 import tools.jackson.databind.ObjectMapper
@@ -21,8 +22,8 @@ class RequestAuthToken(
     private val objectMapper: ObjectMapper,
     private val clock: Clock,
     private val encryption: OutboxEncryption,
-) {
-    fun request(emailInput: String, purpose: String): AcceptedResponse {
+) : RequestAuthTokenUseCase {
+    override fun request(emailInput: String, purpose: String): AcceptedResponse {
         require(purpose == "email_confirmation" || purpose == "password_reset")
         val email = emailInput.trim()
         require(EmailAddress.isValid(email))
@@ -52,7 +53,7 @@ class RequestAuthToken(
         return AcceptedResponse()
     }
 
-    fun confirmEmail(token: String): User {
+    override fun confirmEmail(token: String): User {
         require(token.isNotBlank() && token.length <= 256)
         return store.confirmEmail(sha256(token)).toUserOrThrow()
     }

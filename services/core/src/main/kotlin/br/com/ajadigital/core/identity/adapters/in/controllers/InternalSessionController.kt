@@ -4,9 +4,9 @@ import br.com.ajadigital.core.identity.adapters.`in`.controllers.models.response
 import br.com.ajadigital.core.identity.adapters.`in`.controllers.models.responses.InternalSessionResponse
 import br.com.ajadigital.core.identity.domain.exceptions.InvalidInternalServiceCredential
 
-import br.com.ajadigital.core.identity.domain.usecases.AuthenticateStudent
+import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
 import br.com.ajadigital.core.classroom.domain.models.AcademicActor
-import br.com.ajadigital.core.assessment.domain.usecases.ManageAttempts
+import br.com.ajadigital.core.assessment.domain.ports.`in`.ManageAttemptsUseCase
 import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.web.bind.annotation.PostMapping
@@ -21,8 +21,8 @@ import org.springframework.web.bind.annotation.RequestHeader
 
 @RestController
 class InternalSessionController(
-    private val authenticateStudent: AuthenticateStudent,
-    private val attempts: ManageAttempts,
+    private val authenticateStudent: AuthenticateStudentUseCase,
+    private val attempts: ManageAttemptsUseCase,
     @Value("\${core.internal.questions-token}") serviceToken: String,
 ) {
     private val expectedToken = serviceToken.toByteArray(StandardCharsets.UTF_8)

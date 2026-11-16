@@ -4,12 +4,12 @@ import br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.req
 import br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.requests.AnnouncementRevisionRequest
 
 import br.com.ajadigital.core.classroom.domain.models.AcademicActor
-import br.com.ajadigital.core.announcements.domain.usecases.ManageAnnouncements
+import br.com.ajadigital.core.announcements.domain.ports.`in`.ManageAnnouncementsUseCase
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementDraft
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementOccurrence
+import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
-import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.CookieValue
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
@@ -25,7 +25,7 @@ import tools.jackson.databind.node.MissingNode
 
 
 @RestController
-class AnnouncementController(private val auth: br.com.ajadigital.core.identity.domain.usecases.AuthenticateStudent, private val announcements: ManageAnnouncements, private val mapper: ObjectMapper) {
+class AnnouncementController(private val auth: AuthenticateStudentUseCase, private val announcements: ManageAnnouncementsUseCase, private val mapper: ObjectMapper) {
     @GetMapping("/api/v1/announcements")
     fun list(
         @CookieValue(name = "aja_session", required = false) cookie: String?,
@@ -38,7 +38,6 @@ class AnnouncementController(private val auth: br.com.ajadigital.core.identity.d
     ) = page(announcements.announcements(actor(cookie), page, pageSize, sort, classId?.let(::id), subjectId?.let(::id), q))
 
     @PostMapping("/api/v1/announcements")
-    @Transactional
     fun create(
         @CookieValue(name = "aja_session", required = false) cookie: String?,
         @RequestHeader(name = "Idempotency-Key", required = false) key: String?,
@@ -52,7 +51,6 @@ class AnnouncementController(private val auth: br.com.ajadigital.core.identity.d
     fun get(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = announcements.announcement(actor(cookie), id(id))
 
     @PatchMapping("/api/v1/announcements/{id}")
-    @Transactional
     fun update(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: AnnouncementEditRequest): Map<String, Any?> {
         val principal = actor(cookie)
         val announcementId = id(id)
@@ -70,7 +68,6 @@ class AnnouncementController(private val auth: br.com.ajadigital.core.identity.d
     }
 
     @PostMapping("/api/v1/announcements/{id}/withdraw")
-    @Transactional
     fun withdraw(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: AnnouncementRevisionRequest): Map<String, Any?> =
         announcements.withdraw(actor(cookie), id(id), revision(body.expectedRevision))
 

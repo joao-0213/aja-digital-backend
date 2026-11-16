@@ -4,6 +4,7 @@ import br.com.ajadigital.core.identity.domain.exceptions.InvalidCredentials
 import br.com.ajadigital.core.identity.domain.models.LoginCommand
 import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
 
+import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
 import br.com.ajadigital.core.identity.domain.ports.out.IdentityStore
 import br.com.ajadigital.core.identity.domain.ports.out.PasswordHasher
 import br.com.ajadigital.core.identity.domain.ports.out.SessionRecord
@@ -20,8 +21,8 @@ class AuthenticateStudent(
     private val store: IdentityStore,
     private val passwordHasher: PasswordHasher,
     private val clock: Clock,
-) {
-    fun login(command: LoginCommand): AuthenticatedSession {
+) : AuthenticateStudentUseCase {
+    override fun login(command: LoginCommand): AuthenticatedSession {
         val identity = store.findLoginIdentity(command.email.trim().lowercase())
         if (identity == null || !passwordHasher.matches(command.password, identity.passwordHash) || !identity.user.active) {
             store.recordLoginFailure(command.previousSessionCookie?.takeIf(String::isNotBlank)?.let(::sha256))
@@ -44,7 +45,7 @@ class AuthenticateStudent(
         return AuthenticatedSession(session, cookieValue)
     }
 
-    fun resolve(cookieValue: String?): SessionRecord {
+    override fun resolve(cookieValue: String?): SessionRecord {
         if (cookieValue.isNullOrBlank()) throw SessionRequired()
         val session = store.findSession(sha256(cookieValue)) ?: throw SessionRequired()
         if (session.revokedAt != null || !session.user.active || !Instant.now(clock).isBefore(session.expiresAt)) {
@@ -53,7 +54,7 @@ class AuthenticateStudent(
         return session
     }
 
-    fun logout(cookieValue: String?) {
+    override fun logout(cookieValue: String?) {
         store.revokeSession(cookieValue?.takeIf(String::isNotBlank)?.let(::sha256))
     }
 

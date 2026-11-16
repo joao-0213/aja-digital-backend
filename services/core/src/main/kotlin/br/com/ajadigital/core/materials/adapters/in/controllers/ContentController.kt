@@ -5,8 +5,8 @@ import br.com.ajadigital.core.shared.adapters.`in`.web.requests.OrderCommandRequ
 import br.com.ajadigital.core.materials.adapters.`in`.controllers.models.requests.ProgressCommandRequest
 
 import br.com.ajadigital.core.classroom.domain.models.AcademicActor
-import br.com.ajadigital.core.materials.domain.usecases.ManageContent
-import br.com.ajadigital.core.identity.domain.usecases.AuthenticateStudent
+import br.com.ajadigital.core.materials.domain.ports.`in`.ManageContentUseCase
+import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
 import org.springframework.http.ContentDisposition
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
@@ -22,13 +22,12 @@ import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartHttpServletRequest
-import org.springframework.transaction.annotation.Transactional
 import tools.jackson.databind.JsonNode
 import java.nio.charset.StandardCharsets
 
 
 @RestController
-class ContentController(private val auth: AuthenticateStudent, private val content: ManageContent) {
+class ContentController(private val auth: AuthenticateStudentUseCase, private val content: ManageContentUseCase) {
     @PostMapping("/api/v1/files", consumes = ["multipart/form-data"])
     fun upload(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader("Idempotency-Key", required = false) key: String?, request: MultipartHttpServletRequest): ResponseEntity<Any> {
         require(request.fileMap.keys == setOf("file") && request.multiFileMap.getValue("file").size == 1 && request.parameterMap.keys == setOf("purpose", "parentId") && request.parameterMap.values.all { it.size == 1 })
@@ -68,7 +67,6 @@ class ContentController(private val auth: AuthenticateStudent, private val conte
     fun material(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = content.material(actor(cookie), id)
 
     @PostMapping("/api/v1/materials/batch")
-    @Transactional
     fun publish(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: MaterialBatchRequest): ResponseEntity<Any> {
         val revision = body.expectedRevision.intValue().also { require(body.expectedRevision.isIntegralNumber && body.expectedRevision.canConvertToInt()) }
         return ResponseEntity.status(HttpStatus.CREATED).body(content.publish(actor(cookie), key ?: throw IllegalArgumentException(), body.moduleId, revision, body.items.map { it.command() }))

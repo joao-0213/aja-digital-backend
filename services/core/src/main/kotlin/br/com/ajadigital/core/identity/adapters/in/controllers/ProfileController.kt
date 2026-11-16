@@ -1,7 +1,7 @@
 package br.com.ajadigital.core.identity.adapters.`in`.controllers
 import br.com.ajadigital.core.identity.adapters.`in`.controllers.models.requests.ProfileEditRequest
 
-import br.com.ajadigital.core.identity.domain.usecases.UpdateOwnProfile
+import br.com.ajadigital.core.identity.domain.ports.`in`.UpdateOwnProfileUseCase
 import br.com.ajadigital.core.identity.domain.models.ProfileEditCommand
 import br.com.ajadigital.core.identity.domain.models.User
 import org.springframework.web.bind.annotation.PatchMapping
@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.CookieValue
 
 
 @RestController
-class ProfileController(private val updateOwnProfile: UpdateOwnProfile) {
+class ProfileController(private val updateOwnProfile: UpdateOwnProfileUseCase) {
     @PatchMapping("/api/v1/me")
     fun update(
         @CookieValue(name = "aja_session", required = false) cookie: String?,

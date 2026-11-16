@@ -40,7 +40,7 @@ import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.springframework.context.annotation.Import
 import br.com.ajadigital.core.outbox.adapters.out.messaging.OutboxPublisher
-import br.com.ajadigital.core.classroom.domain.usecases.ManageAcademics
+import br.com.ajadigital.core.classroom.domain.ports.`in`.ManageAcademicsUseCase
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -55,7 +55,7 @@ abstract class CoreIntegrationTestBase {
     @Autowired protected lateinit var outboxPublisher: OutboxPublisher
     @Autowired protected lateinit var passwordEncoder: PasswordEncoder
     @Autowired protected lateinit var mutableClock: MutableTestClock
-    @Autowired protected lateinit var manageAcademics: ManageAcademics
+    @Autowired protected lateinit var manageAcademics: ManageAcademicsUseCase
     @Autowired protected lateinit var idempotencyStore: IdempotencyStore
     @Autowired protected lateinit var questionSnapshotProvider: TestQuestionSnapshotProvider
     @Autowired protected lateinit var webContext: ServletWebServerApplicationContext

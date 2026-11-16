@@ -39,5 +39,40 @@ class ArchitectureTests {
         assertTrue(Files.exists(root.resolve("health/domain/ports/out/HealthProbe.kt")))
     }
 
+    @Test
+    fun `controllers, upload filter, and dashboard use case depend on incoming ports instead of concrete use cases`() {
+        val root = Path.of("src/main/kotlin/br/com/ajadigital/core")
+        val callers = Files.walk(root).use { files ->
+            files.filter {
+                val norm = it.normalized()
+                (norm.endsWith("Controller.kt") && !norm.endsWith("OutboxOperationsController.kt")) ||
+                    norm.endsWith("/FileUploadSessionFilter.kt") ||
+                    norm.endsWith("/ManageDashboard.kt")
+            }.map { it.fileName.toString() to Files.readString(it) }.toList()
+        }
+        assertTrue(callers.isNotEmpty())
+        val offenders = callers.filter { (_, src) ->
+            src.lines().any { it.contains(".domain.usecases.") && !it.trim().endsWith(".toResponse") }
+        }.map { it.first }
+        assertTrue(offenders.isEmpty(), "Expected incoming port imports only, found concrete use-case imports in: $offenders")
+    }
+
+    @Test
+    fun `controllers do not declare @Transactional and CoreApplication delegates bean wiring to feature configurations`() {
+        val root = Path.of("src/main/kotlin/br/com/ajadigital/core")
+        val controllers = Files.walk(root).use { files ->
+            files.filter { it.fileName.toString().endsWith("Controller.kt") }
+                .map { it.fileName.toString() to Files.readString(it) }.toList()
+        }
+        val txControllers = controllers.filter { (_, src) -> src.contains("@Transactional") }.map { it.first }
+        assertTrue(txControllers.isEmpty(), "Controllers must not declare @Transactional: $txControllers")
+
+        val coreApp = Files.readString(root.resolve("CoreApplication.kt"))
+        assertFalse(coreApp.contains("@Bean"), "CoreApplication.kt must not declare @Bean methods")
+
+        assertTrue(Files.exists(root.resolve("shared/domain/ports/out/TransactionRunner.kt")))
+        assertTrue(Files.exists(root.resolve("shared/adapters/out/transaction/SpringTransactionRunner.kt")))
+    }
+
     private fun Path.normalized(): String = toString().replace('\\', '/')
 }

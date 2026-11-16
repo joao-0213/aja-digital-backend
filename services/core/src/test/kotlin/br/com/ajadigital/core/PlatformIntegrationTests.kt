@@ -1,11 +1,15 @@
 package br.com.ajadigital.core
+import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunner
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.test.web.servlet.get
 import java.util.UUID
 
 class PlatformIntegrationTests : CoreIntegrationTestBase() {
+    @Autowired protected lateinit var transactionRunner: TransactionRunner
     @Test
     fun publicHealthIsAvailableWithoutASession() {
         val response = liveHttp("GET", "/health", "")
@@ -50,5 +54,29 @@ class PlatformIntegrationTests : CoreIntegrationTestBase() {
     fun migrationsAreRepeatable() {
         flyway.migrate()
         assertEquals(16, jdbc.queryForObject("select count(*) from core.flyway_schema_history where success", Int::class.java))
+    }
+
+    @Test
+    fun springTransactionRunnerRollsBackAtomicallyOnFailure() {
+        val rolledBackId = UUID.randomUUID().toString()
+        assertThrows(IllegalStateException::class.java) {
+            transactionRunner.run {
+                jdbc.update(
+                    "INSERT INTO core.audit_events(id, event_type, outcome, subject_user_id) VALUES (?, 'auth.login', 'success', NULL)",
+                    rolledBackId,
+                )
+                throw IllegalStateException("force rollback")
+            }
+        }
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.audit_events WHERE id = ?", Int::class.java, rolledBackId))
+
+        val committedId = UUID.randomUUID().toString()
+        transactionRunner.run {
+            jdbc.update(
+                "INSERT INTO core.audit_events(id, event_type, outcome, subject_user_id) VALUES (?, 'auth.login', 'success', NULL)",
+                committedId,
+            )
+        }
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.audit_events WHERE id = ?", Int::class.java, committedId))
     }
 }

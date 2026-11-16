@@ -6,8 +6,10 @@ import br.com.ajadigital.core.classroom.domain.exceptions.AcademicIdempotencyCon
 import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
 import br.com.ajadigital.core.forum.domain.exceptions.InvalidTopicReference
 
+import br.com.ajadigital.core.forum.domain.ports.`in`.ManageTopicsUseCase
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
+import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunner
 import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProvider
 import br.com.ajadigital.core.forum.domain.models.TopicDraft
 import br.com.ajadigital.core.forum.domain.ports.out.TopicStore
@@ -15,8 +17,14 @@ import tools.jackson.databind.ObjectMapper
 import java.security.MessageDigest
 
 
-class ManageTopics(private val store: TopicStore, private val questions: QuestionSnapshotProvider, private val idempotency: IdempotencyStore, private val mapper: ObjectMapper) {
-    fun create(actor: AcademicActor, draft: TopicDraft, key: String): Map<String, Any?> {
+class ManageTopics(
+    private val store: TopicStore,
+    private val questions: QuestionSnapshotProvider,
+    private val idempotency: IdempotencyStore,
+    private val mapper: ObjectMapper,
+    private val transactionRunner: TransactionRunner,
+) : ManageTopicsUseCase {
+    override fun create(actor: AcademicActor, draft: TopicDraft, key: String): Map<String, Any?> {
         writable(actor)
         require(key.length in 8..128 && validId(draft.classId) && validId(draft.subjectId))
         require(draft.title.isNotBlank() && draft.title.length <= 160 && draft.body.isNotBlank() && draft.body.length <= 10000)
@@ -33,49 +41,51 @@ class ManageTopics(private val store: TopicStore, private val questions: Questio
         return store.create(actor.id, actor.role, actor.sessionTokenHash, draft, key, hash)
     }
 
-    fun topics(actor: AcademicActor, page: Int, size: Int, sort: String, classId: String?, subjectId: String?, query: String?, unread: Boolean?, solved: Boolean?): Map<String, Any?> {
+    override fun topics(actor: AcademicActor, page: Int, size: Int, sort: String, classId: String?, subjectId: String?, query: String?, unread: Boolean?, solved: Boolean?): Map<String, Any?> {
         readable(actor); require(page > 0 && size in 1..100 && sort in setOf("createdAt", "-createdAt"))
         require(classId == null || validId(classId)); require(subjectId == null || validId(subjectId))
         val result = store.topics(actor.id, actor.role, actor.sessionTokenHash, page, size, sort, classId, subjectId, query?.trim()?.takeIf(String::isNotEmpty), unread, solved)
         return mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     }
 
-    fun dashboardTopics(actor: AcademicActor) = readable(actor).let { store.dashboardTopics(actor.id, actor.role, actor.sessionTokenHash, 5) }
+    override fun dashboardTopics(actor: AcademicActor) = readable(actor).let { store.dashboardTopics(actor.id, actor.role, actor.sessionTokenHash, 5) }
 
-    fun topic(actor: AcademicActor, id: String) = readable(actor).let { store.topic(actor.id, actor.role, actor.sessionTokenHash, checkedId(id)) ?: throw AcademicNotFound() }
-    fun reply(actor: AcademicActor, id: String, body: String, key: String): Map<String, Any?> {
+    override fun topic(actor: AcademicActor, id: String) = readable(actor).let { store.topic(actor.id, actor.role, actor.sessionTokenHash, checkedId(id)) ?: throw AcademicNotFound() }
+    override fun reply(actor: AcademicActor, id: String, body: String, key: String): Map<String, Any?> = transactionRunner.run {
         writable(actor); require(body.isNotBlank() && body.length <= 10000 && key.length in 8..128)
         val topicId = checkedId(id)
         store.authorizeReply(actor.id, actor.role, actor.sessionTokenHash, topicId)
         val hash = MessageDigest.getInstance("SHA-256").digest(mapper.writeValueAsBytes(mapOf("body" to body))).joinToString("") { "%02x".format(it) }
-        try { idempotency.find(actor.id, "replyToTopic", "/topics/$topicId", key, hash)?.let { return it } }
+        try { idempotency.find(actor.id, "replyToTopic", "/topics/$topicId", key, hash)?.let { return@run it } }
         catch (_: IdempotencyKeyReuse) { throw AcademicIdempotencyConflict() }
-        return (store.reply(actor.id, actor.role, actor.sessionTokenHash, topicId, body) ?: throw AcademicNotFound())
+        (store.reply(actor.id, actor.role, actor.sessionTokenHash, topicId, body) ?: throw AcademicNotFound())
             .also { idempotency.save(actor.id, "replyToTopic", "/topics/$topicId", key, hash, it) }
     }
-    fun read(actor: AcademicActor, id: String) = readable(actor).let { store.read(actor.id, actor.role, actor.sessionTokenHash, checkedId(id)) ?: throw AcademicNotFound() }
-    fun solution(actor: AcademicActor, id: String, revision: Int, replyId: String?): Map<String, Any?> {
+    override fun read(actor: AcademicActor, id: String) = transactionRunner.run {
+        readable(actor).let { store.read(actor.id, actor.role, actor.sessionTokenHash, checkedId(id)) ?: throw AcademicNotFound() }
+    }
+    override fun solution(actor: AcademicActor, id: String, revision: Int, replyId: String?): Map<String, Any?> = transactionRunner.run {
         writable(actor); require(revision > 0 && (replyId == null || validId(replyId)))
         val topicId = checkedId(id)
-        return store.solution(actor.id, actor.role, actor.sessionTokenHash, topicId, revision, replyId)
+        store.solution(actor.id, actor.role, actor.sessionTokenHash, topicId, revision, replyId)
             ?: store.topic(actor.id, actor.role, actor.sessionTokenHash, topicId)?.let { throw AcademicConflict(it["revision"] as? Int) }
             ?: throw AcademicNotFound()
     }
-    fun withdraw(actor: AcademicActor, id: String, revision: Int): Map<String, Any?> {
+    override fun withdraw(actor: AcademicActor, id: String, revision: Int): Map<String, Any?> = transactionRunner.run {
         writable(actor); require(revision > 0)
         val topicId = checkedId(id)
-        return store.withdraw(actor.id, actor.role, actor.sessionTokenHash, topicId, revision)
+        store.withdraw(actor.id, actor.role, actor.sessionTokenHash, topicId, revision)
             ?: store.topic(actor.id, actor.role, actor.sessionTokenHash, topicId)?.let { throw AcademicConflict(it["revision"] as? Int) }
             ?: throw AcademicNotFound()
     }
-    fun vote(actor: AcademicActor, id: String, replyId: String, voted: Boolean): Map<String, Any?> {
+    override fun vote(actor: AcademicActor, id: String, replyId: String, voted: Boolean): Map<String, Any?> = transactionRunner.run {
         writable(actor)
-        return store.vote(actor.id, actor.role, actor.sessionTokenHash, checkedId(id), checkedId(replyId), voted) ?: throw AcademicNotFound()
+        store.vote(actor.id, actor.role, actor.sessionTokenHash, checkedId(id), checkedId(replyId), voted) ?: throw AcademicNotFound()
     }
-    fun withdrawReply(actor: AcademicActor, id: String, replyId: String, revision: Int): Map<String, Any?> {
+    override fun withdrawReply(actor: AcademicActor, id: String, replyId: String, revision: Int): Map<String, Any?> = transactionRunner.run {
         writable(actor); require(revision > 0)
         val topicId = checkedId(id); val checkedReplyId = checkedId(replyId)
-        return store.withdrawReply(actor.id, actor.role, actor.sessionTokenHash, topicId, checkedReplyId, revision)
+        store.withdrawReply(actor.id, actor.role, actor.sessionTokenHash, topicId, checkedReplyId, revision)
             ?: store.topic(actor.id, actor.role, actor.sessionTokenHash, topicId)?.let { topic ->
                 if ((topic["replies"] as? List<*>)?.any { (it as? Map<*, *>)?.get("id") == checkedReplyId } == true) throw AcademicConflict()
                 throw AcademicNotFound()

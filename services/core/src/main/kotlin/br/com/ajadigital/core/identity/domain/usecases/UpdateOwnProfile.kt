@@ -4,13 +4,14 @@ import br.com.ajadigital.core.identity.domain.exceptions.ProfileRevisionConflict
 import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
 
 import br.com.ajadigital.core.identity.domain.models.User
+import br.com.ajadigital.core.identity.domain.ports.`in`.UpdateOwnProfileUseCase
 import br.com.ajadigital.core.identity.domain.ports.out.IdentityStore
 import br.com.ajadigital.core.identity.domain.ports.out.ProfileUpdateResult
 import java.security.MessageDigest
 
 
-class UpdateOwnProfile(private val store: IdentityStore) {
-    fun update(cookie: String?, command: ProfileEditCommand): User {
+class UpdateOwnProfile(private val store: IdentityStore) : UpdateOwnProfileUseCase {
+    override fun update(cookie: String?, command: ProfileEditCommand): User {
         require(command.expectedRevision > 0)
         command.name?.let { require(it.isNotBlank()) }
         if (cookie.isNullOrBlank()) throw SessionRequired()

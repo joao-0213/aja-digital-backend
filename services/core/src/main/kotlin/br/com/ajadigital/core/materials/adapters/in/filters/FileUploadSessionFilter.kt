@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.materials.adapters.`in`.filters
 
-import br.com.ajadigital.core.identity.domain.usecases.AuthenticateStudent
+import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
 import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
@@ -16,7 +16,7 @@ import java.util.UUID
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
-class FileUploadSessionFilter(private val auth: AuthenticateStudent, @Value("\${core.internal.questions-token}") private val questionsToken: String) : OncePerRequestFilter() {
+class FileUploadSessionFilter(private val auth: AuthenticateStudentUseCase, @Value("\${core.internal.questions-token}") private val questionsToken: String) : OncePerRequestFilter() {
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
         if (request.method == "POST" && request.requestURI.startsWith("/internal/v1/question-files/")) {
             val supplied = request.getHeader("X-AJA-Service-Token") ?: ""

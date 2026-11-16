@@ -1,8 +1,8 @@
 package br.com.ajadigital.core.assessment.adapters.`in`.controllers
 
 import br.com.ajadigital.core.classroom.domain.models.AcademicActor
-import br.com.ajadigital.core.assessment.domain.usecases.ManageSubmissions
-import br.com.ajadigital.core.identity.domain.usecases.AuthenticateStudent
+import br.com.ajadigital.core.assessment.domain.ports.`in`.ManageSubmissionsUseCase
+import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import jakarta.servlet.http.HttpServletRequest
@@ -19,7 +19,7 @@ import tools.jackson.databind.JsonNode
 
 
 @RestController
-class SubmissionController(private val auth: AuthenticateStudent, private val submissions: ManageSubmissions) {
+class SubmissionController(private val auth: AuthenticateStudentUseCase, private val submissions: ManageSubmissionsUseCase) {
     @GetMapping("/api/v1/submissions")
     fun submissions(
         @CookieValue(name = "aja_session", required = false) cookie: String?,

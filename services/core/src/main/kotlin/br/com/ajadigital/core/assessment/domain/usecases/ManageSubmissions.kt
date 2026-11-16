@@ -5,6 +5,7 @@ import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
 
 import br.com.ajadigital.core.assessment.domain.models.SubmissionAttachment
 import br.com.ajadigital.core.assessment.domain.models.SubmissionPage
+import br.com.ajadigital.core.assessment.domain.ports.`in`.ManageSubmissionsUseCase
 import br.com.ajadigital.core.assessment.domain.ports.out.SubmissionStore
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
@@ -13,8 +14,8 @@ import java.net.URI
 import java.security.MessageDigest
 
 
-class ManageSubmissions(private val store: SubmissionStore, private val mapper: ObjectMapper) {
-    fun create(actor: AcademicActor, key: String, body: JsonNode): Map<String, Any?> {
+class ManageSubmissions(private val store: SubmissionStore, private val mapper: ObjectMapper) : ManageSubmissionsUseCase {
+    override fun create(actor: AcademicActor, key: String, body: JsonNode): Map<String, Any?> {
         student(actor); validKey(key)
         require(body.isObject && fields(body) == setOf("assessmentId", "attachments"))
         val assessmentId = text(body, "assessmentId").also(::id)
@@ -22,7 +23,7 @@ class ManageSubmissions(private val store: SubmissionStore, private val mapper: 
         return store.create(actor.id, actor.role, actor.sessionTokenHash, assessmentId, attachments, key, hash(body))
     }
 
-    fun submissions(actor: AcademicActor, page: Int, pageSize: Int, sort: String, assessmentId: String?, studentId: String?): Map<String, Any?> {
+    override fun submissions(actor: AcademicActor, page: Int, pageSize: Int, sort: String, assessmentId: String?, studentId: String?): Map<String, Any?> {
         reader(actor)
         require(page > 0 && pageSize in 1..100 && sort in setOf("id", "-id"))
         require(assessmentId == null || validId(assessmentId)); require(studentId == null || validId(studentId))
@@ -30,17 +31,17 @@ class ManageSubmissions(private val store: SubmissionStore, private val mapper: 
         return mapOf("items" to found.items, "page" to found.page, "pageSize" to found.pageSize, "total" to found.total)
     }
 
-    fun pendingFeedbackCount(actor: AcademicActor): Int {
+    override fun pendingFeedbackCount(actor: AcademicActor): Int {
         writer(actor)
         return store.pendingFeedbackCount(actor.id, actor.role, actor.sessionTokenHash)
     }
 
-    fun submission(actor: AcademicActor, id: String): Map<String, Any?> {
+    override fun submission(actor: AcademicActor, id: String): Map<String, Any?> {
         reader(actor); id(id)
         return store.submission(actor.id, actor.role, actor.sessionTokenHash, id) ?: throw AcademicNotFound()
     }
 
-    fun update(actor: AcademicActor, id: String, body: JsonNode): Map<String, Any?> {
+    override fun update(actor: AcademicActor, id: String, body: JsonNode): Map<String, Any?> {
         student(actor); id(id)
         require(body.isObject && fields(body).all { it in setOf("expectedRevision", "attachments") } && body.has("expectedRevision"))
         val revision = integer(body, "expectedRevision").also { require(it > 0) }
@@ -48,13 +49,13 @@ class ManageSubmissions(private val store: SubmissionStore, private val mapper: 
         return store.update(actor.id, actor.role, actor.sessionTokenHash, id, revision, attachments) ?: throw AcademicNotFound()
     }
 
-    fun submit(actor: AcademicActor, id: String, key: String, body: JsonNode): Map<String, Any?> {
+    override fun submit(actor: AcademicActor, id: String, key: String, body: JsonNode): Map<String, Any?> {
         student(actor); id(id); validKey(key)
         require(body.isObject && fields(body) == setOf("expectedRevision"))
         return store.submit(actor.id, actor.role, actor.sessionTokenHash, id, integer(body, "expectedRevision").also { require(it > 0) }, key, hash(body)) ?: throw AcademicNotFound()
     }
 
-    fun saveFeedback(actor: AcademicActor, id: String, body: JsonNode): Map<String, Any?> {
+    override fun saveFeedback(actor: AcademicActor, id: String, body: JsonNode): Map<String, Any?> {
         writer(actor); id(id)
         require(body.isObject && fields(body) == setOf("expectedRevision", "comment", "grade"))
         val comment = text(body, "comment")
@@ -67,7 +68,7 @@ class ManageSubmissions(private val store: SubmissionStore, private val mapper: 
         return store.saveFeedback(actor.id, actor.role, actor.sessionTokenHash, id, integer(body, "expectedRevision").also { require(it > 0) }, comment, grade) ?: throw AcademicNotFound()
     }
 
-    fun publishFeedback(actor: AcademicActor, id: String, key: String, body: JsonNode): Map<String, Any?> {
+    override fun publishFeedback(actor: AcademicActor, id: String, key: String, body: JsonNode): Map<String, Any?> {
         writer(actor); id(id); validKey(key)
         require(body.isObject && fields(body) == setOf("expectedRevision"))
         return store.publishFeedback(actor.id, actor.role, actor.sessionTokenHash, id, integer(body, "expectedRevision").also { require(it > 0) }, key, hash(body)) ?: throw AcademicNotFound()

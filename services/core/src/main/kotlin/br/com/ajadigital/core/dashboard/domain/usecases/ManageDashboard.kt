@@ -1,29 +1,30 @@
 package br.com.ajadigital.core.dashboard.domain.usecases
 import br.com.ajadigital.core.classroom.domain.models.AcademicActor
 import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.classroom.domain.usecases.ManageAcademics
-import br.com.ajadigital.core.announcements.domain.usecases.ManageAnnouncements
-import br.com.ajadigital.core.assessment.domain.usecases.ManageAssessments
-import br.com.ajadigital.core.materials.domain.usecases.ManageContent
-import br.com.ajadigital.core.curriculum.domain.usecases.ManageSubjects
-import br.com.ajadigital.core.assessment.domain.usecases.ManageSubmissions
-import br.com.ajadigital.core.forum.domain.usecases.ManageTopics
+import br.com.ajadigital.core.classroom.domain.ports.`in`.ManageAcademicsUseCase
+import br.com.ajadigital.core.announcements.domain.ports.`in`.ManageAnnouncementsUseCase
+import br.com.ajadigital.core.assessment.domain.ports.`in`.ManageAssessmentsUseCase
+import br.com.ajadigital.core.materials.domain.ports.`in`.ManageContentUseCase
+import br.com.ajadigital.core.curriculum.domain.ports.`in`.ManageSubjectsUseCase
+import br.com.ajadigital.core.assessment.domain.ports.`in`.ManageSubmissionsUseCase
+import br.com.ajadigital.core.forum.domain.ports.`in`.ManageTopicsUseCase
+import br.com.ajadigital.core.dashboard.domain.ports.`in`.ManageDashboardUseCase
 
 import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneId
 
 class ManageDashboard(
-    private val academics: ManageAcademics,
-    private val subjects: ManageSubjects,
-    private val content: ManageContent,
-    private val assessments: ManageAssessments,
-    private val submissions: ManageSubmissions,
-    private val announcements: ManageAnnouncements,
-    private val topics: ManageTopics,
+    private val academics: ManageAcademicsUseCase,
+    private val subjects: ManageSubjectsUseCase,
+    private val content: ManageContentUseCase,
+    private val assessments: ManageAssessmentsUseCase,
+    private val submissions: ManageSubmissionsUseCase,
+    private val announcements: ManageAnnouncementsUseCase,
+    private val topics: ManageTopicsUseCase,
     private val clock: Clock,
-) {
-    fun dashboard(actor: AcademicActor): Map<String, Any?> {
+) : ManageDashboardUseCase {
+    override fun dashboard(actor: AcademicActor): Map<String, Any?> {
         require(actor.active && actor.role in setOf("student", "teacher", "admin") && (actor.role != "student" || actor.emailConfirmedAt != null)) { throw AcademicForbidden() }
         val subjectsPage = subjects.subjects(actor, 1, LIMIT, "id", null, null)
         val assessmentPage = assessments.dashboardAssessments(actor, LIMIT)

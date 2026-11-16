@@ -1,8 +1,8 @@
 package br.com.ajadigital.core.assessment.adapters.`in`.controllers
 
 import br.com.ajadigital.core.classroom.domain.models.AcademicActor
-import br.com.ajadigital.core.assessment.domain.usecases.ManageAttempts
-import br.com.ajadigital.core.identity.domain.usecases.AuthenticateStudent
+import br.com.ajadigital.core.assessment.domain.ports.`in`.ManageAttemptsUseCase
+import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import jakarta.servlet.http.HttpServletRequest
@@ -19,7 +19,7 @@ import tools.jackson.databind.JsonNode
 
 
 @RestController
-class AttemptController(private val auth: AuthenticateStudent, private val attempts: ManageAttempts) {
+class AttemptController(private val auth: AuthenticateStudentUseCase, private val attempts: ManageAttemptsUseCase) {
     @GetMapping("/api/v1/attempts")
     fun attempts(
         @CookieValue(name = "aja_session", required = false) cookie: String?,

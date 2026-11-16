@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.health.adapters.`in`.controllers
 
-import br.com.ajadigital.core.health.domain.usecases.CheckServiceHealth
+import br.com.ajadigital.core.health.domain.ports.`in`.CheckServiceHealthUseCase
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -12,7 +12,7 @@ import java.util.UUID
 @RestController
 @RequestMapping("/api/v1")
 class HealthController(
-    private val checkServiceHealth: CheckServiceHealth,
+    private val checkServiceHealth: CheckServiceHealthUseCase,
     @Value("\${app.version:1}") private val version: String,
 ) {
     @GetMapping("/health")
