@@ -45,7 +45,7 @@ class ArchitectureTests {
         val callers = Files.walk(root).use { files ->
             files.filter {
                 val norm = it.normalized()
-                (norm.endsWith("Controller.kt") && !norm.endsWith("OutboxOperationsController.kt")) ||
+                norm.endsWith("Controller.kt") ||
                     norm.endsWith("/FileUploadSessionFilter.kt") ||
                     norm.endsWith("/GetDashboard.kt")
             }.map { it.fileName.toString() to Files.readString(it) }.toList()

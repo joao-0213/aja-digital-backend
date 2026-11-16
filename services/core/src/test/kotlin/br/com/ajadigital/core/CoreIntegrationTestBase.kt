@@ -39,7 +39,7 @@ import org.testcontainers.rabbitmq.RabbitMQContainer
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.springframework.context.annotation.Import
-import br.com.ajadigital.core.outbox.adapters.out.messaging.OutboxPublisher
+import br.com.ajadigital.core.outbox.domain.ports.`in`.PublishPendingEventsUseCase
 import br.com.ajadigital.core.classroom.domain.ports.`in`.CreateClassUseCase
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
 
@@ -52,7 +52,7 @@ abstract class CoreIntegrationTestBase {
     @Autowired protected lateinit var flyway: Flyway
     @Autowired protected lateinit var mvc: MockMvc
     @Autowired protected lateinit var rabbitTemplate: RabbitTemplate
-    @Autowired protected lateinit var outboxPublisher: OutboxPublisher
+    @Autowired protected lateinit var outboxPublisher: PublishPendingEventsUseCase
     @Autowired protected lateinit var passwordEncoder: PasswordEncoder
     @Autowired protected lateinit var mutableClock: MutableTestClock
     @Autowired protected lateinit var createClassUseCase: CreateClassUseCase

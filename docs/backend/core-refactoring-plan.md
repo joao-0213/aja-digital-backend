@@ -253,7 +253,7 @@ Do NOT add `@Valid` indiscriminately — only on controller method parameters fo
 
 ### R-06 — Isolate outbox
 
-**Implements:** phase 5, outbox part. **Depends on:** R-05. **Status:** all criteria **pending**.
+**Implements:** phase 5, outbox part. **Depends on:** R-05. **Status:** all criteria **verified**.
 
 **Scope:** split `OutboxPublisher.kt` and `IdentityEventsTopology.kt` (already in `outbox/` feature from R-02) into individual types as specified in the source inventory:
 
@@ -279,7 +279,7 @@ Each type gets its own file. Split related request/response DTOs, exception type
 
 **Acceptance criteria:**
 
-- **Pending:** each outbox type has its own file; outbox domain types have no Spring/JDBC/RabbitMQ imports; adapters implement outgoing ports; outbox commit/rollback, cipher, confirms, retry, redrive, and at-least-once behavior match R-00 characterization; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes.
+- **Verified:** each outbox type has its own file; outbox domain types have no Spring/JDBC/RabbitMQ imports; adapters implement outgoing ports; outbox commit/rollback, cipher, confirms, retry, redrive, and at-least-once behavior match R-00 characterization; `.\gradlew.bat test` passes (`24` suites, `156` tests); `.\gradlew.bat build` with `B16_OPENAPI_COVERAGE=true` passes (`95/95` non-`/questions` operations); evidence and independent ECC/Ponytail/DB review records are in [core-refactoring-r06-evidence.md](core-refactoring-r06-evidence.md).
 
 ---
 

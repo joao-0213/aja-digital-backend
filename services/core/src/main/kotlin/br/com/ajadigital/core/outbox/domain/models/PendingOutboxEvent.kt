@@ -2,7 +2,7 @@ package br.com.ajadigital.core.outbox.domain.models
 
 
 
-internal data class PendingOutboxEvent(
+data class PendingOutboxEvent(
     val id: String,
     val type: String,
     val version: Int,

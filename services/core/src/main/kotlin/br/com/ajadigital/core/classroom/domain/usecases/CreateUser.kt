@@ -4,7 +4,7 @@ import br.com.ajadigital.core.classroom.domain.models.AcademicActor
 import br.com.ajadigital.core.classroom.domain.ports.`in`.CreateUserUseCase
 import br.com.ajadigital.core.classroom.domain.ports.out.AcademicStore
 import br.com.ajadigital.core.classroom.domain.ports.out.ProvisionedIdentity
-import br.com.ajadigital.core.identity.adapters.out.security.OutboxEncryption
+import br.com.ajadigital.core.outbox.domain.ports.out.OutboxPayloadProtector
 import br.com.ajadigital.core.identity.domain.policies.EmailAddress
 import br.com.ajadigital.core.identity.domain.ports.out.PasswordHasher
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
@@ -18,7 +18,7 @@ class CreateUser(
     private val store: AcademicStore,
     private val objectMapper: ObjectMapper,
     private val clock: Clock,
-    private val encryption: OutboxEncryption,
+    private val encryption: OutboxPayloadProtector,
     private val passwordHasher: PasswordHasher,
     private val idempotency: IdempotencyStore,
     private val transactionRunner: TransactionRunner,

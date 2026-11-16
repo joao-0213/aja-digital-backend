@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.identity.domain.usecases
 import br.com.ajadigital.core.identity.domain.models.AcceptedResponse
-import br.com.ajadigital.core.identity.adapters.out.security.OutboxEncryption
+import br.com.ajadigital.core.outbox.domain.ports.out.OutboxPayloadProtector
 
 import br.com.ajadigital.core.identity.domain.models.User
 import br.com.ajadigital.core.identity.domain.policies.EmailAddress
@@ -21,7 +21,7 @@ class RequestAuthToken(
     private val store: IdentityStore,
     private val objectMapper: ObjectMapper,
     private val clock: Clock,
-    private val encryption: OutboxEncryption,
+    private val encryption: OutboxPayloadProtector,
 ) : RequestAuthTokenUseCase {
     override fun request(emailInput: String, purpose: String): AcceptedResponse {
         require(purpose == "email_confirmation" || purpose == "password_reset")

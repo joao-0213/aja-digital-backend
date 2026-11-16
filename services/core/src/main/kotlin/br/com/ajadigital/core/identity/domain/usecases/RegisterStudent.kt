@@ -1,5 +1,5 @@
 package br.com.ajadigital.core.identity.domain.usecases
-import br.com.ajadigital.core.identity.adapters.out.security.OutboxEncryption
+import br.com.ajadigital.core.outbox.domain.ports.out.OutboxPayloadProtector
 import br.com.ajadigital.core.identity.domain.models.RegistrationCommand
 import br.com.ajadigital.core.identity.domain.exceptions.RegistrationConflict
 import br.com.ajadigital.core.identity.domain.models.RegistrationResult
@@ -24,7 +24,7 @@ class RegisterStudent(
     private val passwordHasher: PasswordHasher,
     private val objectMapper: ObjectMapper,
     private val clock: Clock,
-    private val encryption: OutboxEncryption,
+    private val encryption: OutboxPayloadProtector,
 ) : RegisterStudentUseCase {
     override fun register(command: RegistrationCommand): RegistrationResult {
         val email = command.email.trim()

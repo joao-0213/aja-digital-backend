@@ -8,6 +8,8 @@ import org.springframework.context.annotation.Configuration
 class IdentityEventsTopology {
     @Bean
     fun identityEventsExchange() = TopicExchange(EVENTS_EXCHANGE, true, false)
-}
 
-const val EVENTS_EXCHANGE = "aja.events"
+    companion object {
+        const val EVENTS_EXCHANGE = "aja.events"
+    }
+}

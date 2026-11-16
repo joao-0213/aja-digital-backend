@@ -2,7 +2,7 @@ package br.com.ajadigital.core.announcements.adapters.out.persistence
 
 import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
-import br.com.ajadigital.core.identity.adapters.out.security.OutboxEncryption
+import br.com.ajadigital.core.outbox.domain.ports.out.OutboxPayloadProtector
 import br.com.ajadigital.core.classroom.domain.ports.out.AcademicPage
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementDraft
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementOccurrence
@@ -23,7 +23,7 @@ class JdbcAnnouncementStore(
     private val jdbc: JdbcTemplate,
     private val mapper: ObjectMapper,
     private val clock: Clock,
-    private val encryption: OutboxEncryption,
+    private val encryption: OutboxPayloadProtector,
 ) : AnnouncementStore {
     @Transactional
     override fun authorizeCreate(actorId: String, role: String, sessionHash: String, draft: AnnouncementDraft) {

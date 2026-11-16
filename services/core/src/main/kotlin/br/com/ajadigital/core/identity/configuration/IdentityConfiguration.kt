@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.identity.configuration
 
-import br.com.ajadigital.core.identity.adapters.out.security.OutboxEncryption
+import br.com.ajadigital.core.outbox.domain.ports.out.OutboxPayloadProtector
 import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
 import br.com.ajadigital.core.identity.domain.ports.`in`.RegisterStudentUseCase
 import br.com.ajadigital.core.identity.domain.ports.`in`.RequestAuthTokenUseCase
@@ -27,15 +27,12 @@ class IdentityConfiguration {
     fun passwordEncoder(): PasswordEncoder = Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()
 
     @Bean
-    fun outboxEncryption(@Value("\${core.outbox.encryption-key}") key: String): OutboxEncryption = OutboxEncryption(key)
-
-    @Bean
     fun registerStudent(
         store: IdentityStore,
         hasher: PasswordHasher,
         mapper: ObjectMapper,
         clock: Clock,
-        encryption: OutboxEncryption,
+        encryption: OutboxPayloadProtector,
     ): RegisterStudentUseCase = RegisterStudent(store, hasher, mapper, clock, encryption)
 
     @Bean
@@ -50,7 +47,7 @@ class IdentityConfiguration {
         store: IdentityStore,
         mapper: ObjectMapper,
         clock: Clock,
-        encryption: OutboxEncryption,
+        encryption: OutboxPayloadProtector,
     ): RequestAuthTokenUseCase = RequestAuthToken(store, mapper, clock, encryption)
 
     @Bean

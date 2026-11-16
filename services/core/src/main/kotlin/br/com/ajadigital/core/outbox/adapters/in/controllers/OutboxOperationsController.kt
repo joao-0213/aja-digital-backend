@@ -1,5 +1,5 @@
 package br.com.ajadigital.core.outbox.adapters.`in`.controllers
-import br.com.ajadigital.core.outbox.adapters.out.messaging.OutboxRedrive
+import br.com.ajadigital.core.outbox.domain.ports.`in`.RedriveOutboxEventUseCase
 
 import java.util.UUID
 
@@ -7,7 +7,7 @@ import java.util.UUID
 @org.springframework.web.bind.annotation.RestController
 @org.springframework.web.bind.annotation.RequestMapping("/internal/ops/outbox")
 class OutboxOperationsController(
-    private val redrive: OutboxRedrive,
+    private val redrive: RedriveOutboxEventUseCase,
     @org.springframework.beans.factory.annotation.Value("\${core.outbox.operator-token}") private val operatorToken: String,
 ) {
     init {

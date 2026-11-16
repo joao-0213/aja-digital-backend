@@ -18,7 +18,7 @@ import java.time.Instant
 import br.com.ajadigital.core.announcements.adapters.out.persistence.JdbcAnnouncementStore
 import br.com.ajadigital.core.classroom.adapters.out.persistence.JdbcAcademicStore
 import br.com.ajadigital.core.forum.adapters.out.persistence.JdbcTopicStore
-import br.com.ajadigital.core.identity.adapters.out.security.OutboxEncryption
+import br.com.ajadigital.core.outbox.adapters.out.security.AesGcmOutboxPayloadProtector
 
 class DashboardIntegrationTests : CoreIntegrationTestBase() {
     @Test
@@ -328,7 +328,7 @@ class DashboardIntegrationTests : CoreIntegrationTestBase() {
         }
         val store = JdbcAnnouncementStore(
             JdbcTemplate(countingDataSource), tools.jackson.databind.json.JsonMapper.builder().build(), mutableClock,
-            OutboxEncryption(java.util.Base64.getEncoder().encodeToString(ByteArray(32))),
+            AesGcmOutboxPayloadProtector(java.util.Base64.getEncoder().encodeToString(ByteArray(32))),
         )
         val sessionHash = sha256(studentCookie)
         repeat(3) { createB06Class(adminCookie) }

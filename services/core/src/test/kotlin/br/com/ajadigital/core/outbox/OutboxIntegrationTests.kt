@@ -9,15 +9,16 @@ import java.sql.DriverManager
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import br.com.ajadigital.core.outbox.adapters.`in`.controllers.OutboxOperationsController
-import br.com.ajadigital.core.outbox.adapters.out.messaging.OutboxRedrive
+import br.com.ajadigital.core.outbox.adapters.out.persistence.JdbcOutboxRepository
+import br.com.ajadigital.core.outbox.domain.usecases.RedriveOutboxEvent
 
 class OutboxIntegrationTests : CoreIntegrationTestBase() {
     @Test
     fun outboxOperatorRejectsBlankConfiguredSecret() {
         assertThrows(IllegalArgumentException::class.java) {
-            OutboxOperationsController(OutboxRedrive(jdbc, mutableClock), " \t")
+            OutboxOperationsController(RedriveOutboxEvent(JdbcOutboxRepository(jdbc), mutableClock), " \t")
         }
-        assertEquals(401, OutboxOperationsController(OutboxRedrive(jdbc, mutableClock), "a-valid-secret")
+        assertEquals(401, OutboxOperationsController(RedriveOutboxEvent(JdbcOutboxRepository(jdbc), mutableClock), "a-valid-secret")
             .redrive("not-a-uuid", " \t").statusCode.value())
     }
 

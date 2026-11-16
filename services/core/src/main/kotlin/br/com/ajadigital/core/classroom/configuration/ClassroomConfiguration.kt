@@ -47,7 +47,7 @@ import br.com.ajadigital.core.classroom.domain.usecases.TransitionEnrollment
 import br.com.ajadigital.core.classroom.domain.usecases.UpdateClass
 import br.com.ajadigital.core.classroom.domain.usecases.UpdateUser
 import br.com.ajadigital.core.classroom.domain.usecases.WithdrawUser
-import br.com.ajadigital.core.identity.adapters.out.security.OutboxEncryption
+import br.com.ajadigital.core.outbox.domain.ports.out.OutboxPayloadProtector
 import br.com.ajadigital.core.identity.domain.ports.out.PasswordHasher
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
 import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunner
@@ -69,7 +69,7 @@ class ClassroomConfiguration {
         store: AcademicStore,
         mapper: ObjectMapper,
         clock: Clock,
-        encryption: OutboxEncryption,
+        encryption: OutboxPayloadProtector,
         hasher: PasswordHasher,
         idempotency: IdempotencyStore,
         transactionRunner: TransactionRunner,
