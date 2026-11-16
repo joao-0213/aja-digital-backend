@@ -6,6 +6,7 @@ import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
 import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
 import br.com.ajadigital.core.assessment.domain.models.AssessmentPage
 import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestion
+import br.com.ajadigital.core.assessment.domain.policies.AssessmentEditPolicy
 import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStore
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
@@ -16,7 +17,6 @@ import tools.jackson.databind.ObjectMapper
 import java.sql.ResultSet
 import java.sql.Timestamp
 import java.time.Clock
-import java.time.ZoneId
 import java.util.UUID
 
 @Repository
@@ -59,12 +59,16 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         if (changedQuestions && !confirmResetDrafts) throw AcademicConflict(current["revision"] as Int)
         var next = draft ?: current.toDraft()
         if (submitted) {
-            if (current["moduleId"] != next.moduleId || current["kind"] != next.kind || current["maxGrade"] != next.maxGrade || current["required"] != next.required || current["allowLate"] != next.allowLate || changedQuestions) throw AcademicConflict(current["revision"] as Int)
-            val zone = ZoneId.of("America/Sao_Paulo")
-            val oldDeadline = (current["deadline"] as String?)?.let(java.time.Instant::parse)?.atZone(zone)
-            val requestedDeadline = next.deadline?.atZone(zone)
-            if ((oldDeadline == null) != (requestedDeadline == null) || oldDeadline != null && requestedDeadline != null && oldDeadline.toLocalTime() != requestedDeadline.toLocalTime()) throw AcademicConflict(current["revision"] as Int)
-            if (oldDeadline != null && requestedDeadline != null) next = next.copy(deadline = requestedDeadline.toLocalDate().atTime(oldDeadline.toLocalTime()).atZone(zone).toInstant())
+            val sameStructure = current["moduleId"] == next.moduleId &&
+                current["kind"] == next.kind &&
+                current["maxGrade"] == next.maxGrade &&
+                current["required"] == next.required &&
+                current["allowLate"] == next.allowLate &&
+                !changedQuestions
+            val oldDeadline = (current["deadline"] as String?)?.let(java.time.Instant::parse)
+            val resolution = AssessmentEditPolicy.resolvePostSubmissionDeadline(sameStructure, oldDeadline, next.deadline)
+            if (!resolution.allowed) throw AcademicConflict(current["revision"] as Int)
+            next = next.copy(deadline = resolution.resolvedDeadline)
         }
         val now = Timestamp.from(clock.instant())
         if (desiredQuestions != null && changedQuestions) {
@@ -92,9 +96,9 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         val row = jdbc.query("SELECT * FROM core.assessments WHERE id=? FOR UPDATE", { rs, _ -> rs.assessmentBase() }, id).firstOrNull() ?: return null
         replay(actorId, "publishAssessment", "/assessments/$id/publish", key, requestHash)?.let { return it }
         if (row["revision"] != expectedRevision) return null
-        if (row["status"] != "draft" || hasSubmissions(id)) throw AcademicConflict(row["revision"] as Int)
+        if (row["status"] != "draft") throw AcademicConflict(row["revision"] as Int)
         val questionCount = questionSignature(id).size
-        if ((row["kind"] == "quiz" && questionCount == 0) || (row["kind"] == "work" && questionCount != 0)) throw AcademicConflict(row["revision"] as Int)
+        if (!AssessmentEditPolicy.canPublish(row["status"] as String, hasSubmissions(id), row["kind"] as String, questionCount)) throw AcademicConflict(row["revision"] as Int)
         val now = Timestamp.from(clock.instant())
         jdbc.update("UPDATE core.assessments SET status='published',published_at=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=?", now, now, actorId, id, expectedRevision)
         jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?) ON CONFLICT DO NOTHING", module.first, "assessment:$id")

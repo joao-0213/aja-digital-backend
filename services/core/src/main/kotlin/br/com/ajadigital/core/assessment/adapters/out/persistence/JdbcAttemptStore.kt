@@ -5,6 +5,8 @@ import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
 import br.com.ajadigital.core.assessment.domain.exceptions.InvalidAttemptAnswers
 import br.com.ajadigital.core.assessment.domain.models.AssessmentPage
+import br.com.ajadigital.core.assessment.domain.policies.AttemptScoringPolicy
+import br.com.ajadigital.core.assessment.domain.policies.DeadlinePolicy
 import br.com.ajadigital.core.assessment.domain.ports.out.AttemptStore
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
@@ -13,11 +15,9 @@ import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
 import tools.jackson.databind.ObjectMapper
 import java.math.BigDecimal
-import java.math.RoundingMode
 import java.sql.ResultSet
 import java.sql.Timestamp
 import java.time.Clock
-import java.time.ZoneId
 import java.util.UUID
 
 @Repository
@@ -62,7 +62,7 @@ class JdbcAttemptStore(
             idempotency.save(actorId, "startAttempt", "/attempts", key, requestHash, dto)
             return dto
         }
-        if (!beforeDeadline(assessment["deadline"] as Timestamp?, assessment["allowLate"] as Boolean)) throw AcademicConflict()
+        if (!DeadlinePolicy.isBeforeDeadline((assessment["deadline"] as Timestamp?)?.toInstant(), assessment["allowLate"] as Boolean, clock.instant())) throw AcademicConflict()
         val questions = jdbc.query("SELECT question_id,snapshot::text FROM core.assessment_questions WHERE assessment_id=? ORDER BY position", { rs, _ ->
             @Suppress("UNCHECKED_CAST")
             val snapshot = mapper.readValue(rs.getString("snapshot"), Map::class.java) as Map<String, Any?>
@@ -115,10 +115,10 @@ class JdbcAttemptStore(
         val current = authorizedAttempt(actorId, role, sessionHash, id, forUpdate = true) ?: return null
         if (current["submittedAt"] != null) throw AcademicConflict(current["revision"] as Int)
         if (current["revision"] != expectedRevision) throw AcademicConflict(current["revision"] as Int)
-        if (!beforeDeadline(current["deadline"] as Timestamp?, current["allowLate"] as Boolean)) throw AcademicConflict(current["revision"] as Int)
+        if (!DeadlinePolicy.isBeforeDeadline((current["deadline"] as Timestamp?)?.toInstant(), current["allowLate"] as Boolean, clock.instant())) throw AcademicConflict(current["revision"] as Int)
         val questions = current["questions"] as List<Map<String, Any?>>
-        val byId = questions.associateBy { it["id"] as String }
-        if (!answers.keys.all(byId::containsKey) || answers.any { (questionId, value) -> value != null && value !in (byId.getValue(questionId)["options"] as List<*>).indices }) throw InvalidAttemptAnswers()
+        val optionCounts = questions.associate { (it["id"] as String) to (it["options"] as List<*>).size }
+        if (!AttemptScoringPolicy.areAnswersValid(answers, optionCounts)) throw InvalidAttemptAnswers()
         val now = Timestamp.from(clock.instant())
         if (jdbc.update("UPDATE core.attempts SET answers=?::jsonb,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=? AND submitted_at IS NULL", mapper.writeValueAsString(answers), now, actorId, id, expectedRevision) != 1) throw AcademicConflict(current["revision"] as Int)
         return authorizedAttempt(actorId, role, sessionHash, id)?.let(::attemptDto)
@@ -135,12 +135,16 @@ class JdbcAttemptStore(
             return response
         }
         if (current["revision"] != expectedRevision) throw AcademicConflict(current["revision"] as Int)
-        if (!beforeDeadline(current["deadline"] as Timestamp?, current["allowLate"] as Boolean)) throw AcademicConflict(current["revision"] as Int)
+        if (!DeadlinePolicy.isBeforeDeadline((current["deadline"] as Timestamp?)?.toInstant(), current["allowLate"] as Boolean, clock.instant())) throw AcademicConflict(current["revision"] as Int)
         val questions = current["questions"] as List<Map<String, Any?>>
         val answers = current["answers"] as Map<String, Int?>
-        val correct = questions.count { q -> answers[q["id"] as String] == q["correct"] }
-        val maxScore = current["maxGrade"] as BigDecimal? ?: BigDecimal.valueOf(questions.size.toLong())
-        val score = maxScore.multiply(BigDecimal.valueOf(correct.toLong())).divide(BigDecimal.valueOf(questions.size.toLong()), 2, RoundingMode.HALF_UP)
+        val scored = AttemptScoringPolicy.calculateScore(
+            questions.map { (it["id"] as String) to (it["correct"] as Int?) },
+            answers,
+            current["maxGrade"] as BigDecimal?,
+        )
+        val maxScore = scored.maxScore
+        val score = scored.score
         val now = Timestamp.from(clock.instant())
         val receiptId = UUID.randomUUID().toString()
         if (jdbc.update("UPDATE core.attempts SET submitted_at=?,receipt_id=?,score=?,max_score=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=? AND submitted_at IS NULL", now, receiptId, score, maxScore, now, actorId, id, expectedRevision) != 1) throw AcademicConflict(current["revision"] as Int)
@@ -225,9 +229,6 @@ class JdbcAttemptStore(
         )
     }
 
-    private fun beforeDeadline(deadline: Timestamp?, allowLate: Boolean): Boolean = allowLate || deadline == null ||
-        clock.instant().atZone(brasilia).isBefore(deadline.toInstant().atZone(brasilia))
-
     private fun requireSession(actorId: String, hash: String, vararg roles: String) {
         val accepted = roles.toList().ifEmpty { listOf("admin", "teacher", "student") }
         val placeholders = accepted.joinToString(",") { "?" }
@@ -241,7 +242,6 @@ class JdbcAttemptStore(
     private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }
 
     private companion object {
-        val brasilia: ZoneId = ZoneId.of("America/Sao_Paulo")
         val questionFields = setOf("id", "subject", "topic", "difficulty", "institution", "year", "statement", "options", "image", "correct", "explanation")
     }
 }

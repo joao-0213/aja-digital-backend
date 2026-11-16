@@ -8,6 +8,7 @@ import br.com.ajadigital.core.assessment.domain.exceptions.QuestionsUnavailable
 
 import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
 import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestion
+import br.com.ajadigital.core.assessment.domain.policies.AssessmentEditPolicy
 import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStore
 import br.com.ajadigital.core.assessment.domain.models.BankQuestionSnapshot
 import br.com.ajadigital.core.assessment.domain.ports.`in`.ManageAssessmentsUseCase
@@ -48,7 +49,7 @@ class ManageAssessments(private val store: AssessmentStore, private val snapshot
         if (requestedDraft.moduleId != current["moduleId"]) store.authorizeWrite(actor.id, actor.role, actor.sessionTokenHash, requestedDraft.moduleId)
         val questions = if (questionsSupplied) entries(body.get("questions"), requestedDraft.kind, current) else null
         val effectiveQuestionCount = questions?.size ?: (current["questionIds"] as? List<*>)?.size ?: 0
-        if ((requestedDraft.kind == "work" && effectiveQuestionCount != 0) || (requestedDraft.kind == "quiz" && effectiveQuestionCount == 0)) {
+        if (!AssessmentEditPolicy.isValidKindQuestionCount(requestedDraft.kind, effectiveQuestionCount)) {
             throw AcademicConflict(current["revision"] as? Int)
         }
         val reset = body.get("confirmResetDrafts")?.booleanValue()?.also { require(body.get("confirmResetDrafts").isBoolean) } ?: false

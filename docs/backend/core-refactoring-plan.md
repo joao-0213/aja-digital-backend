@@ -237,7 +237,7 @@ Do NOT add `@Valid` indiscriminately — only on controller method parameters fo
 
 ### R-05 — Extract deterministic policies
 
-**Implements:** phase 4, second half (policy extraction). **Depends on:** R-03. **Status:** all criteria **pending**.
+**Implements:** phase 4, second half (policy extraction). **Depends on:** R-03. **Status:** all criteria **verified**.
 
 **Scope:** move pure decision logic from JDBC store implementations and use-case classes into `domain/policies/` per feature. Candidates include: scoring policies, assessment edit rules, draft transition rules, access-check decisions, attempt validation, and submission eligibility. Each policy is a pure Kotlin class or function with no framework, persistence, or I/O dependency.
 
@@ -247,7 +247,7 @@ Do NOT add `@Valid` indiscriminately — only on controller method parameters fo
 
 **Acceptance criteria:**
 
-- **Pending:** extracted policies are pure Kotlin with no Spring/JDBC/framework imports; each policy has unit tests with the same inputs/outputs as the logic it replaced; use cases call policies for decisions and ports for data; persistence adapters retain SQL authorization, pagination, and locking; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes; focused characterization tests prove unchanged behavior.
+- **Verified:** extracted policies are pure Kotlin with no Spring/JDBC/framework imports; each policy has unit tests with the same inputs/outputs as the logic it replaced; use cases call policies for decisions and ports for data; persistence adapters retain SQL authorization, pagination, and locking; `.\gradlew.bat test` passes (`22` suites, `152` tests); `.\gradlew.bat build` with `B16_OPENAPI_COVERAGE=true` passes (`95/95` non-`/questions` operations); evidence and independent DB/Ponytail/ECC review records are in [core-refactoring-r05-evidence.md](core-refactoring-r05-evidence.md).
 
 ---
 
