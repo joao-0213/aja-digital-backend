@@ -1,35 +1,35 @@
 package br.com.ajadigital.core
 
-import br.com.ajadigital.core.application.health.CheckServiceHealth
-import br.com.ajadigital.core.ports.out.HealthProbe
-import br.com.ajadigital.core.application.identity.OutboxEncryption
-import br.com.ajadigital.core.application.identity.RegisterStudent
-import br.com.ajadigital.core.application.identity.AuthenticateStudent
-import br.com.ajadigital.core.application.identity.RequestAuthToken
-import br.com.ajadigital.core.application.identity.ResetPassword
-import br.com.ajadigital.core.application.identity.UpdateOwnProfile
-import br.com.ajadigital.core.application.academic.ManageAcademics
-import br.com.ajadigital.core.application.academic.ManageAttendance
-import br.com.ajadigital.core.application.academic.ManageSubjects
-import br.com.ajadigital.core.application.academic.ManageContent
-import br.com.ajadigital.core.application.academic.ManageAssessments
-import br.com.ajadigital.core.application.academic.ManageAttempts
-import br.com.ajadigital.core.application.academic.ManageSubmissions
-import br.com.ajadigital.core.application.academic.ManageAnnouncements
-import br.com.ajadigital.core.application.academic.ManageTopics
-import br.com.ajadigital.core.application.academic.ManageDashboard
-import br.com.ajadigital.core.ports.out.TopicStore
-import br.com.ajadigital.core.ports.out.AttemptStore
-import br.com.ajadigital.core.ports.out.AssessmentStore
-import br.com.ajadigital.core.ports.out.SubmissionStore
-import br.com.ajadigital.core.ports.out.QuestionSnapshotProvider
-import br.com.ajadigital.core.ports.out.SubjectStore
-import br.com.ajadigital.core.ports.out.ContentStore
-import br.com.ajadigital.core.ports.out.IdentityStore
-import br.com.ajadigital.core.ports.out.PasswordHasher
-import br.com.ajadigital.core.ports.out.AcademicStore
-import br.com.ajadigital.core.ports.out.AttendanceStore
-import br.com.ajadigital.core.ports.out.IdempotencyStore
+import br.com.ajadigital.core.health.domain.usecases.CheckServiceHealth
+import br.com.ajadigital.core.health.domain.ports.out.HealthProbe
+import br.com.ajadigital.core.identity.adapters.out.security.OutboxEncryption
+import br.com.ajadigital.core.identity.domain.usecases.RegisterStudent
+import br.com.ajadigital.core.identity.domain.usecases.AuthenticateStudent
+import br.com.ajadigital.core.identity.domain.usecases.RequestAuthToken
+import br.com.ajadigital.core.identity.domain.usecases.ResetPassword
+import br.com.ajadigital.core.identity.domain.usecases.UpdateOwnProfile
+import br.com.ajadigital.core.classroom.domain.usecases.ManageAcademics
+import br.com.ajadigital.core.attendance.domain.usecases.ManageAttendance
+import br.com.ajadigital.core.curriculum.domain.usecases.ManageSubjects
+import br.com.ajadigital.core.materials.domain.usecases.ManageContent
+import br.com.ajadigital.core.assessment.domain.usecases.ManageAssessments
+import br.com.ajadigital.core.assessment.domain.usecases.ManageAttempts
+import br.com.ajadigital.core.assessment.domain.usecases.ManageSubmissions
+import br.com.ajadigital.core.announcements.domain.usecases.ManageAnnouncements
+import br.com.ajadigital.core.forum.domain.usecases.ManageTopics
+import br.com.ajadigital.core.dashboard.domain.usecases.ManageDashboard
+import br.com.ajadigital.core.forum.domain.ports.out.TopicStore
+import br.com.ajadigital.core.assessment.domain.ports.out.AttemptStore
+import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStore
+import br.com.ajadigital.core.assessment.domain.ports.out.SubmissionStore
+import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProvider
+import br.com.ajadigital.core.curriculum.domain.ports.out.SubjectStore
+import br.com.ajadigital.core.materials.domain.ports.out.ContentStore
+import br.com.ajadigital.core.identity.domain.ports.out.IdentityStore
+import br.com.ajadigital.core.identity.domain.ports.out.PasswordHasher
+import br.com.ajadigital.core.classroom.domain.ports.out.AcademicStore
+import br.com.ajadigital.core.attendance.domain.ports.out.AttendanceStore
+import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
 import tools.jackson.databind.ObjectMapper
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.SpringBootApplication
@@ -94,7 +94,7 @@ class CoreApplication {
     fun manageSubmissions(store: SubmissionStore, mapper: ObjectMapper) = ManageSubmissions(store, mapper)
 
     @Bean
-    fun manageAnnouncements(store: br.com.ajadigital.core.ports.out.AnnouncementStore, mapper: ObjectMapper, idempotency: IdempotencyStore) = ManageAnnouncements(store, mapper, idempotency)
+    fun manageAnnouncements(store: br.com.ajadigital.core.announcements.domain.ports.out.AnnouncementStore, mapper: ObjectMapper, idempotency: IdempotencyStore) = ManageAnnouncements(store, mapper, idempotency)
 
     @Bean
     fun manageTopics(store: TopicStore, questions: QuestionSnapshotProvider, idempotency: IdempotencyStore, mapper: ObjectMapper) = ManageTopics(store, questions, idempotency, mapper)

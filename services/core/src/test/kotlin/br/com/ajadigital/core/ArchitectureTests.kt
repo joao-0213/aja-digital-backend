@@ -8,17 +8,36 @@ import java.nio.file.Path
 
 class ArchitectureTests {
     @Test
-    fun `application and inbound adapters stay behind ports`() {
+    fun `feature domains stay free of framework and transport dependencies`() {
         val root = Path.of("src/main/kotlin/br/com/ajadigital/core")
-        val application = Files.walk(root.resolve("application")).use { files ->
-            files.filter { it.toString().endsWith(".kt") }.map { Files.readString(it) }.toList()
+        val domain = Files.walk(root).use { files ->
+            files.filter { it.toString().endsWith(".kt") && it.normalized().contains("/domain/") }
+                .map { Files.readString(it) }.toList()
         }
-        assertTrue(application.isNotEmpty())
-        assertTrue(application.none { it.contains("org.springframework") || it.contains("javax.sql") || it.contains("com.rabbitmq") })
+        assertTrue(domain.isNotEmpty())
+        assertTrue(
+            domain.none {
+                it.contains("org.springframework") || it.contains("javax.sql") ||
+                    it.contains("com.rabbitmq") || it.contains("jakarta.")
+            },
+        )
+    }
+
+    @Test
+    fun `inbound adapters do not reach persistence plumbing`() {
+        val root = Path.of("src/main/kotlin/br/com/ajadigital/core")
         val controllers = Files.walk(root).use { files ->
             files.filter { it.fileName.toString().endsWith("Controller.kt") }.map { Files.readString(it) }.toList()
         }
+        assertTrue(controllers.isNotEmpty())
         assertFalse(controllers.any { it.contains("javax.sql.DataSource") || it.contains("ConnectionFactory") })
-        assertTrue(Files.exists(root.resolve("ports/out/HealthProbe.kt")))
     }
+
+    @Test
+    fun `health probe port lives in its feature domain`() {
+        val root = Path.of("src/main/kotlin/br/com/ajadigital/core")
+        assertTrue(Files.exists(root.resolve("health/domain/ports/out/HealthProbe.kt")))
+    }
+
+    private fun Path.normalized(): String = toString().replace('\\', '/')
 }

@@ -172,7 +172,7 @@ These are the only permitted departures from "splits only"; anything else requir
 
 ### R-02 — Move files into feature packages
 
-**Implements:** phase 2. **Depends on:** R-01. **Status:** all criteria **pending**.
+**Implements:** phase 2. **Depends on:** R-01. **Status:** all criteria **verified** — evidence in [core-refactoring-r02-evidence.md](core-refactoring-r02-evidence.md).
 
 **Scope:** move every type into its target feature package following the source inventory ownership table. Create the `domain/` and `adapters/` sub-trees per feature as specified in [ARCHITECTURE.md](../../ARCHITECTURE.md) — but only packages that have content. Do not create empty packages. Move controllers to `<feature>/adapters/in/controllers/`, JDBC adapters to `<feature>/adapters/out/persistence/`, `HttpQuestionSnapshotProvider` to `assessment/adapters/out/questions/`, and domain types (use cases, models, ports, exceptions) to `<feature>/domain/`.
 
@@ -186,7 +186,7 @@ Update `ArchitectureTests.kt` package discovery to match the new tree structure 
 
 **Acceptance criteria:**
 
-- **Pending:** every type lives under its assigned feature package per the ownership table; no type remains in the old flat package structure; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes; architecture tests pass with updated package discovery; no adapter-to-adapter dependency; no cross-service/schema dependency; existing SQL, migrations, operations, and error mapping unchanged.
+- **Verified:** every type lives under its assigned feature package per the ownership table (with `CoreApplication.kt` retained at root `br.com.ajadigital.core` for Spring component-scan and `@SpringBootTest` upward discovery, and the two R-06-deferred outbox/crypto edges documented in [core-refactoring-r02-evidence.md](core-refactoring-r02-evidence.md)); no type remains in the old flat package structure; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes; architecture tests pass with updated package discovery; no adapter-to-adapter dependency beyond the recorded R-06 deferrals; no cross-service/schema dependency; existing SQL, migrations, operations, and error mapping unchanged.
 
 ---
 

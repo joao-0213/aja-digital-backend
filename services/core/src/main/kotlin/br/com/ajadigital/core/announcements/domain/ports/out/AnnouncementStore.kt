@@ -1,0 +1,17 @@
+package br.com.ajadigital.core.announcements.domain.ports.out
+import br.com.ajadigital.core.classroom.domain.ports.out.AcademicPage
+import br.com.ajadigital.core.announcements.domain.models.AnnouncementDraft
+
+
+
+interface AnnouncementStore {
+    fun authorizeCreate(actorId: String, role: String, sessionHash: String, draft: AnnouncementDraft)
+    fun create(actorId: String, role: String, sessionHash: String, draft: AnnouncementDraft, key: String, requestHash: String): Map<String, Any?>
+    fun update(actorId: String, role: String, sessionHash: String, id: String, revision: Int, draft: AnnouncementDraft): Map<String, Any?>?
+    fun withdraw(actorId: String, role: String, sessionHash: String, id: String, revision: Int): Map<String, Any?>?
+    fun announcement(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>?
+    fun announcements(actorId: String, role: String, sessionHash: String, page: Int, size: Int, sort: String, classId: String?, subjectId: String?, query: String?): AcademicPage
+    fun calendar(actorId: String, role: String, sessionHash: String, page: Int, size: Int, sort: String, from: String?, to: String?, subjectId: String?): AcademicPage
+    fun dashboardAnnouncements(actorId: String, role: String, sessionHash: String, size: Int): List<Map<String, Any?>>
+    fun dashboardUpcoming(actorId: String, role: String, sessionHash: String, from: String, to: String, size: Int): List<Map<String, Any?>>
+}

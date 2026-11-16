@@ -2,8 +2,6 @@ package br.com.ajadigital.core
 
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart
-import org.springframework.test.web.servlet.post
-import org.springframework.test.web.servlet.patch
 import org.springframework.test.web.servlet.get
 import java.net.URI
 import java.nio.file.Files

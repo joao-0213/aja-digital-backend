@@ -11,7 +11,6 @@ import org.springframework.boot.web.server.servlet.context.ServletWebServerAppli
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
-import jakarta.servlet.http.Cookie
 import org.springframework.dao.DataAccessException
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.amqp.rabbit.core.RabbitTemplate
@@ -40,9 +39,9 @@ import org.testcontainers.rabbitmq.RabbitMQContainer
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.springframework.context.annotation.Import
-import br.com.ajadigital.core.adapter.out.messaging.OutboxPublisher
-import br.com.ajadigital.core.application.academic.ManageAcademics
-import br.com.ajadigital.core.ports.out.IdempotencyStore
+import br.com.ajadigital.core.outbox.adapters.out.messaging.OutboxPublisher
+import br.com.ajadigital.core.classroom.domain.usecases.ManageAcademics
+import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @AutoConfigureMockMvc
@@ -434,12 +433,13 @@ abstract class CoreIntegrationTestBase {
         private fun featureClassCount(): Int {
             val base = CoreIntegrationTestBase::class.java
             val location = base.protectionDomain.codeSource.location.toURI()
-            val directory = java.nio.file.Paths.get(location).resolve(base.packageName.replace('.', '/'))
-            if (!java.nio.file.Files.isDirectory(directory)) return 1
-            return java.nio.file.Files.list(directory).use { files ->
-                files.map { it.fileName.toString() }
+            val root = java.nio.file.Paths.get(location)
+            if (!java.nio.file.Files.isDirectory(root)) return 1
+            return java.nio.file.Files.walk(root).use { files ->
+                files.map { root.relativize(it).toString().replace('\\', '/') }
                     .filter { it.endsWith("IntegrationTests.class") && !it.contains('$') }
-                    .map { Class.forName("${base.packageName}.${it.removeSuffix(".class")}", false, base.classLoader) }
+                    .map { it.removeSuffix(".class").replace('/', '.') }
+                    .map { Class.forName(it, false, base.classLoader) }
                     .filter { base.isAssignableFrom(it) && !java.lang.reflect.Modifier.isAbstract(it.modifiers) }
                     .count()
                     .toInt()
