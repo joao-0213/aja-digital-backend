@@ -1,0 +1,6 @@
+package br.com.ajadigital.core.dashboard.domain.usecases
+
+interface DashboardProjectionInputPortFixture
+class DashboardConcreteUseCase
+class LegacyDashboardGetDashboardUseCase(private val forbidden: DashboardConcreteUseCase)
+class SafeDashboardGetDashboardUseCase(private val input: DashboardProjectionInputPortFixture)

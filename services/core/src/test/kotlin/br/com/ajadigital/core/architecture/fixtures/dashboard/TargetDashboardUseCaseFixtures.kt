@@ -1,0 +1,4 @@
+package br.com.ajadigital.core.dashboard.application.usecases
+
+class TargetDashboardConcreteUseCase
+class NewDashboardGetDashboardUseCase(private val forbidden: TargetDashboardConcreteUseCase)

@@ -56,7 +56,37 @@ These categories describe topic and review state, not authorship. No baseline fi
 | Docker / PostgreSQL / RabbitMQ availability | Docker and other container CLIs not found; service availability not proven. No claim of live infrastructure. |
 | Documentation checks | Relative Markdown target/heading-anchor check passed for `ARCHITECTURE.md`, `core-refactoring-plan.md`, `core-golden-path-issues.md`, and this record; `git diff --check` passed; mojibake/replacement-character scan returned no matches. |
 
+## GP-02 — architecture instrumentation
+
+**Status: instrumentation complete; Core compliance remains pending.** Starting revision was `3fcf980`; current working tree still contains broad pre-existing modifications. Graphify query ran before source inspection; its graph dated 2026-11-17 and source navigation confirmed it predates current changes, so it was treated as stale. Kotlin Gradle plugin/compiler dependency in `services/core/build.gradle` is 2.3.21; the Gradle wrapper runtime reports Kotlin 2.4.10. Added test-only `kotlin-compiler-embeddable:2.3.21`, matching the build plugin/compiler.
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| D-01–D-10 rule/mechanism/limits matrix, with principle/convention/migration distinctions | verified | [GP-02 evidence](core-golden-path-gp02-evidence.md). |
+| Production import selects Core package through ArchUnit and excludes tests; mandatory groups assert non-empty | verified | `CoreArchUnitTests` uses `ImportOption.Predefined.DO_NOT_INCLUDE_TESTS`; feature/controller/port/CoreApplication selections assert presence. |
+| Shared bounded compiler-aligned PSI analyzer and outside-production fixtures | verified | `CoreArchitectureSourceAnalyzer` is called by both production audit and PSI resource tests. Exact package selectors/reasons are asserted for valid source, policies base/descendant, HTTP/status, filename, and other configured findings. |
+| Compatible ArchUnit rules remain mandatory; superseded regex/one-DTO/mandatory `domain.ports` rules removed | verified | Includes nonempty port/policy/controller/dashboard selectors, `ConnectionFactory` prohibition, legacy/target `GetDashboardUseCase` boundary, and compiled positive/negative fixtures. Standard `test` excludes only the production diagnostic class. |
+| Compiler-checked generic contract traversal | verified with limits | `CoreContractTypeAnalyzer` binds usage-site type parameters by generic declaration identity and name; compiled fixtures prove nested `Page<Envelope<Item>>`, forwarding a type variable through another project generic, nested `Any?` rejection, unbound generic rejection, and exact transaction callback exception. |
+| Diagnostic `architectureAudit` generates complete current report and fails on production findings | verified | `gradlew.bat architectureAudit --console=plain` exited 1 as designed after writing ignored report; current 534 findings / 726 lines / 138,387 bytes. Not a frozen baseline. |
+| Isolation and critical shared port behavior contract inventory | verified as inventory | Existing test names and the still-needed no-Spring substitute, shared adapter contract, and PostgreSQL-only guarantees are recorded in evidence. Those runtime guarantees are not verified by GP-02. |
+| Structural report and distinct semantic-review issues | verified as separate records | Evidence separates ArchUnit/PSI findings from responsibilities and behavior those tools cannot prove. |
+| Production audit passes / Core architecture compliance | pending | Expected D-11 diagnostic failure; remediation belongs to subsequent authorized GP issues. |
+
+The final report records 534 findings across 726 lines. It includes legacy port/use-case locations, obsolete `classroom` references, generic escape and cross-feature contract findings, dependency/cycle details, the disallowed wrapper-shaped transaction runner, and the missing `academic` target package. Semantic interpretation is required against the ownership/export matrix. No PostgreSQL/RabbitMQ service was used or needed for GP-02 fixture/rule checks.
+
+| Command (from `services/core`, explicit JDK 21 `JAVA_HOME`) | Outcome |
+| --- | --- |
+| `gradlew.bat compileKotlin compileTestKotlin --rerun-tasks --console=plain` | Exit 0; forced compilation of both source sets. |
+| `gradlew.bat test --tests '*CoreArchUnitTests' --tests '*CoreArchitectureFixtureTests' --rerun-tasks --console=plain` | Exit 0; nine ArchUnit tests and one PSI fixture test passed. |
+| `gradlew.bat architectureAudit --console=plain` | Exit 1 as expected; report written before failing assertion. |
+
+Full `test --rerun-tasks` and `build --rerun-tasks` remain unrun because those broad integration checks require unavailable/unproven PostgreSQL, RabbitMQ, and Testcontainers services. No stage-level service availability claim is made.
+
+Independent review is complete. The ECC reviewer approved the final diff with zero findings after reproducing and rechecking the owner-aware generic forwarding fix. The separate Ponytail reviewer reported no remaining must-fix or could-improve items after rechecking Windows path normalization, both `ConnectionFactory` fixtures, and the earlier contract/dashboard corrections. No database review applied because GP-02 changes only test instrumentation and documentation.
+
+`graphify update .` completed after the source changes and refreshed the ignored local graph to 4,241 nodes / 12,083 edges. Its extraction reported pre-existing syntax-parser warnings in the Gradle script and unrelated Questions/Email Kotlin files, plus unavailable SQL extraction; this does not affect Gradle compilation or architecture checks.
+
 ## Next action
 
-Run **GP-02 preflight**: verify current compilation/toolchain readiness, identify D-10 rule mechanisms/fixtures and acceptance criteria, then proceed with its diagnostic architecture instrumentation. GP-01 remains held: only read-only diagnosis/readiness checks are allowed until required HTTP/PostgreSQL services are established. GP-03 remains blocked on GP-01 and GP-02 completion.
+Recheck real PostgreSQL/RabbitMQ/Testcontainers availability before GP-01's authorized contract-regression fixes; GP-03 remains blocked by GP-01 and depends on GP-02 instrumentation. Do not interpret the current expected-failing diagnostic as Core compliance. Follow later migration stages to promote verified rule groups into standard checks as violations are fixed.
 
