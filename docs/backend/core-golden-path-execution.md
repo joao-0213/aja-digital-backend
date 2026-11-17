@@ -35,7 +35,7 @@ These categories describe topic and review state, not authorship. No baseline fi
 | Ownership, exports, actual allowed dependency edges, data dependencies, and transaction coordinators documented | verified | The backlog records a query-backed cross-owner baseline with source columns where explicit, all persisted columns where SQL uses `*`, current data owner/consumer, authorization scope, and affected tests. It is not an exhaustive inventory of every Core query; each flow must revalidate its complete queries and row mappings before edits. |
 | Documentation links and claims checked; no code/service checks claimed | verified | Relative Markdown targets and local heading anchors pass for all four updated documents; `git diff --check` passes; mojibake/replacement scan is clean. No service/runtime check is claimed. |
 | Current dirty-tree forced compilation | verified | Explicit JDK `JAVA_HOME`; `compileKotlin compileTestKotlin --rerun-tasks --quiet --console=plain` exit 0. Compilation only, no tests/runtime/infra proof. |
-| GP-01 implementation readiness | blocked | Required HTTP/PostgreSQL services are unavailable/unproven. Only read-only diagnosis and service-readiness checks may occur; no GP-01 production or test implementation is permitted until availability is rechecked. GP-02 remains eligible. |
+| GP-01 implementation readiness at GP-00 checkpoint | blocked at that checkpoint | Required HTTP/PostgreSQL services were unavailable or unproven then, so GP-01 stayed held. Readiness was rechecked for GP-01; see the later GP-01 evidence and status below. |
 | Focused independent ECC contract-consistency/links review | verified | Final recheck: APPROVE, zero outstanding findings. The two initial findings and their fixes are recorded below. GP-00 uses ECC review only; no Ponytail or database review applies. |
 
 ### ECC findings and recheck
@@ -88,5 +88,25 @@ Independent review is complete. The ECC reviewer approved the final diff with ze
 
 ## Next action
 
-Recheck real PostgreSQL/RabbitMQ/Testcontainers availability before GP-01's authorized contract-regression fixes; GP-03 remains blocked by GP-01 and depends on GP-02 instrumentation. Do not interpret the current expected-failing diagnostic as Core compliance. Follow later migration stages to promote verified rule groups into standard checks as violations are fixed.
+Start GP-03 preflight from the committed GP-01/GP-02 dependencies. Reuse the now-proven Docker/Testcontainers PostgreSQL and RabbitMQ path, inventory the existing identity/academic dirty-tree changes before assigning any of them to GP-03, and reproduce affected contract behavior before implementation. Do not interpret the GP-02 expected-failing diagnostic as Core compliance.
+
+## GP-01 — confirmResetDrafts contract regression
+
+**Status: complete.** Starting HEAD: `901bbf053a37791326f9c22af3437a11a74fd0a1`. Worktree was already broadly dirty; preserve all unrelated edits. The focused fix changes `AssessmentPolicy.optionalBoolean` so a missing key keeps the existing false default while a present `null` or other non-boolean raises the existing 422-mapped `IllegalArgumentException`.
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| Method-level and real HTTP/PostgreSQL explicit-null RED reproduced | verified | The method test failed because null was accepted; the HTTP test returned 200 and revision 2 instead of 422 with unchanged revision. |
+| Absence, null, false, true, invalid value types, authorization precedence | verified | New use-case tests cover all requested values; HTTP test verifies absence/null/false/true and student 403 before malformed-value validation. |
+| PATCH nullable removal and required field behavior | verified | HTTP/PostgreSQL test confirms `deadline:null` is accepted and missing `expectedRevision` returns 422. |
+| Focused assessment integration tests | verified | `AssessmentIntegrationTests`: 24 tests passed. |
+| Full forced test suite | run; 3 unrelated failures | 166 tests, 3 failures in Platform rollback, Curriculum admin race, and Forum fresh-process startup; detail in GP-01 evidence. |
+| Forced build tasks | verified without test task | `build --rerun-tasks -x test --console=plain` passed. Full build with test was not rerun because it would rerun the known failing suite without a new hypothesis. |
+| Independent reviews | verified | Final ECC recheck: APPROVE, zero findings. Final Ponytail recheck: ship, no must-fix or could-improve items. No DB review applies because no persistence/transaction behavior changed. |
+
+Exact commands, outcomes, current Docker/Testcontainers evidence, and the RED/GREEN record are in [GP-01 evidence](core-golden-path-gp01-evidence.md).
+
+Both reviewers initially identified the same test-evidence gap: the nullable deadline-removal assertion started from an already-null value. The executor changed only the fixture to start with a non-null deadline, asserted the stored value before PATCH, reran the four focused method/HTTP/PostgreSQL tests successfully, and the same reviewers approved the targeted recheck. The three unrelated full-suite failures remain recorded and were not changed under GP-01.
+
+`graphify update .` completed after the GP-01 source changes and refreshed the ignored local graph to 4,267 nodes / 12,170 edges. The extractor reported pre-existing unrelated syntax/SQL warnings.
 

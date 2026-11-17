@@ -24,6 +24,43 @@ import java.time.Instant
 
 class AssessmentIntegrationTests : CoreIntegrationTestBase() {
     @Test
+    fun assessmentPatchDistinguishesAbsentConfirmationFromExplicitNullOverHttpAndPostgres() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        val (_, studentId) = userSession("student")
+        createB07Enrollment(classId, studentId, teacherId)
+        val assessmentId = createB07Assessment(moduleId, kind = "work", status = "draft", deadline = mutableClock.instant().plusSeconds(600))
+        assertTrue(jdbc.queryForObject("SELECT deadline FROM core.assessments WHERE id=?", java.sql.Timestamp::class.java, assessmentId) != null)
+
+        val explicitNull = liveHttp(
+            "PATCH", "/assessments/$assessmentId", teacherCookie,
+            """{"expectedRevision":1,"confirmResetDrafts":null}""",
+            "confirm-null-${UUID.randomUUID()}",
+        )
+        assertEquals(422, explicitNull.statusCode(), explicitNull.body())
+        assertEquals(1, jdbc.queryForObject("SELECT revision FROM core.assessments WHERE id=?", Int::class.java, assessmentId))
+
+        val absent = liveHttp("PATCH", "/assessments/$assessmentId", teacherCookie, """{"expectedRevision":1}""", "confirm-absent-${UUID.randomUUID()}")
+        assertEquals(200, absent.statusCode(), absent.body())
+        assertEquals(2, jdbc.queryForObject("SELECT revision FROM core.assessments WHERE id=?", Int::class.java, assessmentId))
+
+        val falseValue = liveHttp("PATCH", "/assessments/$assessmentId", teacherCookie, """{"expectedRevision":2,"confirmResetDrafts":false}""", "confirm-false-${UUID.randomUUID()}")
+        assertEquals(200, falseValue.statusCode(), falseValue.body())
+        val trueValue = liveHttp("PATCH", "/assessments/$assessmentId", teacherCookie, """{"expectedRevision":3,"confirmResetDrafts":true}""", "confirm-true-${UUID.randomUUID()}")
+        assertEquals(200, trueValue.statusCode(), trueValue.body())
+
+        val (studentCookie, _) = userSession("student")
+        val forbiddenNull = liveHttp("PATCH", "/assessments/$assessmentId", studentCookie, """{"expectedRevision":4,"confirmResetDrafts":null}""", "confirm-forbidden-${UUID.randomUUID()}")
+        assertEquals(403, forbiddenNull.statusCode(), forbiddenNull.body())
+        val missingRevision = liveHttp("PATCH", "/assessments/$assessmentId", teacherCookie, """{"confirmResetDrafts":false}""", "confirm-revision-${UUID.randomUUID()}")
+        assertEquals(422, missingRevision.statusCode(), missingRevision.body())
+        val removeDeadline = liveHttp("PATCH", "/assessments/$assessmentId", teacherCookie, """{"expectedRevision":4,"deadline":null}""", "confirm-deadline-${UUID.randomUUID()}")
+        assertEquals(200, removeDeadline.statusCode(), removeDeadline.body())
+        assertEquals(null, jdbc.queryForObject("SELECT deadline FROM core.assessments WHERE id=?", java.sql.Timestamp::class.java, assessmentId))
+    }
+
+    @Test
     fun coreAndQuestionsProcessesResolvePracticeAgainstCurrentAttemptAndAssignment() {
         val (adminCookie, _) = adminSession()
         val (teacherCookie, teacherId) = userSession("teacher")
