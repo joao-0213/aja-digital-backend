@@ -1,6 +1,6 @@
 # Core refactoring plan
 
-**Status:** all phases and acceptance criteria are **pending**. This is a concrete plan for future authorized Core work; it does not implement a backlog issue, establish current compliance, or authorize a refactor. The current API and service contracts remain governed by [ARQUITETURA.md](../../ARQUITETURA.md), [docs/backend/operation-ownership.md](operation-ownership.md), issue acceptance criteria, and [docs/http/openapi.json](../http/openapi.json). Target package rules are in [ARCHITECTURE.md](../../ARCHITECTURE.md).
+**Status (2026-11-17):** R-00 through R-06 are recorded as verified in their evidence documents; R-07 through R-09 remain pending. Phases 0 through 5 are therefore complete only to the extent covered by those recorded issues; phases 6 and 7 remain pending. These are historical issue records, not proof that the current worktree has no later drift. The user has authorized execution under [core-golden-path-orchestration-prompt.md](core-golden-path-orchestration-prompt.md); the resumable local issue order and current baseline are in [core-golden-path-issues.md](core-golden-path-issues.md) and [core-golden-path-execution.md](core-golden-path-execution.md). Core execution decisions D-01–D-12 in that prompt supersede only incompatible older Core package/DTO/helper conventions; public/private contracts and migration constraints remain binding. Current API and service contracts remain governed by [ARQUITETURA.md](../../ARQUITETURA.md), [docs/backend/operation-ownership.md](operation-ownership.md), issue acceptance criteria, and [docs/http/openapi.json](../http/openapi.json). Target package rules are in [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
 ## Scope and constraints
 
@@ -26,7 +26,7 @@ Assessment authoring, attempts, and submissions stay within one Core `assessment
 
 ## Current source inventory and target ownership
 
-All paths below are relative to `services/core/src/main/kotlin/br/com/ajadigital/core/`, unless noted. Move existing types into the named feature, then split co-located types into one type per matching file. Package moves retain current public/private API behavior and SQL; extraction is mechanical until separately authorized behavior work.
+All paths below are relative to `services/core/src/main/kotlin/br/com/ajadigital/core/`, unless noted. This is the baseline inventory used to plan the refactoring, not a claim that every listed file still exists at that path. Reconcile it against the worktree before each authorized issue. Move existing types into the named feature, then split co-located types into one type per matching file. Package moves retain current public/private API behavior and SQL; extraction is mechanical until separately authorized behavior work.
 
 | Current file(s) | Target feature and extraction |
 | --- | --- |
@@ -70,7 +70,7 @@ Also inventory every top-level, nested, private, and test-only type before extra
 
 ## Phased execution and acceptance checklist
 
-Each phase must be authorized before implementation. Begin each authorized phase with the actual relevant issue criteria, dependencies, current Git state and Graphify query. All checks listed here are **pending** until run and recorded for that phase; no historical output is proof for a future refactor.
+Each phase must be authorized before implementation. Begin each authorized phase with the actual relevant issue criteria, dependencies, current Git state and Graphify query. The table below is the original phase acceptance checklist: its pending entries describe checks needed for future phase execution and do not override the per-issue historical records below. Revalidate prior phase evidence against the actual worktree before relying on it.
 
 | Phase | Concrete work and affected files | Acceptance criteria |
 | --- | --- | --- |
@@ -104,6 +104,8 @@ The issues below are concrete work items that implement phases 0–7 of the phas
 - **No SQL changes.** Every query stays character-for-character identical.
 - **No new HTTP endpoints or changed response shapes.**
 - **No new abstractions "for the future."** No `BaseUseCase`, `GenericService`, `AbstractRepository`.
+- **Superseded for authorized Core golden-path work:** the earlier incoming/outgoing port locations under `domain/`, mandatory one-`*Dto` parameter and DTO file-per-method rules, and blanket prohibition on correcting behavior are historical R-plan conventions. Apply the Core-specific [D-01–D-12 decisions](core-golden-path-orchestration-prompt.md) and [local execution backlog](core-golden-path-issues.md) instead. They do not supersede API, data ownership, or migration contracts, and do not authorize Questions/Email changes.
+- **Active Core target:** ports and use cases live in `application/`; choose zero, simple, or cohesive typed arguments; use `Command`/`Query` and semantic results; split behavior according to D-01–D-07; avoid mixed grab-bag responsibilities. See [ARCHITECTURE.md](../../ARCHITECTURE.md) and the D-01–D-12 matrix.
 - **No Spring Modulith framework adoption.** Use the principle of exposed interfaces; do not add the dependency.
 - **Prefer established libraries over hand-rolled code** for: HTTP input validation (Bean Validation), API documentation (springdoc-openapi), architecture verification (ArchUnit). These are tools, not architectural changes.
 - **Keep native solutions that are genuinely better**: `Argon2PasswordHasher` behind `PasswordHasher` port; `AesGcmOutboxPayloadProtector` behind `OutboxPayloadProtector` port; `TransactionRunner` port with `SpringTransactionRunner`; `EmailAddress` as a domain value type; JDBC persistence with explicit SQL; `OriginFilter`; domain policies as Kotlin code; `IdempotencyStore`/`JdbcIdempotencyStore`.
@@ -260,13 +262,15 @@ Do NOT add `@Valid` indiscriminately — only on controller method parameters fo
 | New type | Responsibility |
 | --- | --- |
 | `OutboxScheduler` | Trigger pending-event processing on schedule |
+| `PublishPendingEventsInputPort` | Incoming port for one batch publication |
 | `PublishPendingEventsUseCase` | Coordinate one batch: select, publish, mark |
-| `OutboxRepository` | Outgoing port: access to outbox operational state |
+| `OutboxRepositoryOutputPort` | Outgoing port: access to outbox operational state |
 | `JdbcOutboxRepository` | Persistence adapter: select with locks, updates, redrive |
-| `EventPublisher` | Outgoing port: publish to broker |
+| `EventPublisherOutputPort` | Outgoing port: publish to broker |
 | `RabbitEventPublisher` | Messaging adapter: RabbitMQ publish with confirms |
-| `OutboxPayloadProtector` | Outgoing port: payload encryption/decryption contract |
+| `OutboxPayloadProtectorOutputPort` | Outgoing port: payload encryption/decryption contract |
 | `AesGcmOutboxPayloadProtector` | Crypto adapter: AES-GCM with AAD/key-id |
+| `RedriveOutboxEventInputPort` | Incoming port for operational redrive |
 | `RedriveOutboxEventUseCase` | Coordinate redrive of a failed/stuck event |
 | `OutboxOperationsController` | Incoming adapter: private operational HTTP endpoints |
 | `OutboxConfiguration` | Feature wiring |
@@ -324,7 +328,7 @@ Verify `health/` feature has its complete adapter structure (controller, use cas
 
 **Implements:** phase 6. **Depends on:** R-07. **Status:** all criteria **pending**.
 
-**Scope:** add `org.springdoc:springdoc-openapi-starter-webmvc-ui` to `services/core/build.gradle`. The current Core build uses Spring Boot 4.1.2; select the exact springdoc version (3.1.x–3.2.x range) per [official compatibility guidance](https://springdoc.org/#what-is-the-compatibility-matrix-of-springdoc-openapi-with-spring-boot-). Pin/resolve through Boot dependency management.
+**Scope:** add `org.springdoc:springdoc-openapi-starter-webmvc-ui` to `services/core/build.gradle`. Select the exact version during authorized GP-06 execution by checking official compatibility and artifact availability; this historical plan does not pin a version range. See [D-12 execution requirements](core-golden-path-orchestration-prompt.md) and [official compatibility guidance](https://springdoc.org/#what-is-the-compatibility-matrix-of-springdoc-openapi-with-spring-boot-).
 
 Configure in `application.properties`:
 
@@ -347,6 +351,8 @@ Configure in `application.properties`:
 ### R-09 — Harden architecture tests and run final gates
 
 **Implements:** phase 7. **Depends on:** R-08. **Status:** all criteria **pending**.
+
+**Progress (2026-11-17):** at the user's direction, the Core build now includes ArchUnit and an initial `CoreArchUnitTests` suite for role naming, adapter-to-use-case dependencies, domain framework/adapter dependencies, one-request DTO contracts, and source naming/placement. `.\gradlew.bat test --tests br.com.ajadigital.core.CoreArchUnitTests --console=plain` compiled main and test sources, then ran five tests: three passed and two failed on current architecture violations. The role names/files were aligned for 101 incoming ports, 18 outgoing port interfaces, and 101 use-case classes. Non-port result/page/record types were moved out of `ports/` into `domain/models/` (and the shared idempotency exception to `domain/exceptions/`). The DTO rule found 229 reflected port operations, none taking exactly one `*Dto` parameter. The source check found nine mixed-responsibility `*Support` objects; the names `Base`, `Generic`, `Utils`, and `Helper` did not appear as Core type names. `toResponse` was moved to an inbound mapper, and the single-use `toUserOrThrow` conversion was inlined into its owning use case. The `*Support` objects are mixed: some contain policy decisions, others JSON parsing, idempotency coordination, hashing, or response mapping. Split these by responsibility into policies, adapter mappers, or the owning use case rather than moving each object wholesale. R-09 and subsequent Core work remain pending until the DTO and helper violations are resolved and the architecture gate passes. Feature-cycle, configuration, broader adapter-boundary, and final-gate rules remain to be added and verified.
 
 **Scope:** update `ArchitectureTests.kt` (already moved per test inventory in R-02) with comprehensive ArchUnit rules for the final package tree. Add or verify these rules:
 
@@ -376,3 +382,10 @@ Review the complete authorized diff across all R-issues. Fix only confirmed find
 **Acceptance criteria:**
 
 - **Pending:** all ArchUnit rules pass; one-type-per-file source check passes; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes; `scripts/acceptance-b16.ps1` outcome recorded (pass or documented unavailability); complete diff reviewed; no contract, migration, service ownership, or unrelated file changes; exact commands, exit outcomes, service/dependency availability, operation counts, and any untested limits recorded.
+
+
+**Follow-up progress (2026-11-17):** the user clarified that `Dto` is reserved for actual DTO types. `ARCHITECTURE.md` now states this and a source rule checks DTO declarations across Core. Curriculum's 23 port operations now accept request DTOs; controller, dashboard, use-case, and JDBC callers were updated, with `compileKotlin` and `compileTestKotlin` passing. Its `CurriculumSupport` was removed: pure validation/authorization rules moved to `CurriculumPolicy`, while idempotency coordination moved into the owning creation use cases. The remaining eight `*Support` objects have been relocated to feature `domain/policies/` packages and renamed by purpose, but their mixed contents still need review and separation; this is not considered resolved just by renaming. The focused ArchUnit suite now passes role naming, adapter dependencies, domain framework/adapter boundaries, and source placement; its DTO test still reports 120 port operations that need one DTO. No issue implementation, review, full suite, API runtime validation, or final architecture rules have been completed.
+
+**Architecture audit update (2026-11-17):** corrected the remaining output-port call sites and DTO types across Core, including adapter self-calls and affected tests. `compileTestKotlin` passes, and the 229 input/output port operations now each accept exactly one `*Dto`. All current input/output port and use-case declarations and filenames follow the requested `InputPort`, `OutputPort`, and `UseCase` suffixes; source inspection found no generic `Support`/`Helper`/`Utils`/`Base`/`Generic` type names or files with multiple top-level declarations. Added controller filename/type checks and widened the domain dependency rule to include Jackson and Java HTTP clients. The focused suite now reports one failing rule with 289 domain-to-Jackson dependencies, including `JsonNode` in domain request DTOs and `ObjectMapper` in use cases and policies. That architectural violation and the mixed responsibilities in the relocated policies remain open; R-09 remains pending.
+
+**Architecture audit follow-up (2026-11-17):** forced a clean Kotlin main/test recompilation after the Jackson boundary edits; both compile successfully. `gradlew.bat test --tests br.com.ajadigital.core.CoreArchUnitTests --console=plain` passes all 6 architecture tests, including Jackson/framework/adapter isolation, role suffixes, one DTO parameter per port operation, and source placement. A scan of the current domain sources found no Jackson, Spring, JDBC, HTTP, or adapter imports. `gradlew.bat test --tests br.com.ajadigital.core.CoreArchUnitTests --tests br.com.ajadigital.core.shared.adapters.in.web.requests.RequestValueTests --console=plain` passes all 7 selected tests; the new request conversion test covers ordered nested objects, arrays, JSON null, booleans, and numbers. Exact-name scans found no generic helper/support types or matching files. The focused architecture and naming work is verified; R-09 remains pending because mixed responsibilities remain in `ClassroomPolicy`, `MaterialsPolicy`, and `AssessmentPolicy`, and feature dependency/configuration/adapter-cycle rules, full test/build, runtime API validation, review, and B-16 acceptance have not been completed.
