@@ -1,0 +1,6 @@
+package br.com.ajadigital.core.materials.application.models
+
+import br.com.ajadigital.core.materials.domain.models.*
+import br.com.ajadigital.core.academic.application.models.AcademicPage
+
+data class ContentStoreReorderMaterialsDto(val actorId: String, val role: String, val sessionHash: String, val moduleId: String, val expectedRevision: Int, val items: List<Pair<String, Int>>, val page: Int, val size: Int)

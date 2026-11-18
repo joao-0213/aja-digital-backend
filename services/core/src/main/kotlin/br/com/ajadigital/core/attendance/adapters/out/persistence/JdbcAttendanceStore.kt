@@ -1,12 +1,18 @@
 package br.com.ajadigital.core.attendance.adapters.out.persistence
 
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicConflict
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
 import br.com.ajadigital.core.attendance.domain.exceptions.InvalidAttendanceRecords
-import br.com.ajadigital.core.classroom.domain.ports.out.AcademicPage
+import br.com.ajadigital.core.academic.application.models.AcademicPage
 import br.com.ajadigital.core.attendance.domain.models.AttendanceDraft
-import br.com.ajadigital.core.attendance.domain.ports.out.AttendanceStore
+import br.com.ajadigital.core.attendance.domain.models.AuthorizeAttendanceCreateDto
+import br.com.ajadigital.core.attendance.domain.models.ListAttendanceDto
+import br.com.ajadigital.core.attendance.domain.models.ListEligibleAttendanceDto
+import br.com.ajadigital.core.attendance.domain.models.GetStoredAttendanceDto
+import br.com.ajadigital.core.attendance.domain.models.CreateAttendanceRecordDto
+import br.com.ajadigital.core.attendance.domain.models.UpdateAttendanceRecordDto
+import br.com.ajadigital.core.attendance.domain.ports.out.AttendanceStoreOutputPort
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
@@ -20,15 +26,17 @@ import java.time.LocalTime
 import java.util.UUID
 
 @Repository
-class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val clock: Clock) : AttendanceStore {
+class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val clock: Clock) : AttendanceStoreOutputPort {
     @Transactional
-    override fun authorizeCreate(actorId: String, role: String, sessionHash: String, subjectId: String) {
+    override fun authorizeCreate(request: AuthorizeAttendanceCreateDto) {
+        val (actorId, _, sessionHash, subjectId) = request
         val classId = subjectClass(subjectId) ?: throw AcademicNotFound()
         requireWriter(actorId, sessionHash, classId, subjectId, activeClass = true, lock = true)
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    override fun list(actorId: String, role: String, sessionHash: String, page: Int, size: Int, sort: String, subjectId: String?, studentId: String?, from: LocalDate?, to: LocalDate?): AcademicPage {
+    override fun list(request: ListAttendanceDto): AcademicPage {
+        val (actorId, _, sessionHash, page, size, sort, subjectId, studentId, from, to) = request
         val currentRole = requireSession(actorId, sessionHash, "admin", "teacher", "student")
         if (currentRole == "student" && studentId != null && studentId != actorId) return AcademicPage(emptyList(), page, size, 0)
         val historyScope = "(${datedEnrollment("a.class_date")} OR ${legacyEnrollment("a.class_date", "jsonb_exists(a.records,e.student_id)")})"
@@ -46,7 +54,8 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    override fun eligible(actorId: String, role: String, sessionHash: String, subjectId: String, date: LocalDate, time: LocalTime, page: Int, size: Int): AcademicPage {
+    override fun eligible(request: ListEligibleAttendanceDto): AcademicPage {
+        val (actorId, _, sessionHash, subjectId, date, _, page, size) = request
         requireSession(actorId, sessionHash, "admin", "teacher")
         val classId = subjectClass(subjectId) ?: throw AcademicNotFound()
         requireWriter(actorId, sessionHash, classId, subjectId, activeClass = true)
@@ -63,7 +72,8 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         return AcademicPage(values, page, size, total)
     }
 
-    override fun attendance(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>? {
+    override fun attendance(request: GetStoredAttendanceDto): Map<String, Any?>? {
+        val (actorId, _, sessionHash, id) = request
         requireSession(actorId, sessionHash, "admin", "teacher", "student")
         val current = jdbc.query("SELECT a.*,s.class_id FROM core.attendance a JOIN core.subjects s ON s.id=a.subject_id WHERE a.id=?", { rs, _ -> row(rs) }, id).firstOrNull() ?: return null
         requireSession(actorId, sessionHash, "admin", "teacher", "student")
@@ -71,7 +81,8 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     }
 
     @Transactional
-    override fun create(actorId: String, role: String, sessionHash: String, draft: AttendanceDraft): Map<String, Any?> {
+    override fun create(request: CreateAttendanceRecordDto): Map<String, Any?> {
+        val (actorId, _, sessionHash, draft) = request
         val classId = subjectClass(draft.subjectId) ?: throw AcademicNotFound()
         requireWriter(actorId, sessionHash, classId, draft.subjectId, activeClass = true, lock = true)
         val eligible = markableIds(classId, draft.date)
@@ -84,7 +95,8 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     }
 
     @Transactional
-    override fun update(actorId: String, role: String, sessionHash: String, id: String, revision: Int, records: Map<String, Boolean>): Map<String, Any?>? {
+    override fun update(request: UpdateAttendanceRecordDto): Map<String, Any?>? {
+        val (actorId, _, sessionHash, id, revision, records) = request
         val subjectId = jdbc.query("SELECT subject_id FROM core.attendance WHERE id=?", { rs, _ -> rs.getString(1) }, id).firstOrNull() ?: return null
         val classId = subjectClass(subjectId) ?: return null
         requireWriter(actorId, sessionHash, classId, subjectId, activeClass = true, lock = true)

@@ -200,7 +200,7 @@ class AttendanceIntegrationTests : CoreIntegrationTestBase() {
             override fun getConnection(username: String, password: String): Connection = getConnection()
         }
         val store = JdbcAttendanceStore(JdbcTemplate(countingDataSource), tools.jackson.databind.json.JsonMapper.builder().build(), mutableClock)
-        val page = store.list(teacherId, "teacher", sha256(teacherCookie), 1, 10, "date", subjectId, null, null, null)
+        val page = store.list(br.com.ajadigital.core.attendance.domain.models.ListAttendanceDto(teacherId, "teacher", sha256(teacherCookie), 1, 10, "date", subjectId, null, null, null))
         assertEquals(10, page.items.size)
         assertEquals(12, page.total)
         assertTrue(queryCount.get() <= 5, "Expected at most five SQL statements for a page, observed ${queryCount.get()}")

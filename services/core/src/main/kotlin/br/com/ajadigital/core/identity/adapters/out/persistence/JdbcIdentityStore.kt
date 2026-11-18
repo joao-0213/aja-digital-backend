@@ -1,14 +1,26 @@
 package br.com.ajadigital.core.identity.adapters.out.persistence
 
 import br.com.ajadigital.core.identity.domain.models.User
-import br.com.ajadigital.core.identity.domain.ports.out.IdentityStore
-import br.com.ajadigital.core.identity.domain.ports.out.RegistrationRecords
-import br.com.ajadigital.core.identity.domain.ports.out.LoginIdentity
-import br.com.ajadigital.core.identity.domain.ports.out.SessionRecord
-import br.com.ajadigital.core.identity.domain.ports.out.AuthTokenIssue
-import br.com.ajadigital.core.identity.domain.ports.out.AuthTokenResult
-import br.com.ajadigital.core.identity.domain.ports.out.TokenFailure
-import br.com.ajadigital.core.identity.domain.ports.out.ProfileUpdateResult
+import br.com.ajadigital.core.identity.application.ports.out.IdentityStoreOutputPort
+import br.com.ajadigital.core.identity.application.models.RegistrationRecords
+import br.com.ajadigital.core.identity.application.models.LoginIdentity
+import br.com.ajadigital.core.identity.domain.models.SessionRecord
+import br.com.ajadigital.core.identity.application.models.AuthTokenIssue
+import br.com.ajadigital.core.identity.application.models.AuthTokenResult
+import br.com.ajadigital.core.identity.application.models.TokenFailure
+import br.com.ajadigital.core.identity.application.models.ProfileUpdateResult
+import br.com.ajadigital.core.identity.application.models.CheckEmailExistsDto
+import br.com.ajadigital.core.identity.application.models.RecordIdentityAuditDto
+import br.com.ajadigital.core.identity.application.models.RecordLoginFailureDto
+import br.com.ajadigital.core.identity.application.models.CreateRegistrationDto
+import br.com.ajadigital.core.identity.application.models.FindLoginIdentityDto
+import br.com.ajadigital.core.identity.application.models.RotateIdentitySessionDto
+import br.com.ajadigital.core.identity.application.models.FindIdentitySessionDto
+import br.com.ajadigital.core.identity.application.models.RevokeIdentitySessionDto
+import br.com.ajadigital.core.identity.application.models.IssueAuthTokenDto
+import br.com.ajadigital.core.identity.application.models.ConfirmEmailDto
+import br.com.ajadigital.core.identity.application.models.ResetIdentityPasswordDto
+import br.com.ajadigital.core.identity.application.models.UpdateIdentityProfileDto
 import org.springframework.dao.EmptyResultDataAccessException
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
@@ -18,24 +30,27 @@ import java.util.UUID
 import java.time.Clock
 
 @Repository
-class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock) : IdentityStore {
-    override fun emailExists(normalizedEmail: String): Boolean =
-        jdbc.queryForObject("select exists(select 1 from core.users where normalized_email = ?)", Boolean::class.java, normalizedEmail) ?: false
+class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock) : IdentityStoreOutputPort {
+    override fun emailExists(request: CheckEmailExistsDto): Boolean =
+        jdbc.queryForObject("select exists(select 1 from core.users where normalized_email = ?)", Boolean::class.java, request.normalizedEmail) ?: false
 
     @Transactional
-    override fun recordAudit(eventType: String, outcome: String, subjectUserId: String?) {
+    override fun recordAudit(request: RecordIdentityAuditDto) {
+        val (eventType, outcome, subjectUserId) = request
         insertAudit(eventType, outcome, subjectUserId)
     }
 
     @Transactional
-    override fun recordLoginFailure(previousTokenHash: String?) {
+    override fun recordLoginFailure(request: RecordLoginFailureDto) {
+        val previousTokenHash = request.previousTokenHash
         lockAuthInvariant()
         previousTokenHash?.let { jdbc.update("update core.sessions set revoked_at=now() where token_hash=? and revoked_at is null", it) }
         insertAudit("auth.login", "failure")
     }
 
     @Transactional
-    override fun createRegistration(records: RegistrationRecords) {
+    override fun createRegistration(request: CreateRegistrationDto) {
+        val records = request.records
         val user = records.user
         jdbc.update(
             """insert into core.users(id, revision, created_at, updated_at, updated_by, name, email, normalized_email,
@@ -55,7 +70,7 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
         insertAudit("auth.registration", "success", user.id)
     }
 
-    override fun findLoginIdentity(normalizedEmail: String): LoginIdentity? = try {
+    override fun findLoginIdentity(request: FindLoginIdentityDto): LoginIdentity? = try {
         jdbc.queryForObject(
             "select id, revision, created_at, updated_at, updated_by, name, email, role, active, email_confirmed_at, password_hash from core.users where normalized_email = ?",
             { rs, _ ->
@@ -65,12 +80,13 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
                     rs.getString("email"), rs.getString("role"), rs.getBoolean("active"), rs.getTimestamp("email_confirmed_at")?.toInstant(),
                 )
                 LoginIdentity(user, rs.getString("password_hash"))
-            }, normalizedEmail,
+            }, request.normalizedEmail,
         )
     } catch (_: EmptyResultDataAccessException) { null }
 
     @Transactional
-    override fun rotateSession(record: SessionRecord, previousTokenHash: String?, expectedPasswordHash: String): Boolean {
+    override fun rotateSession(request: RotateIdentitySessionDto): Boolean {
+        val (record, previousTokenHash, expectedPasswordHash) = request
         lockAuthInvariant()
         val account = jdbc.query(
             "select password_hash,active from core.users where id=? for update",
@@ -86,7 +102,7 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
         return true
     }
 
-    override fun findSession(tokenHash: String): SessionRecord? = try {
+    override fun findSession(request: FindIdentitySessionDto): SessionRecord? = try {
         jdbc.queryForObject(
             """select s.id,s.token_hash,s.created_at session_created_at,s.expires_at,s.revoked_at,u.id uid,u.revision,u.created_at,u.updated_at,u.updated_by,
                u.name,u.email,u.role,u.active,u.email_confirmed_at from core.sessions s join core.users u on u.id=s.user_id where s.token_hash=?""",
@@ -96,12 +112,13 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
                     rs.getString("role"), rs.getBoolean("active"), rs.getTimestamp("email_confirmed_at")?.toInstant())
                 SessionRecord(rs.getString("id"), rs.getString("token_hash"), user, rs.getTimestamp("session_created_at").toInstant(),
                     rs.getTimestamp("expires_at").toInstant(), rs.getTimestamp("revoked_at")?.toInstant())
-            }, tokenHash,
+            }, request.tokenHash,
         )
     } catch (_: EmptyResultDataAccessException) { null }
 
     @Transactional
-    override fun revokeSession(tokenHash: String?) {
+    override fun revokeSession(request: RevokeIdentitySessionDto) {
+        val tokenHash = request.tokenHash
         lockAuthInvariant()
         val userId = tokenHash?.let {
             jdbc.query("select user_id from core.sessions where token_hash=?", { rs, _ -> rs.getString(1) }, it).firstOrNull()
@@ -111,7 +128,8 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
     }
 
     @Transactional
-    override fun issueAuthToken(issue: AuthTokenIssue): Boolean {
+    override fun issueAuthToken(request: IssueAuthTokenDto): Boolean {
+        val issue = request.issue
         val account = jdbc.query(
             "select email, active, email_confirmed_at from core.users where id = ? for update",
             { rs, _ -> Triple(rs.getString("email"), rs.getBoolean("active"), rs.getTimestamp("email_confirmed_at")) },
@@ -142,7 +160,8 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
     }
 
     @Transactional
-    override fun confirmEmail(tokenHash: String): AuthTokenResult {
+    override fun confirmEmail(request: ConfirmEmailDto): AuthTokenResult {
+        val tokenHash = request.tokenHash
         lockAuthInvariant()
         val metadata = jdbc.query(
             "select id token_id,user_id,email_at_issue,expires_at,used_at from core.auth_tokens where token_hash=? and purpose='email_confirmation'",
@@ -174,7 +193,8 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
     }
 
     @Transactional
-    override fun resetPassword(tokenHash: String, passwordHash: String): TokenFailure? {
+    override fun resetPassword(request: ResetIdentityPasswordDto): TokenFailure? {
+        val (tokenHash, passwordHash) = request
         lockAuthInvariant()
         val userId = jdbc.query("select user_id from core.auth_tokens where token_hash=? and purpose='password_reset'", { rs, _ -> rs.getString(1) }, tokenHash).firstOrNull()
             ?: return TokenFailure.INVALID.also { insertAudit("auth.password_reset", "invalid") }
@@ -198,7 +218,8 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate, private val clock: Clock
     }
 
     @Transactional
-    override fun updateProfile(sessionTokenHash: String, expectedRevision: Int, name: String?): ProfileUpdateResult {
+    override fun updateProfile(request: UpdateIdentityProfileDto): ProfileUpdateResult {
+        val (sessionTokenHash, expectedRevision, name) = request
         lockAuthInvariant()
         val user = jdbc.query(
             """select u.id uid,u.revision,u.created_at,u.updated_at,u.updated_by,u.name,u.email,u.role,u.active,u.email_confirmed_at

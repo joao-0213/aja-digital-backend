@@ -1,9 +1,17 @@
 package br.com.ajadigital.core.outbox.domain.usecases
 
+import br.com.ajadigital.core.outbox.application.usecases.PublishPendingEventsUseCase
 import br.com.ajadigital.core.outbox.domain.models.PendingOutboxEvent
-import br.com.ajadigital.core.outbox.domain.ports.out.EventPublisher
-import br.com.ajadigital.core.outbox.domain.ports.out.OutboxRepository
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunner
+import br.com.ajadigital.core.outbox.domain.models.PublishAvailableDto
+import br.com.ajadigital.core.outbox.domain.models.PublishEventDto
+import br.com.ajadigital.core.outbox.domain.models.ClaimPendingOutboxEventsDto
+import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventPublishedDto
+import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventFailedDto
+import br.com.ajadigital.core.outbox.domain.models.RedriveStoredOutboxEventDto
+import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
+import br.com.ajadigital.core.outbox.domain.ports.out.EventPublisherOutputPort
+import br.com.ajadigital.core.outbox.domain.ports.out.OutboxRepositoryOutputPort
+import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -14,25 +22,25 @@ import java.time.ZoneOffset
 class PublishPendingEventsTests {
     private val now = Instant.parse("2026-01-01T00:00:00Z")
     private val clock = Clock.fixed(now, ZoneOffset.UTC)
-    private val transactions = object : TransactionRunner {
-        override fun <T> run(block: () -> T): T = block()
+    private val transactions = object : TransactionRunnerOutputPort {
+        override fun <T> run(request: TransactionRunDto<T>): T = request.block()
     }
 
     @Test
     fun `publishes pending events and marks them published`() {
         val event = PendingOutboxEvent("id-1", "identity.student.registered", 1, "key-1", ByteArray(12), ByteArray(16), 0)
         val publishedIds = mutableListOf<String>()
-        val repo = object : OutboxRepository {
-            override fun claimPending(now: Instant, limit: Int) = listOf(event)
-            override fun markPublished(id: String, now: Instant) { publishedIds += id }
-            override fun markFailedAttempt(id: String, attemptCount: Int, nextAttemptAt: Instant, lastError: String, failedAt: Instant?) = Unit
-            override fun redrive(id: String, now: Instant) = false
+        val repo = object : OutboxRepositoryOutputPort {
+            override fun claimPending(request: ClaimPendingOutboxEventsDto) = listOf(event)
+            override fun markPublished(request: MarkOutboxEventPublishedDto) { publishedIds += request.id }
+            override fun markFailedAttempt(request: MarkOutboxEventFailedDto) = Unit
+            override fun redrive(request: RedriveStoredOutboxEventDto) = false
         }
-        val publisher = object : EventPublisher {
-            override fun publish(event: PendingOutboxEvent) = Unit
+        val publisher = object : EventPublisherOutputPort {
+            override fun publish(request: PublishEventDto) = Unit
         }
 
-        PublishPendingEvents(transactions, repo, publisher, clock).publishAvailable()
+        PublishPendingEventsUseCase(transactions, repo, publisher, clock).publishAvailable(PublishAvailableDto)
 
         assertEquals(listOf("id-1"), publishedIds)
     }
@@ -43,20 +51,20 @@ class PublishPendingEventsTests {
         val event2 = PendingOutboxEvent("id-2", "identity.student.registered", 1, "key-1", ByteArray(12), ByteArray(16), 4)
         val failures = mutableListOf<Triple<String, Int, Instant?>>()
         val nextAttempts = mutableMapOf<String, Instant>()
-        val repo = object : OutboxRepository {
-            override fun claimPending(now: Instant, limit: Int) = listOf(event1, event2)
-            override fun markPublished(id: String, now: Instant) = Unit
-            override fun markFailedAttempt(id: String, attemptCount: Int, nextAttemptAt: Instant, lastError: String, failedAt: Instant?) {
-                failures += Triple(id, attemptCount, failedAt)
-                nextAttempts[id] = nextAttemptAt
+        val repo = object : OutboxRepositoryOutputPort {
+            override fun claimPending(request: ClaimPendingOutboxEventsDto) = listOf(event1, event2)
+            override fun markPublished(request: MarkOutboxEventPublishedDto) = Unit
+            override fun markFailedAttempt(request: MarkOutboxEventFailedDto) {
+                failures += Triple(request.id, request.attemptCount, request.failedAt)
+                nextAttempts[request.id] = request.nextAttemptAt
             }
-            override fun redrive(id: String, now: Instant) = false
+            override fun redrive(request: RedriveStoredOutboxEventDto) = false
         }
-        val publisher = object : EventPublisher {
-            override fun publish(event: PendingOutboxEvent): Unit = throw IllegalStateException("boom")
+        val publisher = object : EventPublisherOutputPort {
+            override fun publish(request: PublishEventDto): Unit = throw IllegalStateException("boom")
         }
 
-        PublishPendingEvents(transactions, repo, publisher, clock).publishAvailable()
+        PublishPendingEventsUseCase(transactions, repo, publisher, clock).publishAvailable(PublishAvailableDto)
 
         assertEquals(2, failures.size)
         assertEquals(1, failures[0].second)

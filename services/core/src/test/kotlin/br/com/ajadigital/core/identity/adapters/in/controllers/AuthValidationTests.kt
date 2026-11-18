@@ -1,20 +1,25 @@
 package br.com.ajadigital.core.identity.adapters.`in`.controllers
 
 import br.com.ajadigital.core.identity.adapters.`in`.controllers.handlers.AuthExceptionHandler
+import br.com.ajadigital.core.shared.adapters.`in`.web.errors.SharedExceptionHandler
 import br.com.ajadigital.core.identity.domain.exceptions.InvalidCredentials
 import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
-import br.com.ajadigital.core.identity.domain.models.AcceptedResponse
-import br.com.ajadigital.core.identity.domain.models.AuthenticatedSession
-import br.com.ajadigital.core.identity.domain.models.LoginCommand
-import br.com.ajadigital.core.identity.domain.models.PasswordResetCommand
-import br.com.ajadigital.core.identity.domain.models.RegistrationCommand
-import br.com.ajadigital.core.identity.domain.models.RegistrationResult
+import br.com.ajadigital.core.identity.application.models.AcceptedResponse
+import br.com.ajadigital.core.identity.application.models.AuthenticatedSession
+import br.com.ajadigital.core.identity.application.models.LoginCommand
+import br.com.ajadigital.core.identity.application.models.PasswordResetCommand
+import br.com.ajadigital.core.identity.application.models.RegistrationCommand
+import br.com.ajadigital.core.identity.application.models.RegistrationResult
 import br.com.ajadigital.core.identity.domain.models.User
-import br.com.ajadigital.core.identity.domain.ports.out.SessionRecord
-import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
-import br.com.ajadigital.core.identity.domain.ports.`in`.RequestAuthTokenUseCase
-import br.com.ajadigital.core.identity.domain.ports.`in`.ResetPasswordUseCase
-import br.com.ajadigital.core.identity.domain.ports.`in`.RegisterStudentUseCase
+import br.com.ajadigital.core.identity.domain.models.SessionRecord
+import br.com.ajadigital.core.identity.domain.models.*
+import br.com.ajadigital.core.identity.application.models.*
+import br.com.ajadigital.core.identity.application.ports.`in`.ResolveSessionInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.LoginInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.LogoutInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.RequestAuthTokenInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.ResetPasswordInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.RegisterStudentInputPort
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.http.MediaType
@@ -27,28 +32,32 @@ import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean
 class AuthValidationTests {
     private lateinit var mvc: MockMvc
 
-    private val stubRegister = object : RegisterStudentUseCase {
-        override fun register(command: RegistrationCommand): RegistrationResult = error("Should not reach use case on invalid DTO")
+    private val stubRegister = object : RegisterStudentInputPort {
+        override fun register(request: RegisterStudentDto): RegistrationResult = error("Should not reach use case on invalid DTO")
     }
-    private val stubAuth = object : AuthenticateStudentUseCase {
-        override fun login(command: LoginCommand): AuthenticatedSession = throw InvalidCredentials()
-        override fun resolve(cookieValue: String?): SessionRecord = throw SessionRequired()
-        override fun logout(cookieValue: String?) {}
+    private val stubLogin = object : LoginInputPort {
+        override fun login(request: LoginStudentDto): AuthenticatedSession = throw InvalidCredentials()
     }
-    private val stubTokens = object : RequestAuthTokenUseCase {
-        override fun request(email: String, kind: String): AcceptedResponse = error("Should not reach use case")
-        override fun confirmEmail(token: String): User = error("Should not reach use case")
+    private val stubAuth = object : ResolveSessionInputPort {
+        override fun resolve(request: ResolveStudentSessionDto): SessionRecord = throw SessionRequired()
     }
-    private val stubReset = object : ResetPasswordUseCase {
-        override fun reset(command: PasswordResetCommand): AcceptedResponse = error("Should not reach use case")
+    private val stubLogout = object : LogoutInputPort {
+        override fun logout(request: LogoutStudentSessionDto) {}
+    }
+    private val stubTokens = object : RequestAuthTokenInputPort {
+        override fun request(request: RequestAuthTokenDto): AcceptedResponse = error("Should not reach use case")
+        override fun confirmEmail(request: ConfirmEmailTokenDto): User = error("Should not reach use case")
+    }
+    private val stubReset = object : ResetPasswordInputPort {
+        override fun reset(request: ResetStudentPasswordDto): AcceptedResponse = error("Should not reach use case")
     }
 
     @BeforeEach
     fun setup() {
         val validator = LocalValidatorFactoryBean().apply { afterPropertiesSet() }
         mvc = MockMvcBuilders
-            .standaloneSetup(AuthController(stubRegister, stubAuth, stubTokens, stubReset, false))
-            .setControllerAdvice(AuthExceptionHandler())
+            .standaloneSetup(AuthController(stubRegister, stubLogin, stubAuth, stubLogout, stubTokens, stubReset, false))
+            .setControllerAdvice(AuthExceptionHandler(), SharedExceptionHandler())
             .setValidator(validator)
             .build()
     }

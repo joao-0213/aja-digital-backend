@@ -13,8 +13,8 @@ import java.sql.DriverManager
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import br.com.ajadigital.core.classroom.domain.models.AcademicActor
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
 
 class CurriculumIntegrationTests : CoreIntegrationTestBase() {
     @Test
@@ -866,10 +866,10 @@ class CurriculumIntegrationTests : CoreIntegrationTestBase() {
         val (cookie, adminId) = adminSession()
         val sessionHash = sha256(cookie)
         jdbc.update("UPDATE core.sessions SET revoked_at=? WHERE token_hash=?", java.sql.Timestamp.from(mutableClock.instant()), sessionHash)
-        val actor = AcademicActor(adminId, "admin", true, mutableClock.instant(), sessionHash)
+        val actor = AuthenticatedActor(adminId, "admin", true, mutableClock.instant(), sessionHash)
         val before = jdbc.queryForObject("select count(*) from core.classes", Int::class.java)
         assertThrows(AcademicForbidden::class.java) {
-            createClassUseCase.createClass(actor, "Rejected class", "REJECT-${UUID.randomUUID()}", 2026, "Tarde", "rejected-${UUID.randomUUID()}")
+            createClassUseCase.createClass(br.com.ajadigital.core.academic.application.models.CreateClassDto(actor, "Rejected class", "REJECT-${UUID.randomUUID()}", 2026, "Tarde", "rejected-${UUID.randomUUID()}"))
         }
         assertEquals(before, jdbc.queryForObject("select count(*) from core.classes", Int::class.java))
     }

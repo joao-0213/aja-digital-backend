@@ -39,7 +39,7 @@ class CoreProductionArchitectureAuditTest {
             noClasses().that().haveSimpleNameEndingWith("Controller").should().dependOnClassesThat()
                 .haveSimpleName("ConnectionFactory"),
             noClasses().that().haveSimpleNameEndingWith("GetDashboardUseCase")
-                .and().resideInAnyPackage("..dashboard.domain.usecases..", "..dashboard.application.usecases..")
+                .and().resideInAnyPackage("..dashboard.application.usecases..", "..dashboard.application.usecases..")
                 .should().dependOnClassesThat().haveSimpleNameEndingWith("UseCase"),
             noClasses().that().resideInAPackage("..shared..").should().dependOnClassesThat().resideInAnyPackage(
                 "..identity..", "..classroom..", "..academic..", "..curriculum..", "..materials..", "..assessment..", "..announcements..", "..forum..", "..attendance..", "..dashboard..", "..outbox..",

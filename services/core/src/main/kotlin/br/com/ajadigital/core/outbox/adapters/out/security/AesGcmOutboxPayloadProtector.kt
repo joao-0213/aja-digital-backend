@@ -1,7 +1,9 @@
 package br.com.ajadigital.core.outbox.adapters.out.security
 
-import br.com.ajadigital.core.identity.domain.models.EncryptedOutboxPayload
-import br.com.ajadigital.core.outbox.domain.ports.out.OutboxPayloadProtector
+import br.com.ajadigital.core.identity.application.models.EncryptedOutboxPayload
+import br.com.ajadigital.core.outbox.domain.models.EncryptOutboxPayloadDto
+import br.com.ajadigital.core.outbox.domain.models.OutboxPayloadKeyDto
+import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
@@ -9,15 +11,17 @@ import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-class AesGcmOutboxPayloadProtector(keyBase64: String) : OutboxPayloadProtector {
+class AesGcmOutboxPayloadProtector(keyBase64: String) : OutboxPayloadProtectorOutputPort {
     private val key = Base64.getDecoder().decode(keyBase64).also { require(it.size == 32) }
-    override val keyId: String = MessageDigest.getInstance("SHA-256").digest(key).take(8).joinToString("") { "%02x".format(it) }
+    private val keyId: String = MessageDigest.getInstance("SHA-256").digest(key).take(8).joinToString("") { "%02x".format(it) }
 
-    override fun encrypt(eventId: String, eventType: String, version: Int, plaintext: ByteArray): EncryptedOutboxPayload {
+    override fun keyId(request: OutboxPayloadKeyDto): String = keyId
+
+    override fun encrypt(request: EncryptOutboxPayloadDto): EncryptedOutboxPayload {
         val nonce = ByteArray(12).also { SecureRandom().nextBytes(it) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce))
-        cipher.updateAAD("$eventId|$eventType|$version".toByteArray())
-        return EncryptedOutboxPayload(keyId, nonce, cipher.doFinal(plaintext))
+        cipher.updateAAD("${request.eventId}|${request.eventType}|${request.version}".toByteArray())
+        return EncryptedOutboxPayload(keyId, nonce, cipher.doFinal(request.plaintext))
     }
 }

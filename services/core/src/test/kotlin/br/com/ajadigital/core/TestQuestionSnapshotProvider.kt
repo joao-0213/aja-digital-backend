@@ -4,16 +4,18 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import br.com.ajadigital.core.assessment.domain.models.BankQuestionSnapshot
+import br.com.ajadigital.core.assessment.domain.models.QuestionSnapshotProviderSnapshotsDto
 import br.com.ajadigital.core.assessment.domain.models.BankQuestionImage
-import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProvider
+import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProviderOutputPort
 
 
-class TestQuestionSnapshotProvider : QuestionSnapshotProvider {
+class TestQuestionSnapshotProvider : QuestionSnapshotProviderOutputPort {
     val requested = mutableListOf<List<String>>()
     var imageFileId = "question-image-1"
     private val nextGate = AtomicReference<Pair<CountDownLatch, CountDownLatch>?>(null)
     fun blockNextSnapshot(started: CountDownLatch, release: CountDownLatch) { nextGate.set(started to release) }
-    override fun snapshots(ids: List<String>): List<BankQuestionSnapshot> {
+    override fun snapshots(request: QuestionSnapshotProviderSnapshotsDto): List<BankQuestionSnapshot> {
+        val (ids) = request
         requested += ids
         nextGate.getAndSet(null)?.let { (started, release) ->
             started.countDown()

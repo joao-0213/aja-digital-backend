@@ -1,47 +1,47 @@
 package br.com.ajadigital.core.attendance.configuration
 
-import br.com.ajadigital.core.attendance.domain.ports.`in`.GetAttendanceSessionUseCase
-import br.com.ajadigital.core.attendance.domain.ports.`in`.ListAttendanceSessionsUseCase
-import br.com.ajadigital.core.attendance.domain.ports.`in`.ListEligibleAttendanceStudentsUseCase
-import br.com.ajadigital.core.attendance.domain.ports.`in`.RecordAttendanceUseCase
-import br.com.ajadigital.core.attendance.domain.ports.`in`.UpdateAttendanceUseCase
-import br.com.ajadigital.core.attendance.domain.ports.out.AttendanceStore
-import br.com.ajadigital.core.attendance.domain.usecases.GetAttendanceSession
-import br.com.ajadigital.core.attendance.domain.usecases.ListAttendanceSessions
-import br.com.ajadigital.core.attendance.domain.usecases.ListEligibleAttendanceStudents
-import br.com.ajadigital.core.attendance.domain.usecases.RecordAttendance
-import br.com.ajadigital.core.attendance.domain.usecases.UpdateAttendance
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunner
+import br.com.ajadigital.core.attendance.application.ports.`in`.GetAttendanceSessionInputPort
+import br.com.ajadigital.core.attendance.application.ports.`in`.ListAttendanceSessionsInputPort
+import br.com.ajadigital.core.attendance.application.ports.`in`.ListEligibleAttendanceStudentsInputPort
+import br.com.ajadigital.core.attendance.application.ports.`in`.RecordAttendanceInputPort
+import br.com.ajadigital.core.attendance.application.ports.`in`.UpdateAttendanceInputPort
+import br.com.ajadigital.core.attendance.domain.ports.out.AttendanceStoreOutputPort
+import br.com.ajadigital.core.attendance.application.usecases.GetAttendanceSessionUseCase
+import br.com.ajadigital.core.attendance.application.usecases.ListAttendanceSessionsUseCase
+import br.com.ajadigital.core.attendance.application.usecases.ListEligibleAttendanceStudentsUseCase
+import br.com.ajadigital.core.attendance.application.usecases.RecordAttendanceUseCase
+import br.com.ajadigital.core.attendance.application.usecases.UpdateAttendanceUseCase
+import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import tools.jackson.databind.ObjectMapper
+import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 
 @Configuration
 class AttendanceConfiguration {
     @Bean
-    fun listAttendanceSessions(store: AttendanceStore): ListAttendanceSessionsUseCase =
-        ListAttendanceSessions(store)
+    fun listAttendanceSessions(store: AttendanceStoreOutputPort): ListAttendanceSessionsInputPort =
+        ListAttendanceSessionsUseCase(store)
 
     @Bean
-    fun listEligibleAttendanceStudents(store: AttendanceStore): ListEligibleAttendanceStudentsUseCase =
-        ListEligibleAttendanceStudents(store)
+    fun listEligibleAttendanceStudents(store: AttendanceStoreOutputPort): ListEligibleAttendanceStudentsInputPort =
+        ListEligibleAttendanceStudentsUseCase(store)
 
     @Bean
-    fun getAttendanceSession(store: AttendanceStore): GetAttendanceSessionUseCase =
-        GetAttendanceSession(store)
+    fun getAttendanceSession(store: AttendanceStoreOutputPort): GetAttendanceSessionInputPort =
+        GetAttendanceSessionUseCase(store)
 
     @Bean
     fun recordAttendance(
-        store: AttendanceStore,
-        idempotency: IdempotencyStore,
-        mapper: ObjectMapper,
-        transactionRunner: TransactionRunner,
-    ): RecordAttendanceUseCase = RecordAttendance(store, idempotency, mapper, transactionRunner)
+        store: AttendanceStoreOutputPort,
+        idempotency: IdempotencyStoreOutputPort,
+        mapper: JsonSerializerOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): RecordAttendanceInputPort = RecordAttendanceUseCase(store, idempotency, mapper, transactionRunner)
 
     @Bean
     fun updateAttendance(
-        store: AttendanceStore,
-        transactionRunner: TransactionRunner,
-    ): UpdateAttendanceUseCase = UpdateAttendance(store, transactionRunner)
+        store: AttendanceStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): UpdateAttendanceInputPort = UpdateAttendanceUseCase(store, transactionRunner)
 }

@@ -1,81 +1,81 @@
 package br.com.ajadigital.core.materials.configuration
 
-import br.com.ajadigital.core.materials.domain.ports.`in`.DiscardFileUseCase
-import br.com.ajadigital.core.materials.domain.ports.`in`.DownloadFileUseCase
-import br.com.ajadigital.core.materials.domain.ports.`in`.GetDashboardContentUseCase
-import br.com.ajadigital.core.materials.domain.ports.`in`.GetFileMetadataUseCase
-import br.com.ajadigital.core.materials.domain.ports.`in`.GetLearningProgressUseCase
-import br.com.ajadigital.core.materials.domain.ports.`in`.GetMaterialUseCase
-import br.com.ajadigital.core.materials.domain.ports.`in`.ListMaterialsUseCase
-import br.com.ajadigital.core.materials.domain.ports.`in`.ProvisionQuestionImageUseCase
-import br.com.ajadigital.core.materials.domain.ports.`in`.PublishMaterialsUseCase
-import br.com.ajadigital.core.materials.domain.ports.`in`.RecordMaterialProgressUseCase
-import br.com.ajadigital.core.materials.domain.ports.`in`.ReorderMaterialsUseCase
-import br.com.ajadigital.core.materials.domain.ports.`in`.UpdateMaterialUseCase
-import br.com.ajadigital.core.materials.domain.ports.`in`.UploadFileUseCase
-import br.com.ajadigital.core.materials.domain.ports.out.ContentStore
-import br.com.ajadigital.core.materials.domain.usecases.DiscardFile
-import br.com.ajadigital.core.materials.domain.usecases.DownloadFile
-import br.com.ajadigital.core.materials.domain.usecases.GetDashboardContent
-import br.com.ajadigital.core.materials.domain.usecases.GetFileMetadata
-import br.com.ajadigital.core.materials.domain.usecases.GetLearningProgress
-import br.com.ajadigital.core.materials.domain.usecases.GetMaterial
-import br.com.ajadigital.core.materials.domain.usecases.ListMaterials
-import br.com.ajadigital.core.materials.domain.usecases.ProvisionQuestionImage
-import br.com.ajadigital.core.materials.domain.usecases.PublishMaterials
-import br.com.ajadigital.core.materials.domain.usecases.RecordMaterialProgress
-import br.com.ajadigital.core.materials.domain.usecases.ReorderMaterials
-import br.com.ajadigital.core.materials.domain.usecases.UpdateMaterial
-import br.com.ajadigital.core.materials.domain.usecases.UploadFile
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunner
+import br.com.ajadigital.core.materials.application.ports.`in`.DiscardFileInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.DownloadFileInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.GetDashboardContentInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.GetFileMetadataInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.GetLearningProgressInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.GetMaterialInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.ListMaterialsInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.ProvisionQuestionImageInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.PublishMaterialsInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.RecordMaterialProgressInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.ReorderMaterialsInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.UpdateMaterialInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.UploadFileInputPort
+import br.com.ajadigital.core.materials.application.ports.out.ContentStoreOutputPort
+import br.com.ajadigital.core.materials.application.usecases.DiscardFileUseCase
+import br.com.ajadigital.core.materials.application.usecases.DownloadFileUseCase
+import br.com.ajadigital.core.materials.application.usecases.GetDashboardContentUseCase
+import br.com.ajadigital.core.materials.application.usecases.GetFileMetadataUseCase
+import br.com.ajadigital.core.materials.application.usecases.GetLearningProgressUseCase
+import br.com.ajadigital.core.materials.application.usecases.GetMaterialUseCase
+import br.com.ajadigital.core.materials.application.usecases.ListMaterialsUseCase
+import br.com.ajadigital.core.materials.application.usecases.ProvisionQuestionImageUseCase
+import br.com.ajadigital.core.materials.application.usecases.PublishMaterialsUseCase
+import br.com.ajadigital.core.materials.application.usecases.RecordMaterialProgressUseCase
+import br.com.ajadigital.core.materials.application.usecases.ReorderMaterialsUseCase
+import br.com.ajadigital.core.materials.application.usecases.UpdateMaterialUseCase
+import br.com.ajadigital.core.materials.application.usecases.UploadFileUseCase
+import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import tools.jackson.databind.ObjectMapper
+import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 
 @Configuration
 class MaterialsConfiguration {
     @Bean
-    fun uploadFile(store: ContentStore): UploadFileUseCase = UploadFile(store)
+    fun uploadFile(store: ContentStoreOutputPort): UploadFileInputPort = UploadFileUseCase(store)
 
     @Bean
-    fun provisionQuestionImage(store: ContentStore): ProvisionQuestionImageUseCase = ProvisionQuestionImage(store)
+    fun provisionQuestionImage(store: ContentStoreOutputPort): ProvisionQuestionImageInputPort = ProvisionQuestionImageUseCase(store)
 
     @Bean
-    fun getFileMetadata(store: ContentStore): GetFileMetadataUseCase = GetFileMetadata(store)
+    fun getFileMetadata(store: ContentStoreOutputPort): GetFileMetadataInputPort = GetFileMetadataUseCase(store)
 
     @Bean
-    fun downloadFile(store: ContentStore): DownloadFileUseCase = DownloadFile(store)
+    fun downloadFile(store: ContentStoreOutputPort): DownloadFileInputPort = DownloadFileUseCase(store)
 
     @Bean
-    fun discardFile(store: ContentStore): DiscardFileUseCase = DiscardFile(store)
+    fun discardFile(store: ContentStoreOutputPort): DiscardFileInputPort = DiscardFileUseCase(store)
 
     @Bean
-    fun listMaterials(store: ContentStore): ListMaterialsUseCase = ListMaterials(store)
+    fun listMaterials(store: ContentStoreOutputPort): ListMaterialsInputPort = ListMaterialsUseCase(store)
 
     @Bean
-    fun getMaterial(store: ContentStore): GetMaterialUseCase = GetMaterial(store)
+    fun getMaterial(store: ContentStoreOutputPort): GetMaterialInputPort = GetMaterialUseCase(store)
 
     @Bean
     fun publishMaterials(
-        store: ContentStore,
-        idempotency: IdempotencyStore,
-        mapper: ObjectMapper,
-        transactionRunner: TransactionRunner,
-    ): PublishMaterialsUseCase = PublishMaterials(store, idempotency, mapper, transactionRunner)
+        store: ContentStoreOutputPort,
+        idempotency: IdempotencyStoreOutputPort,
+        mapper: JsonSerializerOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): PublishMaterialsInputPort = PublishMaterialsUseCase(store, idempotency, mapper, transactionRunner)
 
     @Bean
-    fun updateMaterial(store: ContentStore): UpdateMaterialUseCase = UpdateMaterial(store)
+    fun updateMaterial(store: ContentStoreOutputPort): UpdateMaterialInputPort = UpdateMaterialUseCase(store)
 
     @Bean
-    fun reorderMaterials(store: ContentStore): ReorderMaterialsUseCase = ReorderMaterials(store)
+    fun reorderMaterials(store: ContentStoreOutputPort): ReorderMaterialsInputPort = ReorderMaterialsUseCase(store)
 
     @Bean
-    fun getLearningProgress(store: ContentStore): GetLearningProgressUseCase = GetLearningProgress(store)
+    fun getLearningProgress(store: ContentStoreOutputPort): GetLearningProgressInputPort = GetLearningProgressUseCase(store)
 
     @Bean
-    fun getDashboardContent(store: ContentStore): GetDashboardContentUseCase = GetDashboardContent(store)
+    fun getDashboardContent(store: ContentStoreOutputPort): GetDashboardContentInputPort = GetDashboardContentUseCase(store)
 
     @Bean
-    fun recordMaterialProgress(store: ContentStore): RecordMaterialProgressUseCase = RecordMaterialProgress(store)
+    fun recordMaterialProgress(store: ContentStoreOutputPort): RecordMaterialProgressInputPort = RecordMaterialProgressUseCase(store)
 }

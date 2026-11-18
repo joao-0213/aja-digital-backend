@@ -1,12 +1,22 @@
 package br.com.ajadigital.core.announcements.adapters.out.persistence
 
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
-import br.com.ajadigital.core.outbox.domain.ports.out.OutboxPayloadProtector
-import br.com.ajadigital.core.classroom.domain.ports.out.AcademicPage
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
+import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
+import br.com.ajadigital.core.outbox.domain.models.EncryptOutboxPayloadDto
+import br.com.ajadigital.core.academic.application.models.AcademicPage
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementDraft
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementOccurrence
-import br.com.ajadigital.core.announcements.domain.ports.out.AnnouncementStore
+import br.com.ajadigital.core.announcements.domain.models.AuthorizeAnnouncementCreateDto
+import br.com.ajadigital.core.announcements.domain.models.CreateAnnouncementRecordDto
+import br.com.ajadigital.core.announcements.domain.models.UpdateAnnouncementRecordDto
+import br.com.ajadigital.core.announcements.domain.models.WithdrawAnnouncementRecordDto
+import br.com.ajadigital.core.announcements.domain.models.GetStoredAnnouncementDto
+import br.com.ajadigital.core.announcements.domain.models.ListAnnouncementsRecordDto
+import br.com.ajadigital.core.announcements.domain.models.ListAnnouncementCalendarDto
+import br.com.ajadigital.core.announcements.domain.models.ListDashboardAnnouncementRecordsDto
+import br.com.ajadigital.core.announcements.domain.models.ListDashboardUpcomingRecordsDto
+import br.com.ajadigital.core.announcements.domain.ports.out.AnnouncementStoreOutputPort
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
@@ -23,17 +33,19 @@ class JdbcAnnouncementStore(
     private val jdbc: JdbcTemplate,
     private val mapper: ObjectMapper,
     private val clock: Clock,
-    private val encryption: OutboxPayloadProtector,
-) : AnnouncementStore {
+    private val encryption: OutboxPayloadProtectorOutputPort,
+) : AnnouncementStoreOutputPort {
     @Transactional
-    override fun authorizeCreate(actorId: String, role: String, sessionHash: String, draft: AnnouncementDraft) {
+    override fun authorizeCreate(request: AuthorizeAnnouncementCreateDto) {
+        val (actorId, role, sessionHash, draft) = request
         lockAuthInvariant()
         requireWriterSession(actorId, role, sessionHash)
         lockAudience(draft.classId, draft.subjectId, actorId, role)
     }
 
     @Transactional
-    override fun create(actorId: String, role: String, sessionHash: String, draft: AnnouncementDraft, key: String, requestHash: String): Map<String, Any?> {
+    override fun create(request: CreateAnnouncementRecordDto): Map<String, Any?> {
+        val (actorId, role, sessionHash, draft, key, requestHash) = request
         lockAuthInvariant()
         requireWriterSession(actorId, role, sessionHash)
         lockAudience(draft.classId, draft.subjectId, actorId, role)
@@ -43,29 +55,31 @@ class JdbcAnnouncementStore(
             VALUES(?,1,?,?,?,?,?,?,?,?,?,?::jsonb)""", id, now, now, actorId, actorId, draft.classId, draft.subjectId, draft.title.trim(), draft.body, draft.notify, draft.occurrence?.let(mapper::writeValueAsString))
         if (draft.notify) notify(id, 1, actorId, draft)
         audit(actorId, "academic.announcement_created", id)
-        return announcement(actorId, role, sessionHash, id) ?: throw AcademicNotFound()
+        return announcement(GetStoredAnnouncementDto(actorId, role, sessionHash, id)) ?: throw AcademicNotFound()
     }
 
     @Transactional
-    override fun update(actorId: String, role: String, sessionHash: String, id: String, revision: Int, draft: AnnouncementDraft): Map<String, Any?>? {
+    override fun update(request: UpdateAnnouncementRecordDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id, revision, draft) = request
         lockAuthInvariant()
         requireWriterSession(actorId, role, sessionHash)
         val current = jdbc.query("SELECT * FROM core.announcements WHERE id=? AND withdrawn_at IS NULL FOR UPDATE", { rs, _ -> row(rs) }, id).firstOrNull() ?: return null
         if (current["revision"] != revision) return null
         lockAudience(current["classId"] as String, current["subjectId"] as String?, actorId, role)
         lockAudience(draft.classId, draft.subjectId, actorId, role)
-        if (draft.copy(title = draft.title.trim()) == currentDraft(current)) return announcement(actorId, role, sessionHash, id)
+        if (draft.copy(title = draft.title.trim()) == currentDraft(current)) return announcement(GetStoredAnnouncementDto(actorId, role, sessionHash, id))
         val now = Timestamp.from(clock.instant())
         val nextRevision = revision + 1
         if (jdbc.update("""UPDATE core.announcements SET revision=?,updated_at=?,updated_by=?,class_id=?,subject_id=?,title=?,body=?,notify=?,occurrence=?::jsonb
             WHERE id=? AND revision=? AND withdrawn_at IS NULL""", nextRevision, now, actorId, draft.classId, draft.subjectId, draft.title.trim(), draft.body, draft.notify, draft.occurrence?.let(mapper::writeValueAsString), id, revision) != 1) return null
         if (draft.notify) notify(id, nextRevision, actorId, draft)
         audit(actorId, "academic.announcement_updated", id)
-        return announcement(actorId, role, sessionHash, id)
+        return announcement(GetStoredAnnouncementDto(actorId, role, sessionHash, id))
     }
 
     @Transactional
-    override fun withdraw(actorId: String, role: String, sessionHash: String, id: String, revision: Int): Map<String, Any?>? {
+    override fun withdraw(request: WithdrawAnnouncementRecordDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id, revision) = request
         lockAuthInvariant()
         requireWriterSession(actorId, role, sessionHash)
         val current = jdbc.query("SELECT * FROM core.announcements WHERE id=? AND withdrawn_at IS NULL FOR UPDATE", { rs, _ -> row(rs) }, id).firstOrNull() ?: return null
@@ -77,14 +91,16 @@ class JdbcAnnouncementStore(
         return dto(current + mapOf("revision" to revision + 1, "updatedAt" to now.toInstant().toString(), "updatedBy" to actorId, "authorName" to jdbc.queryForObject("SELECT name FROM core.users WHERE id=?", String::class.java, current["createdBy"] as String)))
     }
 
-    override fun announcement(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>? {
+    override fun announcement(request: GetStoredAnnouncementDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id) = request
         requireReaderSession(actorId, role, sessionHash)
         val row = jdbc.query("""SELECT a.*,u.name author_name FROM core.announcements a JOIN core.users u ON u.id=a.created_by
             WHERE a.id=? AND a.withdrawn_at IS NULL AND ${access("a", role)}""", { rs, _ -> row(rs) + mapOf("authorName" to rs.getString("author_name")) }, *(listOf(id) + accessArgs(actorId, role)).toTypedArray()).firstOrNull() ?: return null
         return dto(row)
     }
 
-    override fun announcements(actorId: String, role: String, sessionHash: String, page: Int, size: Int, sort: String, classId: String?, subjectId: String?, query: String?): AcademicPage {
+    override fun announcements(request: ListAnnouncementsRecordDto): AcademicPage {
+        val (actorId, role, sessionHash, page, size, sort, classId, subjectId, query) = request
         requireReaderSession(actorId, role, sessionHash)
         val clauses = mutableListOf("a.withdrawn_at IS NULL", access("a", role))
         val args = accessArgs(actorId, role).toMutableList<Any>()
@@ -99,7 +115,8 @@ class JdbcAnnouncementStore(
         return AcademicPage(items, page, size, matches.size)
     }
 
-    override fun calendar(actorId: String, role: String, sessionHash: String, page: Int, size: Int, sort: String, from: String?, to: String?, subjectId: String?): AcademicPage {
+    override fun calendar(request: ListAnnouncementCalendarDto): AcademicPage {
+        val (actorId, role, sessionHash, page, size, sort, from, to, subjectId) = request
         requireReaderSession(actorId, role, sessionHash)
         val items = mutableListOf<Map<String, Any?>>()
         val announcementArgs = accessArgs(actorId, role).toMutableList<Any>()
@@ -142,7 +159,8 @@ class JdbcAnnouncementStore(
         return AcademicPage(ordered.drop((page - 1) * size).take(size), page, size, ordered.size)
     }
 
-    override fun dashboardAnnouncements(actorId: String, role: String, sessionHash: String, size: Int): List<Map<String, Any?>> {
+    override fun dashboardAnnouncements(request: ListDashboardAnnouncementRecordsDto): List<Map<String, Any?>> {
+        val (actorId, role, sessionHash, size) = request
         require(size in 1..10)
         requireReaderSession(actorId, role, sessionHash)
         val args = (accessArgs(actorId, role) + listOf<Any>(size)).toTypedArray()
@@ -151,7 +169,8 @@ class JdbcAnnouncementStore(
             ORDER BY a.created_at DESC,a.id LIMIT ?""", { rs, _ -> dto(row(rs) + mapOf("authorName" to rs.getString("author_name"))) }, *args)
     }
 
-    override fun dashboardUpcoming(actorId: String, role: String, sessionHash: String, from: String, to: String, size: Int): List<Map<String, Any?>> {
+    override fun dashboardUpcoming(request: ListDashboardUpcomingRecordsDto): List<Map<String, Any?>> {
+        val (actorId, role, sessionHash, from, to, size) = request
         require(size in 1..10)
         requireReaderSession(actorId, role, sessionHash)
         val announcementArgs = (accessArgs(actorId, role) + listOf<Any>(from, to, size)).toTypedArray()
@@ -203,7 +222,7 @@ class JdbcAnnouncementStore(
             val eventId = UUID.randomUUID().toString()
             val eventType = "academic.announcement-notification-requested"
             val payload = mapper.writeValueAsBytes(mapOf("recipient" to email, "announcementId" to id, "recipientId" to recipientId, "revision" to revision, "title" to draft.title.trim(), "body" to draft.body))
-            val encrypted = encryption.encrypt(eventId, eventType, 1, payload)
+            val encrypted = encryption.encrypt(EncryptOutboxPayloadDto(eventId, eventType, 1, payload))
             val inserted = jdbc.update("INSERT INTO core.announcement_notification_recipients(announcement_id,revision,recipient_id,event_id) VALUES(?,?,?,?) ON CONFLICT DO NOTHING", id, revision, recipientId, eventId)
             if (inserted == 1) jdbc.update("INSERT INTO core.outbox_events(id,event_type,event_version,created_at,key_id,nonce,encrypted_payload) VALUES(?,?,1,?,?,?,?)", eventId, eventType, Timestamp.from(clock.instant()), encrypted.keyId, encrypted.nonce, encrypted.ciphertext)
         }

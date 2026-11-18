@@ -1,11 +1,40 @@
 package br.com.ajadigital.core.materials.adapters.out.persistence
+import br.com.ajadigital.core.materials.application.models.*
 
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicConflict
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
-import br.com.ajadigital.core.materials.domain.ports.out.ContentStore
+import br.com.ajadigital.core.materials.domain.models.ContentStoreProvisionQuestionImageDto
+
+import br.com.ajadigital.core.materials.domain.models.ContentStoreFileDto
+
+import br.com.ajadigital.core.materials.domain.models.ContentStoreDownloadDto
+
+import br.com.ajadigital.core.materials.domain.models.ContentStoreDiscardDto
+
+import br.com.ajadigital.core.materials.domain.models.ContentStoreMaterialsDto
+
+import br.com.ajadigital.core.materials.application.models.ContentStoreMaterialDto
+
+import br.com.ajadigital.core.materials.application.models.ContentStoreAuthorizeMaterialPublicationDto
+
+import br.com.ajadigital.core.materials.application.models.ContentStorePublishMaterialsDto
+
+import br.com.ajadigital.core.materials.application.models.ContentStoreUpdateMaterialDto
+
+import br.com.ajadigital.core.materials.application.models.ContentStoreReorderMaterialsDto
+
+import br.com.ajadigital.core.materials.application.models.ContentStoreProgressDto
+
+import br.com.ajadigital.core.materials.application.models.ContentStoreDashboardDto
+
+import br.com.ajadigital.core.materials.application.models.ContentStoreRecordProgressDto
+
+import br.com.ajadigital.core.materials.application.models.ContentStoreUploadDto
+
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
+import br.com.ajadigital.core.materials.application.ports.out.ContentStoreOutputPort
 import br.com.ajadigital.core.materials.domain.models.DashboardContent
-import br.com.ajadigital.core.classroom.domain.ports.out.AcademicPage
+import br.com.ajadigital.core.academic.application.models.AcademicPage
 import br.com.ajadigital.core.materials.domain.models.DownloadedFile
 import br.com.ajadigital.core.materials.domain.models.MaterialCreate
 import org.springframework.jdbc.core.JdbcTemplate
@@ -19,11 +48,12 @@ import java.time.Clock
 import java.util.UUID
 
 @Repository
-class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock) : ContentStore {
+class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock) : ContentStoreOutputPort {
     private val materialProjection = "SELECT mt.*,u.name author_name,f.id file_meta_id,f.name file_name,f.size file_size,f.mime file_mime,f.purpose file_purpose,f.parent_id file_parent_id,f.status file_status FROM core.materials mt JOIN core.users u ON u.id=mt.author_id LEFT JOIN core.files f ON f.id=mt.file_id"
 
     @Transactional
-    override fun upload(actorId: String, role: String, sessionHash: String, key: String, name: String, declaredMime: String, purpose: String, parentId: String, bytes: ByteArray): Map<String, Any?> {
+    override fun upload(request: ContentStoreUploadDto): Map<String, Any?> {
+        val (actorId, role, sessionHash, key, name, declaredMime, purpose, parentId, bytes) = request
         lockAuthInvariant()
         val currentRole = requireSession(actorId, sessionHash)
         when (purpose) {
@@ -36,18 +66,19 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         val requestHash = digest("$purpose|$parentId|$name|$declaredMime|$hash")
         val prior = jdbc.query("SELECT request_hash,file_id FROM core.file_upload_keys WHERE owner_id=? AND idempotency_key=?", { rs, _ -> rs.getString(1) to rs.getString(2) }, actorId, key).firstOrNull()
         if (prior != null) {
-            if (prior.first != requestHash) throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicIdempotencyConflict()
-            return file(prior.second, actorId, currentRole, sessionHash) ?: throw AcademicNotFound()
+            if (prior.first != requestHash) throw br.com.ajadigital.core.academic.domain.exceptions.AcademicIdempotencyConflict()
+            return file(br.com.ajadigital.core.materials.domain.models.ContentStoreFileDto(prior.second, actorId, currentRole, sessionHash)) ?: throw AcademicNotFound()
         }
         val now = Timestamp.from(clock.instant())
         val id = UUID.randomUUID().toString()
         jdbc.update("INSERT INTO core.files(id,owner_id,purpose,parent_id,name,mime,size,sha256,status,expires_at,content,created_at) VALUES(?,?,?,?,?,?,?,?, 'staged',?,?,?)", id, actorId, purpose, parentId, name, declaredMime, bytes.size, hash, Timestamp.from(clock.instant().plusSeconds(86400)), bytes, now)
         jdbc.update("INSERT INTO core.file_upload_keys(owner_id,idempotency_key,request_hash,file_id,created_at) VALUES(?,?,?,?,?)", actorId, key, requestHash, id, now)
-        return file(id, actorId, currentRole, sessionHash) ?: throw AcademicNotFound()
+        return file(br.com.ajadigital.core.materials.domain.models.ContentStoreFileDto(id, actorId, currentRole, sessionHash)) ?: throw AcademicNotFound()
     }
 
     @Transactional
-    override fun provisionQuestionImage(id: String, questionId: String, name: String, mime: String, bytes: ByteArray): Map<String, Any?> {
+    override fun provisionQuestionImage(request: ContentStoreProvisionQuestionImageDto): Map<String, Any?> {
+        val (id, questionId, name, mime, bytes) = request
         val hash = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
         jdbc.queryForObject("SELECT pg_advisory_xact_lock(hashtextextended(?,0)) IS NULL", Boolean::class.java, "question-image|$id")
         val prior = jdbc.query("SELECT id,purpose,parent_id,name,mime,size,sha256,status,expires_at,owner_id FROM core.files WHERE id=? FOR UPDATE", { rs, _ -> fileRow(rs) }, id).firstOrNull()
@@ -59,7 +90,8 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         return fileDto(jdbc.query("SELECT id,purpose,parent_id,name,mime,size,sha256,status,expires_at,owner_id FROM core.files WHERE id=?", { rs, _ -> fileRow(rs) }, id).first())
     }
 
-    override fun file(id: String, actorId: String, role: String, sessionHash: String): Map<String, Any?>? {
+    override fun file(request: ContentStoreFileDto): Map<String, Any?>? {
+        val (id, actorId, role, sessionHash) = request
         requireSession(actorId, sessionHash)
         val file = jdbc.query("SELECT id,purpose,parent_id,name,mime,size,sha256,status,expires_at,owner_id FROM core.files WHERE id=?", { rs, _ -> fileRow(rs) }, id).firstOrNull() ?: return null
         if (file["status"] == "staged") {
@@ -68,7 +100,8 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         return fileDto(file)
     }
 
-    override fun download(id: String, actorId: String, role: String, sessionHash: String, disposition: String?): DownloadedFile? {
+    override fun download(request: ContentStoreDownloadDto): DownloadedFile? {
+        val (id, actorId, role, sessionHash, disposition) = request
         require(disposition == null || disposition in setOf("inline", "attachment"))
         requireSession(actorId, sessionHash)
         val file = jdbc.query("SELECT id,purpose,parent_id,name,mime,size,sha256,status,expires_at,owner_id FROM core.files WHERE id=?", { rs, _ -> fileRow(rs) }, id).firstOrNull() ?: return null
@@ -82,7 +115,8 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
     }
 
     @Transactional
-    override fun discard(id: String, actorId: String, role: String, sessionHash: String) {
+    override fun discard(request: ContentStoreDiscardDto) {
+        val (id, actorId, role, sessionHash) = request
         lockAuthInvariant(); requireSession(actorId, sessionHash)
         val file = jdbc.query("SELECT id,purpose,parent_id,name,mime,size,sha256,status,expires_at,owner_id FROM core.files WHERE id=? FOR UPDATE", { rs, _ -> fileRow(rs) }, id).firstOrNull() ?: throw AcademicNotFound()
         if (file["ownerId"] != actorId || file["status"] != "staged" || (file["expiresAt"] as java.time.Instant) <= clock.instant()) throw AcademicConflict()
@@ -90,7 +124,8 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         jdbc.update("DELETE FROM core.files WHERE id=? AND status='staged'", id)
     }
 
-    override fun materials(actorId: String, role: String, sessionHash: String, page: Int, size: Int, sort: String, moduleId: String?, subjectId: String?): AcademicPage {
+    override fun materials(request: ContentStoreMaterialsDto): AcademicPage {
+        val (actorId, role, sessionHash, page, size, sort, moduleId, subjectId) = request
         requireSession(actorId, sessionHash)
         val where = buildList {
             add("EXISTS(SELECT 1 FROM core.modules m JOIN core.subjects s ON s.id=m.subject_id WHERE m.id=mt.module_id AND m.withdrawn_at IS NULL AND ${subjectAccess("s", role)})")
@@ -103,7 +138,8 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         return AcademicPage(rows, page, size, count)
     }
 
-    override fun material(id: String, actorId: String, role: String, sessionHash: String): Map<String, Any?>? {
+    override fun material(request: ContentStoreMaterialDto): Map<String, Any?>? {
+        val (id, actorId, role, sessionHash) = request
         requireSession(actorId, sessionHash)
         val result = jdbc.query("SELECT mt.*,u.name author_name,f.id file_meta_id,f.name file_name,f.size file_size,f.mime file_mime,f.purpose file_purpose,f.parent_id file_parent_id,f.status file_status,m.id module_key,m.revision module_revision,m.created_at module_created,m.updated_at module_updated,m.updated_by module_updated_by,m.subject_id,m.title module_title,m.description module_description,m.order_index module_order,s.class_id,s.name subject_name,s.color,s.icon,s.description subject_description,s.revision subject_revision,s.created_at subject_created,s.updated_at subject_updated,s.updated_by subject_updated_by,c.name class_name,c.active class_active FROM core.materials mt JOIN core.users u ON u.id=mt.author_id LEFT JOIN core.files f ON f.id=mt.file_id JOIN core.modules m ON m.id=mt.module_id AND m.withdrawn_at IS NULL JOIN core.subjects s ON s.id=m.subject_id JOIN core.classes c ON c.id=s.class_id WHERE mt.id=? AND ${subjectAccess("s", role)}", { rs, _ ->
             val material = materialMap(rs)
@@ -113,13 +149,15 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
     }
 
     @Transactional
-    override fun authorizeMaterialPublication(actorId: String, role: String, sessionHash: String, moduleId: String) {
+    override fun authorizeMaterialPublication(request: ContentStoreAuthorizeMaterialPublicationDto) {
+        val (actorId, role, sessionHash, moduleId) = request
         lockAuthInvariant()
         if (lockModuleForWrite(moduleId, actorId, sessionHash, role) == null) throw AcademicNotFound()
     }
 
     @Transactional
-    override fun publishMaterials(actorId: String, role: String, sessionHash: String, moduleId: String, expectedRevision: Int, items: List<MaterialCreate>): AcademicPage? {
+    override fun publishMaterials(request: ContentStorePublishMaterialsDto): AcademicPage? {
+        val (actorId, role, sessionHash, moduleId, expectedRevision, items) = request
         lockAuthInvariant()
         val module = lockModuleForWrite(moduleId, actorId, sessionHash, role) ?: return null
         if (module.second != expectedRevision) return null
@@ -146,7 +184,8 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
     }
 
     @Transactional
-    override fun updateMaterial(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, title: String?, duration: Double?, content: String?, videoUrl: String?): Map<String, Any?>? {
+    override fun updateMaterial(request: ContentStoreUpdateMaterialDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id, expectedRevision, title, duration, content, videoUrl) = request
         lockAuthInvariant()
         val moduleId = jdbc.query("SELECT module_id FROM core.materials WHERE id=?", { rs, _ -> rs.getString(1) }, id).firstOrNull() ?: return null
         val module = lockModuleForWrite(moduleId, actorId, sessionHash, role) ?: return null
@@ -158,13 +197,14 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         if (jdbc.update("UPDATE core.materials SET title=?,duration=?,content=?,video_url=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=?", title ?: current["title"], duration ?: current["duration"], content ?: current["content"], videoUrl ?: current["videoUrl"], now, actorId, id, expectedRevision) != 1) return null
         jdbc.update("UPDATE core.modules SET revision=revision+1,updated_at=?,updated_by=? WHERE id=?", now, actorId, moduleId)
         audit(actorId, "academic.material_updated", id)
-        val detail = material(id, actorId, role, sessionHash) ?: return null
+        val detail = material(br.com.ajadigital.core.materials.application.models.ContentStoreMaterialDto(id, actorId, role, sessionHash)) ?: return null
         val result = detail["material"] as? Map<*, *> ?: return null
         return result.entries.filter { it.key is String }.associate { it.key as String to it.value }
     }
 
     @Transactional
-    override fun reorderMaterials(actorId: String, role: String, sessionHash: String, moduleId: String, expectedRevision: Int, items: List<Pair<String, Int>>, page: Int, size: Int): AcademicPage? {
+    override fun reorderMaterials(request: ContentStoreReorderMaterialsDto): AcademicPage? {
+        val (actorId, role, sessionHash, moduleId, expectedRevision, items, page, size) = request
         lockAuthInvariant()
         val module = lockModuleForWrite(moduleId, actorId, sessionHash, role) ?: return null
         if (module.second != expectedRevision) return null
@@ -178,7 +218,8 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         return AcademicPage(ordered.drop((page - 1) * size).take(size), page, size, ordered.size)
     }
 
-    override fun progress(actorId: String, role: String, sessionHash: String, page: Int, size: Int, sort: String, subjectId: String?, materialId: String?): AcademicPage {
+    override fun progress(request: ContentStoreProgressDto): AcademicPage {
+        val (actorId, role, sessionHash, page, size, sort, subjectId, materialId) = request
         requireSession(actorId, sessionHash)
         val where = buildString {
             append("p.user_id=? AND EXISTS(SELECT 1 FROM core.materials mt JOIN core.modules m ON m.id=mt.module_id AND m.withdrawn_at IS NULL JOIN core.subjects s ON s.id=m.subject_id WHERE mt.id=p.material_id AND ${subjectAccess("s", role)})")
@@ -192,7 +233,8 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
     }
 
     @Transactional(readOnly = true)
-    override fun dashboard(actorId: String, role: String, sessionHash: String, progressLimit: Int): DashboardContent {
+    override fun dashboard(request: ContentStoreDashboardDto): DashboardContent {
+        val (actorId, role, sessionHash, progressLimit) = request
         require(progressLimit in 1..100)
         requireSession(actorId, sessionHash, "student")
         val scope = "md.withdrawn_at IS NULL AND ${subjectAccess("s", role)}"
@@ -218,7 +260,8 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
     }
 
     @Transactional
-    override fun recordProgress(actorId: String, role: String, sessionHash: String, materialId: String, completed: Boolean): Map<String, Any?>? {
+    override fun recordProgress(request: ContentStoreRecordProgressDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, materialId, completed) = request
         lockAuthInvariant(); requireSession(actorId, sessionHash)
         val subjectId = jdbc.query("SELECT s.id FROM core.materials mt JOIN core.modules m ON m.id=mt.module_id AND m.withdrawn_at IS NULL JOIN core.subjects s ON s.id=m.subject_id WHERE mt.id=?", { rs, _ -> rs.getString(1) }, materialId).firstOrNull() ?: return null
         if (!canReadSubject(subjectId, actorId, role)) return null

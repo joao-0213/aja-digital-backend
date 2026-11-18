@@ -1,33 +1,33 @@
 package br.com.ajadigital.core.identity.adapters.`in`.controllers
 
-import br.com.ajadigital.core.classroom.adapters.`in`.controllers.ClassroomController
-import br.com.ajadigital.core.classroom.domain.ports.`in`.CloseClassUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.CreateClassUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.CreateEnrollmentUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.CreateUserUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.DeactivateUserUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.GetClassUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.GetEnrollmentUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.GetStudentUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.GetUserUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.ListClassesUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.ListEnrollmentsUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.ListMyEnrollmentsUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.ListStudentsUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.ListUsersUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.PreviewEnrollmentUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.ReopenClassUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.SetUserRoleUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.TransitionEnrollmentUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.UpdateClassUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.UpdateUserUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.WithdrawUserUseCase
+import br.com.ajadigital.core.academic.adapters.`in`.controllers.AcademicController
+import br.com.ajadigital.core.academic.application.ports.`in`.CloseClassInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.CreateClassInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.CreateEnrollmentInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.CreateUserInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.DeactivateUserInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.GetClassInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.GetEnrollmentInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.GetStudentInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.GetUserInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.ListClassesInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.ListEnrollmentsInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.ListMyEnrollmentsInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.ListStudentsInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.ListUsersInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.PreviewEnrollmentInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.ReopenClassInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.SetUserRoleInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.TransitionEnrollmentInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.UpdateClassInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.UpdateUserInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.WithdrawUserInputPort
 import br.com.ajadigital.core.identity.adapters.`in`.controllers.handlers.AuthExceptionHandler
+import br.com.ajadigital.core.shared.adapters.`in`.web.errors.SharedExceptionHandler
 import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
-import br.com.ajadigital.core.identity.domain.models.AuthenticatedSession
-import br.com.ajadigital.core.identity.domain.models.LoginCommand
-import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
-import br.com.ajadigital.core.identity.domain.ports.out.SessionRecord
+import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
+import br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.http.MediaType
@@ -40,10 +40,8 @@ import java.lang.reflect.Proxy
 class SessionAuthPrecedenceTests {
     private lateinit var mvc: MockMvc
 
-    private val stubAuth = object : AuthenticateStudentUseCase {
-        override fun login(command: LoginCommand): AuthenticatedSession = error("Not used")
-        override fun resolve(cookieValue: String?): SessionRecord = throw SessionRequired()
-        override fun logout(cookieValue: String?) {}
+    private val stubAuth = object : ResolveAuthenticatedActorInputPort {
+        override fun resolve(request: ResolveStudentSessionDto): AuthenticatedActor = throw SessionRequired()
     }
 
     private inline fun <reified T> unusedPort(): T = Proxy.newProxyInstance(
@@ -56,32 +54,32 @@ class SessionAuthPrecedenceTests {
         val validator = LocalValidatorFactoryBean().apply { afterPropertiesSet() }
         mvc = MockMvcBuilders
             .standaloneSetup(
-                ClassroomController(
+                AcademicController(
                     stubAuth,
-                    unusedPort<ListUsersUseCase>(),
-                    unusedPort<GetUserUseCase>(),
-                    unusedPort<CreateUserUseCase>(),
-                    unusedPort<UpdateUserUseCase>(),
-                    unusedPort<SetUserRoleUseCase>(),
-                    unusedPort<DeactivateUserUseCase>(),
-                    unusedPort<WithdrawUserUseCase>(),
-                    unusedPort<ListClassesUseCase>(),
-                    unusedPort<GetClassUseCase>(),
-                    unusedPort<CreateClassUseCase>(),
-                    unusedPort<UpdateClassUseCase>(),
-                    unusedPort<CloseClassUseCase>(),
-                    unusedPort<ReopenClassUseCase>(),
-                    unusedPort<ListEnrollmentsUseCase>(),
-                    unusedPort<GetEnrollmentUseCase>(),
-                    unusedPort<PreviewEnrollmentUseCase>(),
-                    unusedPort<CreateEnrollmentUseCase>(),
-                    unusedPort<TransitionEnrollmentUseCase>(),
-                    unusedPort<ListMyEnrollmentsUseCase>(),
-                    unusedPort<ListStudentsUseCase>(),
-                    unusedPort<GetStudentUseCase>(),
+                    unusedPort<ListUsersInputPort>(),
+                    unusedPort<GetUserInputPort>(),
+                    unusedPort<CreateUserInputPort>(),
+                    unusedPort<UpdateUserInputPort>(),
+                    unusedPort<SetUserRoleInputPort>(),
+                    unusedPort<DeactivateUserInputPort>(),
+                    unusedPort<WithdrawUserInputPort>(),
+                    unusedPort<ListClassesInputPort>(),
+                    unusedPort<GetClassInputPort>(),
+                    unusedPort<CreateClassInputPort>(),
+                    unusedPort<UpdateClassInputPort>(),
+                    unusedPort<CloseClassInputPort>(),
+                    unusedPort<ReopenClassInputPort>(),
+                    unusedPort<ListEnrollmentsInputPort>(),
+                    unusedPort<GetEnrollmentInputPort>(),
+                    unusedPort<PreviewEnrollmentInputPort>(),
+                    unusedPort<CreateEnrollmentInputPort>(),
+                    unusedPort<TransitionEnrollmentInputPort>(),
+                    unusedPort<ListMyEnrollmentsInputPort>(),
+                    unusedPort<ListStudentsInputPort>(),
+                    unusedPort<GetStudentInputPort>(),
                 ),
             )
-            .setControllerAdvice(AuthExceptionHandler())
+            .setControllerAdvice(AuthExceptionHandler(), SharedExceptionHandler())
             .setValidator(validator)
             .build()
     }

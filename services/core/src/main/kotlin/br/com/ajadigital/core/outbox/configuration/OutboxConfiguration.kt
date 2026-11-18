@@ -4,14 +4,14 @@ import br.com.ajadigital.core.outbox.adapters.`in`.scheduling.OutboxScheduler
 import br.com.ajadigital.core.outbox.adapters.out.messaging.RabbitEventPublisher
 import br.com.ajadigital.core.outbox.adapters.out.persistence.JdbcOutboxRepository
 import br.com.ajadigital.core.outbox.adapters.out.security.AesGcmOutboxPayloadProtector
-import br.com.ajadigital.core.outbox.domain.ports.`in`.PublishPendingEventsUseCase
-import br.com.ajadigital.core.outbox.domain.ports.`in`.RedriveOutboxEventUseCase
-import br.com.ajadigital.core.outbox.domain.ports.out.EventPublisher
-import br.com.ajadigital.core.outbox.domain.ports.out.OutboxPayloadProtector
-import br.com.ajadigital.core.outbox.domain.ports.out.OutboxRepository
-import br.com.ajadigital.core.outbox.domain.usecases.PublishPendingEvents
-import br.com.ajadigital.core.outbox.domain.usecases.RedriveOutboxEvent
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunner
+import br.com.ajadigital.core.outbox.application.ports.`in`.PublishPendingEventsInputPort
+import br.com.ajadigital.core.outbox.application.ports.`in`.RedriveOutboxEventInputPort
+import br.com.ajadigital.core.outbox.domain.ports.out.EventPublisherOutputPort
+import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
+import br.com.ajadigital.core.outbox.domain.ports.out.OutboxRepositoryOutputPort
+import br.com.ajadigital.core.outbox.application.usecases.PublishPendingEventsUseCase
+import br.com.ajadigital.core.outbox.application.usecases.RedriveOutboxEventUseCase
+import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
 import org.springframework.amqp.rabbit.core.RabbitTemplate
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
@@ -23,32 +23,32 @@ import java.time.Clock
 @Configuration
 class OutboxConfiguration {
     @Bean
-    fun outboxRepository(jdbc: JdbcTemplate): OutboxRepository = JdbcOutboxRepository(jdbc)
+    fun outboxRepository(jdbc: JdbcTemplate): OutboxRepositoryOutputPort = JdbcOutboxRepository(jdbc)
 
     @Bean
-    fun eventPublisher(rabbit: RabbitTemplate, mapper: ObjectMapper): EventPublisher =
+    fun eventPublisher(rabbit: RabbitTemplate, mapper: ObjectMapper): EventPublisherOutputPort =
         RabbitEventPublisher(rabbit, mapper)
 
     @Bean
     fun outboxPayloadProtector(
         @Value("\${core.outbox.encryption-key}") keyBase64: String,
-    ): OutboxPayloadProtector = AesGcmOutboxPayloadProtector(keyBase64)
+    ): OutboxPayloadProtectorOutputPort = AesGcmOutboxPayloadProtector(keyBase64)
 
     @Bean
     fun publishPendingEventsUseCase(
-        transactions: TransactionRunner,
-        repository: OutboxRepository,
-        publisher: EventPublisher,
+        transactions: TransactionRunnerOutputPort,
+        repository: OutboxRepositoryOutputPort,
+        publisher: EventPublisherOutputPort,
         clock: Clock,
-    ): PublishPendingEventsUseCase = PublishPendingEvents(transactions, repository, publisher, clock)
+    ): PublishPendingEventsInputPort = PublishPendingEventsUseCase(transactions, repository, publisher, clock)
 
     @Bean
     fun redriveOutboxEventUseCase(
-        repository: OutboxRepository,
+        repository: OutboxRepositoryOutputPort,
         clock: Clock,
-    ): RedriveOutboxEventUseCase = RedriveOutboxEvent(repository, clock)
+    ): RedriveOutboxEventInputPort = RedriveOutboxEventUseCase(repository, clock)
 
     @Bean
-    fun outboxScheduler(publishPendingEvents: PublishPendingEventsUseCase): OutboxScheduler =
+    fun outboxScheduler(publishPendingEvents: PublishPendingEventsInputPort): OutboxScheduler =
         OutboxScheduler(publishPendingEvents)
 }

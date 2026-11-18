@@ -110,3 +110,28 @@ Both reviewers initially identified the same test-evidence gap: the nullable dea
 
 `graphify update .` completed after the GP-01 source changes and refreshed the ignored local graph to 4,267 nodes / 12,170 edges. The extractor reported pre-existing unrelated syntax/SQL warnings.
 
+## GP-03 — R-07 identity and academic boundaries
+
+**Review fixes implemented; focused gates and final build pass; forced full test had one non-reproduced outbox timing failure.** Starting revision was `32d022a4d0506729d38bd1be6311b84a048a5707`. Preserve the broad shared dirty worktree; no files were staged or committed. Full scope, acceptance details, and transitional exports are recorded in [GP-03 evidence](core-golden-path-gp03-evidence.md).
+
+The identity and classroom ownership areas were reorganized into `identity.application` and `academic.application`; classroom source/package naming is now academic. Identity operation models moved to `identity.application.models`; academic operation models moved to `academic.application.models`. The atomic email-confirmation transaction coordinator and SQL/lock protocol remain identity-owned and unchanged. `AuthenticatedActor` and `AcademicPage` remain explicit immutable domain-contract compatibility exports for legacy consumers pending GP-04; the actor redacts its internal session validation reference and exports no raw token/cookie/session record. Based on concrete ArchUnit violations, 78 DTO/model declarations moved into their owning application models and 144 directly implicated orchestration declarations moved into application ports/use cases. GP-04 behavior migration for those downstream flows remains pending.
+
+The Platform rollback test previously did not reach the transaction runner because Kotlin `run {}` resolved to stdlib; it now passes `TransactionRunDto` explicitly and the PostgreSQL rollback test passes. The Curriculum last-admin race previously returned `[200,500]`; typed `AcademicConflict` now maps the concurrent loser to 409, and the PostgreSQL race test passes as `[200,409]`.
+
+| Check | Outcome |
+| --- | --- |
+| `compileKotlin compileTestKotlin --rerun-tasks --console=plain` | Exit 0. |
+| Focused `CoreArchUnitTests` + `CoreArchitectureFixtureTests` | Pass. |
+| Expanded GP-03 selector (identity/session/Origin/transaction, corrected Platform rollback and Curriculum race, direct identity/academic tests, plus affected announcements/attendance/assessment/curriculum/forum/materials integration suites) | Post-review-fix exit 0; 119 tests in 13 reports, 0 failures/errors; 10m47s. |
+| `architectureAudit --rerun-tasks --console=plain` | Final post-review-fix run expected exit 1 after writing report: 313 findings / 503 lines / 107,635 bytes; Core compliance is not claimed. |
+| `test --rerun-tasks --console=plain` | Post-fix exit 1 after 12m51: 176 tests, one failure at `OutboxIntegrationTests.publisherRepublishesConfirmedEventWhenOutboxMarkingFails`, line 94 (`published_at is not null` false); zero errors. The method waits for Rabbit message count, then immediately checks the second DB commit, so message visibility before transaction commit is the timing-flake hypothesis. |
+| `test --tests '*OutboxIntegrationTests.publisherRepublishesConfirmedEventWhenOutboxMarkingFails' --console=plain` | Isolated method passed, BUILD SUCCESSFUL in 1m28. No production/test edit was made for this non-reproduced failure. |
+| `build --console=plain` | Final build passed in 9m54: 176 tests / 29 reports, zero failures/errors; 8 tasks total, only `:test` executed and other compile/package tasks were UP-TO-DATE. |
+| `graphify update .` | Post-review-fix refresh completed: 4,503 nodes, 12,437 edges, 241 communities. SQL parser dependency is absent; Gradle and unrelated Email/Questions Kotlin parser warnings remain. Graph artifacts remain local/ignored. |
+
+The architecture report still records structural violations, including an identity–academic feature cycle and legacy/target boundary findings. These are diagnostic evidence, not a clean audit. ECC and Ponytail targeted rechecks approved the three fixes and refreshed evidence. The database reviewer approved persistence/transaction ownership and SQL/locking; no recheck was needed because the three review fixes do not change SQL or transaction coordination. The forced full test showed a single outbox assertion failure that passed in isolation and did not reproduce in the subsequent full build test task.
+
+### Disposition
+
+GP-03 is complete. The one outbox assertion failure is accepted as a non-reproduced timing flake after the isolated method and subsequent full build suite passed. ECC/Ponytail targeted rechecks approve the fixes and evidence; database review is approved. Core architecture compliance and downstream R-07 application migration remain pending later authorized work.
+

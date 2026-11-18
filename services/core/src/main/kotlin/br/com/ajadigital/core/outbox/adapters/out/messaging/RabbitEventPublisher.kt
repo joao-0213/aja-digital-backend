@@ -1,8 +1,9 @@
 package br.com.ajadigital.core.outbox.adapters.out.messaging
 
 import br.com.ajadigital.core.outbox.domain.models.PendingOutboxEvent
+import br.com.ajadigital.core.outbox.domain.models.PublishEventDto
 import br.com.ajadigital.core.outbox.domain.models.UnroutableOutboxEvent
-import br.com.ajadigital.core.outbox.domain.ports.out.EventPublisher
+import br.com.ajadigital.core.outbox.domain.ports.out.EventPublisherOutputPort
 import com.rabbitmq.client.AMQP
 import com.rabbitmq.client.ReturnListener
 import org.springframework.amqp.rabbit.core.RabbitTemplate
@@ -13,8 +14,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 class RabbitEventPublisher(
     private val rabbit: RabbitTemplate,
     private val mapper: ObjectMapper,
-) : EventPublisher {
-    override fun publish(event: PendingOutboxEvent) {
+) : EventPublisherOutputPort {
+    override fun publish(request: PublishEventDto) {
+        val event = request.event
         val body = mapper.writeValueAsBytes(
             mapOf(
                 "id" to event.id,

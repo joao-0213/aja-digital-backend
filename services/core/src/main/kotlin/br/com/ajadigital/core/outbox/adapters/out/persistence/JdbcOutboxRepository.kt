@@ -1,15 +1,19 @@
 package br.com.ajadigital.core.outbox.adapters.out.persistence
 
 import br.com.ajadigital.core.outbox.domain.models.PendingOutboxEvent
-import br.com.ajadigital.core.outbox.domain.ports.out.OutboxRepository
+import br.com.ajadigital.core.outbox.domain.models.ClaimPendingOutboxEventsDto
+import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventPublishedDto
+import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventFailedDto
+import br.com.ajadigital.core.outbox.domain.models.RedriveStoredOutboxEventDto
+import br.com.ajadigital.core.outbox.domain.ports.out.OutboxRepositoryOutputPort
 import org.springframework.jdbc.core.JdbcTemplate
 import java.sql.Timestamp
 import java.time.Instant
 
 class JdbcOutboxRepository(
     private val jdbc: JdbcTemplate,
-) : OutboxRepository {
-    override fun claimPending(now: Instant, limit: Int): List<PendingOutboxEvent> = jdbc.query(
+) : OutboxRepositoryOutputPort {
+    override fun claimPending(request: ClaimPendingOutboxEventsDto): List<PendingOutboxEvent> = jdbc.query(
         """select id,event_type,event_version,key_id,nonce,encrypted_payload,attempt_count
            from core.outbox_events where published_at is null and failed_at is null and next_attempt_at<=?
            order by created_at for update skip locked limit ?""",
@@ -24,40 +28,34 @@ class JdbcOutboxRepository(
                 rs.getInt("attempt_count"),
             )
         },
-        Timestamp.from(now),
-        limit,
+        Timestamp.from(request.now),
+        request.limit,
     )
 
-    override fun markPublished(id: String, now: Instant) {
+    override fun markPublished(request: MarkOutboxEventPublishedDto) {
         // A crash after RabbitMQ confirms but before this update is an intentional at-least-once redelivery window.
         jdbc.update(
             "update core.outbox_events set published_at=?,attempt_count=attempt_count+1,last_error=null where id=?",
-            Timestamp.from(now),
-            id,
+            Timestamp.from(request.now),
+            request.id,
         )
     }
 
-    override fun markFailedAttempt(
-        id: String,
-        attemptCount: Int,
-        nextAttemptAt: Instant,
-        lastError: String,
-        failedAt: Instant?,
-    ) {
+    override fun markFailedAttempt(request: MarkOutboxEventFailedDto) {
         jdbc.update(
             """update core.outbox_events set attempt_count=?,next_attempt_at=?,last_error=?,failed_at=? where id=?""",
-            attemptCount,
-            Timestamp.from(nextAttemptAt),
-            lastError,
-            failedAt?.let { Timestamp.from(it) },
-            id,
+            request.attemptCount,
+            Timestamp.from(request.nextAttemptAt),
+            request.lastError,
+            request.failedAt?.let { Timestamp.from(it) },
+            request.id,
         )
     }
 
-    override fun redrive(id: String, now: Instant): Boolean = jdbc.update(
+    override fun redrive(request: RedriveStoredOutboxEventDto): Boolean = jdbc.update(
         """update core.outbox_events set attempt_count=0,next_attempt_at=?,last_error=null,failed_at=null
            where id=? and published_at is null and failed_at is not null""",
-        Timestamp.from(now),
-        id,
+        Timestamp.from(request.now),
+        request.id,
     ) == 1
 }

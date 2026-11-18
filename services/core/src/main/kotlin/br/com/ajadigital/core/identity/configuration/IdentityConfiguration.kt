@@ -1,24 +1,30 @@
 package br.com.ajadigital.core.identity.configuration
 
-import br.com.ajadigital.core.outbox.domain.ports.out.OutboxPayloadProtector
-import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
-import br.com.ajadigital.core.identity.domain.ports.`in`.RegisterStudentUseCase
-import br.com.ajadigital.core.identity.domain.ports.`in`.RequestAuthTokenUseCase
-import br.com.ajadigital.core.identity.domain.ports.`in`.ResetPasswordUseCase
-import br.com.ajadigital.core.identity.domain.ports.`in`.UpdateOwnProfileUseCase
-import br.com.ajadigital.core.identity.domain.ports.out.IdentityStore
-import br.com.ajadigital.core.identity.domain.ports.out.PasswordHasher
-import br.com.ajadigital.core.identity.domain.usecases.AuthenticateStudent
-import br.com.ajadigital.core.identity.domain.usecases.RegisterStudent
-import br.com.ajadigital.core.identity.domain.usecases.RequestAuthToken
-import br.com.ajadigital.core.identity.domain.usecases.ResetPassword
-import br.com.ajadigital.core.identity.domain.usecases.UpdateOwnProfile
+import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.LoginInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.LogoutInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.ResolveSessionInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.RegisterStudentInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.RequestAuthTokenInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.ResetPasswordInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.UpdateOwnProfileInputPort
+import br.com.ajadigital.core.identity.application.ports.out.IdentityStoreOutputPort
+import br.com.ajadigital.core.identity.application.ports.out.PasswordHasherOutputPort
+import br.com.ajadigital.core.identity.application.usecases.LoginUseCase
+import br.com.ajadigital.core.identity.application.usecases.LogoutUseCase
+import br.com.ajadigital.core.identity.application.usecases.ResolveSessionUseCase
+import br.com.ajadigital.core.identity.application.usecases.ResolveAuthenticatedActorUseCase
+import br.com.ajadigital.core.identity.application.usecases.RegisterStudentUseCase
+import br.com.ajadigital.core.identity.application.usecases.RequestAuthTokenUseCase
+import br.com.ajadigital.core.identity.application.usecases.ResetPasswordUseCase
+import br.com.ajadigital.core.identity.application.usecases.UpdateOwnProfileUseCase
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import org.springframework.security.crypto.password.PasswordEncoder
-import tools.jackson.databind.ObjectMapper
+import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 import java.time.Clock
 
 @Configuration
@@ -28,34 +34,44 @@ class IdentityConfiguration {
 
     @Bean
     fun registerStudent(
-        store: IdentityStore,
-        hasher: PasswordHasher,
-        mapper: ObjectMapper,
+        store: IdentityStoreOutputPort,
+        hasher: PasswordHasherOutputPort,
+        mapper: JsonSerializerOutputPort,
         clock: Clock,
-        encryption: OutboxPayloadProtector,
-    ): RegisterStudentUseCase = RegisterStudent(store, hasher, mapper, clock, encryption)
+        encryption: OutboxPayloadProtectorOutputPort,
+    ): RegisterStudentInputPort = RegisterStudentUseCase(store, hasher, mapper, clock, encryption)
 
     @Bean
-    fun authenticateStudent(
-        store: IdentityStore,
-        hasher: PasswordHasher,
+    fun login(
+        store: IdentityStoreOutputPort,
+        hasher: PasswordHasherOutputPort,
         clock: Clock,
-    ): AuthenticateStudentUseCase = AuthenticateStudent(store, hasher, clock)
+    ): LoginInputPort = LoginUseCase(store, hasher, clock)
+
+    @Bean
+    fun resolveSession(store: IdentityStoreOutputPort, clock: Clock): ResolveSessionInputPort = ResolveSessionUseCase(store, clock)
+
+    @Bean
+    fun resolveAuthenticatedActor(resolveSession: ResolveSessionInputPort): ResolveAuthenticatedActorInputPort =
+        ResolveAuthenticatedActorUseCase(resolveSession)
+
+    @Bean
+    fun logout(store: IdentityStoreOutputPort): LogoutInputPort = LogoutUseCase(store)
 
     @Bean
     fun requestAuthToken(
-        store: IdentityStore,
-        mapper: ObjectMapper,
+        store: IdentityStoreOutputPort,
+        mapper: JsonSerializerOutputPort,
         clock: Clock,
-        encryption: OutboxPayloadProtector,
-    ): RequestAuthTokenUseCase = RequestAuthToken(store, mapper, clock, encryption)
+        encryption: OutboxPayloadProtectorOutputPort,
+    ): RequestAuthTokenInputPort = RequestAuthTokenUseCase(store, mapper, clock, encryption)
 
     @Bean
     fun resetPassword(
-        store: IdentityStore,
-        hasher: PasswordHasher,
-    ): ResetPasswordUseCase = ResetPassword(store, hasher)
+        store: IdentityStoreOutputPort,
+        hasher: PasswordHasherOutputPort,
+    ): ResetPasswordInputPort = ResetPasswordUseCase(store, hasher)
 
     @Bean
-    fun updateOwnProfile(store: IdentityStore): UpdateOwnProfileUseCase = UpdateOwnProfile(store)
+    fun updateOwnProfile(store: IdentityStoreOutputPort): UpdateOwnProfileInputPort = UpdateOwnProfileUseCase(store)
 }

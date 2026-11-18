@@ -23,6 +23,7 @@ class CoreArchitectureFixtureTests {
             assertTrue(analyze(factory, "architecture/valid/FeatureFile.kt").isEmpty())
             assertTrue(analyze(factory, "architecture/valid/FeatureFile.kt", "architecture\\valid\\FeatureFile.kt").isEmpty())
             assertTrue(analyze(factory, "architecture/valid/BaseEvent.kt").isEmpty())
+            assertTrue(analyze(factory, "architecture/valid/AcademicFeature.kt").isEmpty())
 
             assertEquals(listOf("domain imports framework or adapter: org.springframework.stereotype.Service"), analyze(factory, "architecture/invalid/DomainFrameworkImport.kt"))
             assertEquals(listOf("contract uses an unbounded or generic escape type"), analyze(factory, "architecture/invalid/GenericContractEscape.kt"))

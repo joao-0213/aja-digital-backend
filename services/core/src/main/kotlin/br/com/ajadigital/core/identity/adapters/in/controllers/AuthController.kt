@@ -6,16 +6,25 @@ import br.com.ajadigital.core.identity.adapters.`in`.controllers.models.requests
 import br.com.ajadigital.core.identity.adapters.`in`.controllers.models.requests.TokenRequest
 import jakarta.validation.Valid
 
-import br.com.ajadigital.core.identity.domain.ports.`in`.RegisterStudentUseCase
-import br.com.ajadigital.core.identity.domain.models.RegistrationCommand
-import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
+import br.com.ajadigital.core.identity.application.ports.`in`.RegisterStudentInputPort
+import br.com.ajadigital.core.identity.application.models.RegistrationCommand
+import br.com.ajadigital.core.identity.application.ports.`in`.LoginInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.LogoutInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.ResolveSessionInputPort
 import br.com.ajadigital.core.identity.domain.exceptions.InvalidCredentials
-import br.com.ajadigital.core.identity.domain.models.LoginCommand
-import br.com.ajadigital.core.identity.domain.usecases.toResponse
-import br.com.ajadigital.core.identity.domain.ports.`in`.RequestAuthTokenUseCase
-import br.com.ajadigital.core.identity.domain.ports.`in`.ResetPasswordUseCase
-import br.com.ajadigital.core.identity.domain.models.PasswordResetCommand
+import br.com.ajadigital.core.identity.application.models.LoginCommand
+import br.com.ajadigital.core.identity.adapters.`in`.controllers.mappers.SessionResponseMapper
+import br.com.ajadigital.core.identity.application.ports.`in`.RequestAuthTokenInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.ResetPasswordInputPort
+import br.com.ajadigital.core.identity.application.models.PasswordResetCommand
 import br.com.ajadigital.core.identity.domain.models.User
+import br.com.ajadigital.core.identity.application.models.RegisterStudentDto
+import br.com.ajadigital.core.identity.application.models.LoginStudentDto
+import br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto
+import br.com.ajadigital.core.identity.application.models.LogoutStudentSessionDto
+import br.com.ajadigital.core.identity.application.models.RequestAuthTokenDto
+import br.com.ajadigital.core.identity.application.models.ConfirmEmailTokenDto
+import br.com.ajadigital.core.identity.application.models.ResetStudentPasswordDto
 import br.com.ajadigital.core.identity.domain.policies.EmailAddress
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpHeaders
@@ -36,16 +45,18 @@ import jakarta.servlet.http.HttpServletRequest
 @RestController
 @RequestMapping("/api/v1/auth")
 class AuthController(
-    private val registerStudent: RegisterStudentUseCase,
-    private val authenticateStudent: AuthenticateStudentUseCase,
-    private val requestAuthToken: RequestAuthTokenUseCase,
-    private val resetPassword: ResetPasswordUseCase,
+    private val registerStudent: RegisterStudentInputPort,
+    private val login: LoginInputPort,
+    private val resolveSession: ResolveSessionInputPort,
+    private val logoutSession: LogoutInputPort,
+    private val requestAuthToken: RequestAuthTokenInputPort,
+    private val resetPassword: ResetPasswordInputPort,
     @Value("\${aja.cookie.secure:false}") private val cookieSecure: Boolean,
 ) {
     @PostMapping("/register")
     fun register(@Valid @RequestBody request: RegisterRequest): ResponseEntity<User> =
         ResponseEntity.status(HttpStatus.CREATED).body(
-            registerStudent.register(RegistrationCommand(request.name, request.email, request.password)).user,
+            registerStudent.register(RegisterStudentDto(RegistrationCommand(request.name, request.email, request.password))).user,
         )
 
     @PostMapping("/login")
@@ -56,10 +67,10 @@ class AuthController(
     ): ResponseEntity<Any> {
         require(EmailAddress.isValid(request.email.trim()))
         return try {
-            val authenticated = authenticateStudent.login(LoginCommand(request.email, request.password, previousCookie))
+            val authenticated = login.login(LoginStudentDto(LoginCommand(request.email, request.password, previousCookie)))
             ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, sessionCookie(authenticated.cookieValue, Duration.ofHours(8), servletRequest.isSecure).toString())
-                .body(authenticated.session.toResponse())
+                .body(SessionResponseMapper.map(authenticated.session))
         } catch (_: InvalidCredentials) {
             ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .header(HttpHeaders.SET_COOKIE, sessionCookie("", Duration.ZERO, servletRequest.isSecure).toString())
@@ -69,11 +80,11 @@ class AuthController(
 
     @GetMapping("/session")
     fun session(@CookieValue(name = "aja_session", required = false) cookie: String?) =
-        authenticateStudent.resolve(cookie).toResponse()
+        SessionResponseMapper.map(resolveSession.resolve(ResolveStudentSessionDto(cookie)))
 
     @PostMapping("/logout")
     fun logout(@CookieValue(name = "aja_session", required = false) cookie: String?, servletRequest: HttpServletRequest): ResponseEntity<Void> {
-        authenticateStudent.logout(cookie)
+        logoutSession.logout(LogoutStudentSessionDto(cookie))
         return ResponseEntity.noContent()
             .header(HttpHeaders.SET_COOKIE, sessionCookie("", Duration.ZERO, servletRequest.isSecure).toString())
             .build()
@@ -81,18 +92,18 @@ class AuthController(
 
     @PostMapping("/email-confirmation-requests")
     fun requestEmailConfirmation(@Valid @RequestBody request: EmailRequest) =
-        ResponseEntity.status(HttpStatus.ACCEPTED).body(requestAuthToken.request(request.email, "email_confirmation"))
+        ResponseEntity.status(HttpStatus.ACCEPTED).body(requestAuthToken.request(RequestAuthTokenDto(request.email, "email_confirmation")))
 
     @PostMapping("/email-confirmations")
-    fun confirmEmail(@Valid @RequestBody request: TokenRequest): User = requestAuthToken.confirmEmail(request.token)
+    fun confirmEmail(@Valid @RequestBody request: TokenRequest): User = requestAuthToken.confirmEmail(ConfirmEmailTokenDto(request.token))
 
     @PostMapping("/password-reset-requests")
     fun requestPasswordReset(@Valid @RequestBody request: EmailRequest) =
-        ResponseEntity.status(HttpStatus.ACCEPTED).body(requestAuthToken.request(request.email, "password_reset"))
+        ResponseEntity.status(HttpStatus.ACCEPTED).body(requestAuthToken.request(RequestAuthTokenDto(request.email, "password_reset")))
 
     @PostMapping("/password-resets")
     fun resetPassword(@Valid @RequestBody request: PasswordResetRequest) =
-        resetPassword.reset(PasswordResetCommand(request.token, request.password))
+        resetPassword.reset(ResetStudentPasswordDto(PasswordResetCommand(request.token, request.password)))
 
     private fun sessionCookie(value: String, maxAge: Duration, isSecureRequest: Boolean): ResponseCookie =
         createSessionCookie(value, maxAge, cookieSecure || isSecureRequest)

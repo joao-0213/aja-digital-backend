@@ -1,9 +1,11 @@
 package br.com.ajadigital.core.assessment.adapters.out.questions
 
+import br.com.ajadigital.core.assessment.domain.models.QuestionSnapshotProviderSnapshotsDto
+
 import br.com.ajadigital.core.assessment.domain.exceptions.QuestionSnapshotNotFound
 import br.com.ajadigital.core.assessment.domain.exceptions.QuestionsUnavailable
 import br.com.ajadigital.core.assessment.domain.models.BankQuestionSnapshot
-import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProvider
+import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProviderOutputPort
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.stereotype.Component
@@ -17,7 +19,7 @@ import java.time.Duration
 class HttpQuestionSnapshotProvider(
     @Value("\${core.questions.snapshots-url}") url: String,
     @Value("\${core.internal.questions-token}") token: String,
-) : QuestionSnapshotProvider {
+) : QuestionSnapshotProviderOutputPort {
     private val client = RestClient.builder().baseUrl(url).requestFactory(
         SimpleClientHttpRequestFactory().apply {
             setConnectTimeout(Duration.ofSeconds(2))
@@ -28,7 +30,7 @@ class HttpQuestionSnapshotProvider(
 
     init { require(expectedToken.size >= 32) }
 
-    override fun snapshots(ids: List<String>): List<BankQuestionSnapshot> = try {
+    override fun snapshots(request: QuestionSnapshotProviderSnapshotsDto): List<BankQuestionSnapshot> = run { val (ids) = request; try {
         val response = client.post().uri("")
             .header("X-AJA-Service-Token", String(expectedToken, StandardCharsets.UTF_8))
             .body(SnapshotRequest(ids))
@@ -42,5 +44,5 @@ class HttpQuestionSnapshotProvider(
         }
     } catch (_: Exception) {
         throw QuestionsUnavailable()
-    }
+    } }
 }

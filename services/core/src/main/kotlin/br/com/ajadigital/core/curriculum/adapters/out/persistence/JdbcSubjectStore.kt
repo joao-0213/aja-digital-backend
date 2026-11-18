@@ -1,10 +1,11 @@
 package br.com.ajadigital.core.curriculum.adapters.out.persistence
 
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.curriculum.domain.exceptions.UnknownPublication
 import br.com.ajadigital.core.curriculum.domain.exceptions.InvalidAcademicReference
-import br.com.ajadigital.core.classroom.domain.ports.out.AcademicPage
-import br.com.ajadigital.core.curriculum.domain.ports.out.SubjectStore
+import br.com.ajadigital.core.academic.application.models.AcademicPage
+import br.com.ajadigital.core.curriculum.domain.models.*
+import br.com.ajadigital.core.curriculum.domain.ports.out.SubjectStoreOutputPort
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
@@ -15,25 +16,27 @@ import java.time.Clock
 import java.util.UUID
 
 @Repository
-class JdbcSubjectStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val clock: Clock) : SubjectStore {
+class JdbcSubjectStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val clock: Clock) : SubjectStoreOutputPort {
     @Transactional
-    override fun authorize(actorId: String, role: String, sessionHash: String, subjectId: String?) {
+    override fun authorize(request: AuthorizeSubjectDto) {
+        val (actorId, role, sessionHash, subjectId) = request
         lockAuthInvariant()
         val currentRole = requireSession(actorId, sessionHash, role)
         if (subjectId == null) {
             if (currentRole != "admin") throw AcademicForbidden()
         } else {
-            val found = jdbc.query("SELECT class_id FROM core.subjects WHERE id=?", { rs, _ -> rs.getString(1) }, subjectId).firstOrNull() ?: throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound()
+            val found = jdbc.query("SELECT class_id FROM core.subjects WHERE id=?", { rs, _ -> rs.getString(1) }, subjectId).firstOrNull() ?: throw br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound()
             lockClasses(listOf(found))
             if (currentRole == "teacher") lockTeachers(listOf(actorId))
-            val locked = lockSubject(subjectId) ?: throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound()
-            if (locked["classId"] != found) throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicConflict()
+            val locked = lockSubject(subjectId) ?: throw br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound()
+            if (locked["classId"] != found) throw br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict()
             requireSession(actorId, sessionHash, role)
             requireWriter(subjectId, actorId, currentRole)
         }
     }
 
-    override fun subjects(actorId: String, role: String, sessionHash: String, page: Int, size: Int, sort: String, classId: String?, query: String?): AcademicPage {
+    override fun subjects(request: ListSubjectsRecordDto): AcademicPage {
+        val (actorId, role, sessionHash, page, size, sort, classId, query) = request
         val predicates = mutableListOf("(${access("s", role)})")
         val args = mutableListOf<Any>().apply { if (role == "teacher" || role == "student") add(actorId) }
         if (classId != null) { predicates += "s.class_id=?"; args += classId }
@@ -46,31 +49,36 @@ class JdbcSubjectStore(private val jdbc: JdbcTemplate, private val mapper: Objec
         return AcademicPage(subjectMaps(rows, actorId, role), page, size, total)
     }
 
-    override fun subject(id: String, actorId: String, role: String, sessionHash: String): Map<String, Any?>? =
-        jdbc.query("SELECT s.* FROM core.subjects s WHERE s.id=? AND (${access("s", role)})", { rs, _ -> subjectMap(rs, actorId, role) }, *(listOf(id) + if (role == "teacher" || role == "student") listOf(actorId) else emptyList()).toTypedArray()).firstOrNull()
+    override fun subject(request: GetStoredSubjectDto): Map<String, Any?>? {
+        val (id, actorId, role, sessionHash) = request
+        return jdbc.query("SELECT s.* FROM core.subjects s WHERE s.id=? AND (${access("s", role)})", { rs, _ -> subjectMap(rs, actorId, role) }, *(listOf(id) + if (role == "teacher" || role == "student") listOf(actorId) else emptyList()).toTypedArray()).firstOrNull()
+    }
 
-    override fun subjectModules(subjectId: String, actorId: String, role: String, sessionHash: String): List<Map<String, Any?>> {
+    override fun subjectModules(request: ListStoredSubjectModulesDto): List<Map<String, Any?>> {
+        val (subjectId, actorId, role, sessionHash) = request
         val args = listOf(subjectId) + if (role == "teacher" || role == "student") listOf(actorId) else emptyList()
         return jdbc.query("SELECT m.* FROM core.modules m JOIN core.subjects s ON s.id=m.subject_id WHERE s.id=? AND m.withdrawn_at IS NULL AND (${access("s", role)}) ORDER BY m.order_index,m.id", { rs, _ -> moduleMap(rs) }, *args.toTypedArray())
     }
 
     @Transactional
-    override fun createSubject(actorId: String, sessionHash: String, classId: String, name: String, teacherIds: List<String>, color: String, icon: String, description: String): Map<String, Any?> {
+    override fun createSubject(request: CreateSubjectRecordDto): Map<String, Any?> {
+        val (actorId, sessionHash, classId, name, teacherIds, color, icon, description) = request
         lockAuthInvariant()
         requireSession(actorId, sessionHash, "admin")
-        val activeClass = jdbc.query("SELECT active FROM core.classes WHERE id=? FOR UPDATE", { rs, _ -> rs.getBoolean(1) }, classId).firstOrNull() ?: throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound()
-        if (!activeClass) throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicConflict()
+        val activeClass = jdbc.query("SELECT active FROM core.classes WHERE id=? FOR UPDATE", { rs, _ -> rs.getBoolean(1) }, classId).firstOrNull() ?: throw br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound()
+        if (!activeClass) throw br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict()
         validateTeachers(teacherIds)
         requireSession(actorId, sessionHash, "admin")
         val now = Timestamp.from(clock.instant()); val id = UUID.randomUUID().toString()
         jdbc.update("INSERT INTO core.subjects(id,revision,created_at,updated_at,updated_by,class_id,name,color,icon,description) VALUES(?,1,?,?,?,?,?,?,?,?)", id, now, now, actorId, classId, name, color, icon, description)
         teacherIds.forEach { jdbc.update("INSERT INTO core.subject_teachers(subject_id,teacher_id) VALUES(?,?)", id, it) }
         audit(actorId, "academic.subject_created", id)
-        return subject(id, actorId, "admin", sessionHash)!!
+        return subject(GetStoredSubjectDto(id, actorId, "admin", sessionHash))!!
     }
 
     @Transactional
-    override fun updateSubject(id: String, actorId: String, sessionHash: String, expectedRevision: Int, classId: String?, name: String?, teacherIds: List<String>?, color: String?, icon: String?, description: String?): Map<String, Any?>? {
+    override fun updateSubject(request: UpdateSubjectRecordDto): Map<String, Any?>? {
+        val (id, actorId, sessionHash, expectedRevision, classId, name, teacherIds, color, icon, description) = request
         lockAuthInvariant()
         requireSession(actorId, sessionHash, "admin")
         val prior = jdbc.query("SELECT class_id FROM core.subjects WHERE id=?", { rs, _ -> rs.getString(1) }, id).firstOrNull() ?: return null
@@ -82,8 +90,8 @@ class JdbcSubjectStore(private val jdbc: JdbcTemplate, private val mapper: Objec
         if (current["classId"] != prior || current["teacherIds"] != priorTeachers) return null
         requireSession(actorId, sessionHash, "admin")
         if (classId != null) {
-            val activeClass = jdbc.query("SELECT active FROM core.classes WHERE id=?", { rs, _ -> rs.getBoolean(1) }, classId).firstOrNull() ?: throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound()
-            if (!activeClass) throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicConflict()
+            val activeClass = jdbc.query("SELECT active FROM core.classes WHERE id=?", { rs, _ -> rs.getBoolean(1) }, classId).firstOrNull() ?: throw br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound()
+            if (!activeClass) throw br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict()
         }
         teacherIds?.let(::validateLockedTeachers)
         val now = Timestamp.from(clock.instant())
@@ -93,10 +101,11 @@ class JdbcSubjectStore(private val jdbc: JdbcTemplate, private val mapper: Objec
             teacherIds.forEach { jdbc.update("INSERT INTO core.subject_teachers(subject_id,teacher_id) VALUES(?,?)", id, it) }
         }
         audit(actorId, "academic.subject_updated", id)
-        return subject(id, actorId, "admin", sessionHash)
+        return subject(GetStoredSubjectDto(id, actorId, "admin", sessionHash))
     }
 
-    override fun modules(actorId: String, role: String, sessionHash: String, page: Int, size: Int, sort: String, subjectId: String?): AcademicPage {
+    override fun modules(request: ListStoredModulesDto): AcademicPage {
+        val (actorId, role, sessionHash, page, size, sort, subjectId) = request
         val where = buildList {
             add("m.withdrawn_at IS NULL")
             add("EXISTS(SELECT 1 FROM core.subjects s WHERE s.id=m.subject_id AND (${access("s", role)}))")
@@ -106,18 +115,21 @@ class JdbcSubjectStore(private val jdbc: JdbcTemplate, private val mapper: Objec
         return page("SELECT m.* FROM core.modules m WHERE $where ORDER BY m.order_index${direction(sort)},m.id", "SELECT count(*) FROM core.modules m WHERE $where", args, page, size, ::moduleMap)
     }
 
-    override fun module(id: String, actorId: String, role: String, sessionHash: String): Map<String, Any?>? =
-        jdbc.query("SELECT m.* FROM core.modules m JOIN core.subjects s ON s.id=m.subject_id WHERE m.id=? AND m.withdrawn_at IS NULL AND (${access("s", role)})", { rs, _ -> moduleMap(rs) }, *(listOf(id) + if (role == "teacher" || role == "student") listOf(actorId) else emptyList()).toTypedArray()).firstOrNull()
+    override fun module(request: GetStoredModuleDto): Map<String, Any?>? {
+        val (id, actorId, role, sessionHash) = request
+        return jdbc.query("SELECT m.* FROM core.modules m JOIN core.subjects s ON s.id=m.subject_id WHERE m.id=? AND m.withdrawn_at IS NULL AND (${access("s", role)})", { rs, _ -> moduleMap(rs) }, *(listOf(id) + if (role == "teacher" || role == "student") listOf(actorId) else emptyList()).toTypedArray()).firstOrNull()
+    }
 
     @Transactional
-    override fun createModule(actorId: String, role: String, sessionHash: String, subjectId: String, title: String, description: String): Map<String, Any?> {
+    override fun createModule(request: CreateModuleRecordDto): Map<String, Any?> {
+        val (actorId, role, sessionHash, subjectId, title, description) = request
         lockAuthInvariant()
         val currentRole = requireSession(actorId, sessionHash, "admin", "teacher")
-        val classId = subjectClass(subjectId) ?: throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound()
+        val classId = subjectClass(subjectId) ?: throw br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound()
         lockClasses(listOf(classId))
         if (currentRole == "teacher") lockTeachers(listOf(actorId))
-        val locked = lockSubject(subjectId) ?: throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound()
-        if (locked["classId"] != classId) throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicConflict()
+        val locked = lockSubject(subjectId) ?: throw br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound()
+        if (locked["classId"] != classId) throw br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict()
         requireSession(actorId, sessionHash, "admin", "teacher")
         requireWriter(subjectId, actorId, currentRole)
         val now = Timestamp.from(clock.instant()); val id = UUID.randomUUID().toString()
@@ -125,11 +137,12 @@ class JdbcSubjectStore(private val jdbc: JdbcTemplate, private val mapper: Objec
         jdbc.update("INSERT INTO core.modules(id,revision,created_at,updated_at,updated_by,subject_id,title,description,order_index) VALUES(?,1,?,?,?,?,?,?,?)", id, now, now, actorId, subjectId, title, description, order)
         jdbc.update("UPDATE core.subjects SET revision=revision+1,updated_at=?,updated_by=? WHERE id=?", now, actorId, subjectId)
         audit(actorId, "academic.module_created", id)
-        return module(id, actorId, role, sessionHash)!!
+        return module(GetStoredModuleDto(id, actorId, role, sessionHash))!!
     }
 
     @Transactional
-    override fun updateModule(id: String, actorId: String, role: String, sessionHash: String, expectedRevision: Int, title: String?, description: String?): Map<String, Any?>? {
+    override fun updateModule(request: UpdateModuleRecordDto): Map<String, Any?>? {
+        val (id, actorId, role, sessionHash, expectedRevision, title, description) = request
         lockAuthInvariant()
         val currentRole = requireSession(actorId, sessionHash, "admin", "teacher")
         val module = jdbc.query("SELECT * FROM core.modules WHERE id=? AND withdrawn_at IS NULL", { rs, _ -> moduleMap(rs) }, id).firstOrNull() ?: return null
@@ -144,11 +157,12 @@ class JdbcSubjectStore(private val jdbc: JdbcTemplate, private val mapper: Objec
         if (module["revision"] != expectedRevision) return null
         if (jdbc.update("UPDATE core.modules SET title=?,description=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=? AND withdrawn_at IS NULL", title ?: module["title"], description ?: module["description"], Timestamp.from(clock.instant()), actorId, id, expectedRevision) != 1) return null
         audit(actorId, "academic.module_updated", id)
-        return module(id, actorId, role, sessionHash)
+        return module(GetStoredModuleDto(id, actorId, role, sessionHash))
     }
 
     @Transactional
-    override fun reorderModules(subjectId: String, actorId: String, role: String, sessionHash: String, expectedRevision: Int, items: List<Pair<String, Int>>, page: Int, size: Int): AcademicPage? {
+    override fun reorderModules(request: ReorderModulesRecordDto): AcademicPage? {
+        val (subjectId, actorId, role, sessionHash, expectedRevision, items, page, size) = request
         lockAuthInvariant()
         val currentRole = requireSession(actorId, sessionHash, "admin", "teacher")
         val classId = subjectClass(subjectId) ?: return null
@@ -170,12 +184,13 @@ class JdbcSubjectStore(private val jdbc: JdbcTemplate, private val mapper: Objec
     }
 
     @Transactional
-    override fun visit(subjectId: String, actorId: String, role: String, sessionHash: String, publicationIds: List<String>?): Map<String, Any?>? {
+    override fun visit(request: VisitSubjectRecordDto): Map<String, Any?>? {
+        val (subjectId, actorId, role, sessionHash, publicationIds) = request
         lockAuthInvariant()
         requireSession(actorId, sessionHash, "admin", "teacher", "student")
         lockSubject(subjectId) ?: return null
         requireSession(actorId, sessionHash, "admin", "teacher", "student")
-        if (subject(subjectId, actorId, role, sessionHash) == null) return null
+        if (subject(GetStoredSubjectDto(subjectId, actorId, role, sessionHash)) == null) return null
         val existing = jdbc.query("SELECT seen_at,publication_ids FROM core.subject_visits WHERE subject_id=? AND user_id=? FOR UPDATE", { rs, _ -> rs.getTimestamp(1)?.toInstant() to mapper.readValue(rs.getString(2), List::class.java).map { it as String } }, subjectId, actorId).firstOrNull()
         val seen = (existing?.second.orEmpty() + publicationIds.orEmpty()).distinct().sorted()
         val published = publications(subjectId)
@@ -243,7 +258,7 @@ class JdbcSubjectStore(private val jdbc: JdbcTemplate, private val mapper: Objec
 
     private fun subjectClass(id: String): String? = jdbc.query("SELECT class_id FROM core.subjects WHERE id=?", { rs, _ -> rs.getString(1) }, id).firstOrNull()
 
-    private fun lockClasses(ids: List<String>) { ids.distinct().sorted().forEach { id -> if (jdbc.query("SELECT id FROM core.classes WHERE id=? FOR UPDATE", { rs, _ -> rs.getString(1) }, id).isEmpty()) throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound() } }
+    private fun lockClasses(ids: List<String>) { ids.distinct().sorted().forEach { id -> if (jdbc.query("SELECT id FROM core.classes WHERE id=? FOR UPDATE", { rs, _ -> rs.getString(1) }, id).isEmpty()) throw br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound() } }
 
     private fun lockTeachers(ids: List<String>) { ids.distinct().sorted().forEach { id -> jdbc.query("SELECT id FROM core.users WHERE id=? FOR UPDATE", { rs, _ -> rs.getString(1) }, id) } }
 

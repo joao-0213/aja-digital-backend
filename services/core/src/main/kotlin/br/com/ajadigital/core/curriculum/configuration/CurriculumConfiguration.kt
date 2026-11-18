@@ -1,88 +1,88 @@
 package br.com.ajadigital.core.curriculum.configuration
 
-import br.com.ajadigital.core.curriculum.domain.ports.`in`.CreateModuleUseCase
-import br.com.ajadigital.core.curriculum.domain.ports.`in`.CreateSubjectUseCase
-import br.com.ajadigital.core.curriculum.domain.ports.`in`.GetModuleUseCase
-import br.com.ajadigital.core.curriculum.domain.ports.`in`.GetSubjectUseCase
-import br.com.ajadigital.core.curriculum.domain.ports.`in`.ListModulesUseCase
-import br.com.ajadigital.core.curriculum.domain.ports.`in`.ListSubjectModulesUseCase
-import br.com.ajadigital.core.curriculum.domain.ports.`in`.ListSubjectsUseCase
-import br.com.ajadigital.core.curriculum.domain.ports.`in`.ReorderModulesUseCase
-import br.com.ajadigital.core.curriculum.domain.ports.`in`.UpdateModuleUseCase
-import br.com.ajadigital.core.curriculum.domain.ports.`in`.UpdateSubjectUseCase
-import br.com.ajadigital.core.curriculum.domain.ports.`in`.VisitSubjectUseCase
-import br.com.ajadigital.core.curriculum.domain.ports.out.SubjectStore
-import br.com.ajadigital.core.curriculum.domain.usecases.CreateModule
-import br.com.ajadigital.core.curriculum.domain.usecases.CreateSubject
-import br.com.ajadigital.core.curriculum.domain.usecases.GetModule
-import br.com.ajadigital.core.curriculum.domain.usecases.GetSubject
-import br.com.ajadigital.core.curriculum.domain.usecases.ListModules
-import br.com.ajadigital.core.curriculum.domain.usecases.ListSubjectModules
-import br.com.ajadigital.core.curriculum.domain.usecases.ListSubjects
-import br.com.ajadigital.core.curriculum.domain.usecases.ReorderModules
-import br.com.ajadigital.core.curriculum.domain.usecases.UpdateModule
-import br.com.ajadigital.core.curriculum.domain.usecases.UpdateSubject
-import br.com.ajadigital.core.curriculum.domain.usecases.VisitSubject
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunner
+import br.com.ajadigital.core.curriculum.application.ports.`in`.CreateModuleInputPort
+import br.com.ajadigital.core.curriculum.application.ports.`in`.CreateSubjectInputPort
+import br.com.ajadigital.core.curriculum.application.ports.`in`.GetModuleInputPort
+import br.com.ajadigital.core.curriculum.application.ports.`in`.GetSubjectInputPort
+import br.com.ajadigital.core.curriculum.application.ports.`in`.ListModulesInputPort
+import br.com.ajadigital.core.curriculum.application.ports.`in`.ListSubjectModulesInputPort
+import br.com.ajadigital.core.curriculum.application.ports.`in`.ListSubjectsInputPort
+import br.com.ajadigital.core.curriculum.application.ports.`in`.ReorderModulesInputPort
+import br.com.ajadigital.core.curriculum.application.ports.`in`.UpdateModuleInputPort
+import br.com.ajadigital.core.curriculum.application.ports.`in`.UpdateSubjectInputPort
+import br.com.ajadigital.core.curriculum.application.ports.`in`.VisitSubjectInputPort
+import br.com.ajadigital.core.curriculum.domain.ports.out.SubjectStoreOutputPort
+import br.com.ajadigital.core.curriculum.application.usecases.CreateModuleUseCase
+import br.com.ajadigital.core.curriculum.application.usecases.CreateSubjectUseCase
+import br.com.ajadigital.core.curriculum.application.usecases.GetModuleUseCase
+import br.com.ajadigital.core.curriculum.application.usecases.GetSubjectUseCase
+import br.com.ajadigital.core.curriculum.application.usecases.ListModulesUseCase
+import br.com.ajadigital.core.curriculum.application.usecases.ListSubjectModulesUseCase
+import br.com.ajadigital.core.curriculum.application.usecases.ListSubjectsUseCase
+import br.com.ajadigital.core.curriculum.application.usecases.ReorderModulesUseCase
+import br.com.ajadigital.core.curriculum.application.usecases.UpdateModuleUseCase
+import br.com.ajadigital.core.curriculum.application.usecases.UpdateSubjectUseCase
+import br.com.ajadigital.core.curriculum.application.usecases.VisitSubjectUseCase
+import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import tools.jackson.databind.ObjectMapper
+import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 
 @Configuration
 class CurriculumConfiguration {
     @Bean
-    fun listSubjects(store: SubjectStore): ListSubjectsUseCase = ListSubjects(store)
+    fun listSubjects(store: SubjectStoreOutputPort): ListSubjectsInputPort = ListSubjectsUseCase(store)
 
     @Bean
-    fun getSubject(store: SubjectStore): GetSubjectUseCase = GetSubject(store)
+    fun getSubject(store: SubjectStoreOutputPort): GetSubjectInputPort = GetSubjectUseCase(store)
 
     @Bean
-    fun listSubjectModules(store: SubjectStore): ListSubjectModulesUseCase = ListSubjectModules(store)
+    fun listSubjectModules(store: SubjectStoreOutputPort): ListSubjectModulesInputPort = ListSubjectModulesUseCase(store)
 
     @Bean
     fun createSubject(
-        store: SubjectStore,
-        mapper: ObjectMapper,
-        idempotency: IdempotencyStore,
-        transactionRunner: TransactionRunner,
-    ): CreateSubjectUseCase = CreateSubject(store, mapper, idempotency, transactionRunner)
+        store: SubjectStoreOutputPort,
+        mapper: JsonSerializerOutputPort,
+        idempotency: IdempotencyStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): CreateSubjectInputPort = CreateSubjectUseCase(store, mapper, idempotency, transactionRunner)
 
     @Bean
     fun updateSubject(
-        store: SubjectStore,
-        transactionRunner: TransactionRunner,
-    ): UpdateSubjectUseCase = UpdateSubject(store, transactionRunner)
+        store: SubjectStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): UpdateSubjectInputPort = UpdateSubjectUseCase(store, transactionRunner)
 
     @Bean
-    fun listModules(store: SubjectStore): ListModulesUseCase = ListModules(store)
+    fun listModules(store: SubjectStoreOutputPort): ListModulesInputPort = ListModulesUseCase(store)
 
     @Bean
-    fun getModule(store: SubjectStore): GetModuleUseCase = GetModule(store)
+    fun getModule(store: SubjectStoreOutputPort): GetModuleInputPort = GetModuleUseCase(store)
 
     @Bean
     fun createModule(
-        store: SubjectStore,
-        mapper: ObjectMapper,
-        idempotency: IdempotencyStore,
-        transactionRunner: TransactionRunner,
-    ): CreateModuleUseCase = CreateModule(store, mapper, idempotency, transactionRunner)
+        store: SubjectStoreOutputPort,
+        mapper: JsonSerializerOutputPort,
+        idempotency: IdempotencyStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): CreateModuleInputPort = CreateModuleUseCase(store, mapper, idempotency, transactionRunner)
 
     @Bean
     fun updateModule(
-        store: SubjectStore,
-        transactionRunner: TransactionRunner,
-    ): UpdateModuleUseCase = UpdateModule(store, transactionRunner)
+        store: SubjectStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): UpdateModuleInputPort = UpdateModuleUseCase(store, transactionRunner)
 
     @Bean
     fun reorderModules(
-        store: SubjectStore,
-        transactionRunner: TransactionRunner,
-    ): ReorderModulesUseCase = ReorderModules(store, transactionRunner)
+        store: SubjectStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): ReorderModulesInputPort = ReorderModulesUseCase(store, transactionRunner)
 
     @Bean
     fun visitSubject(
-        store: SubjectStore,
-        transactionRunner: TransactionRunner,
-    ): VisitSubjectUseCase = VisitSubject(store, transactionRunner)
+        store: SubjectStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): VisitSubjectInputPort = VisitSubjectUseCase(store, transactionRunner)
 }

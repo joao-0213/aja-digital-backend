@@ -1,5 +1,6 @@
 package br.com.ajadigital.core
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunner
+import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -9,7 +10,7 @@ import org.springframework.test.web.servlet.get
 import java.util.UUID
 
 class PlatformIntegrationTests : CoreIntegrationTestBase() {
-    @Autowired protected lateinit var transactionRunner: TransactionRunner
+    @Autowired protected lateinit var transactionRunner: TransactionRunnerOutputPort
     @Test
     fun publicHealthIsAvailableWithoutASession() {
         val response = liveHttp("GET", "/health", "")
@@ -60,23 +61,23 @@ class PlatformIntegrationTests : CoreIntegrationTestBase() {
     fun springTransactionRunnerRollsBackAtomicallyOnFailure() {
         val rolledBackId = UUID.randomUUID().toString()
         assertThrows(IllegalStateException::class.java) {
-            transactionRunner.run {
+            transactionRunner.run(TransactionRunDto {
                 jdbc.update(
                     "INSERT INTO core.audit_events(id, event_type, outcome, subject_user_id) VALUES (?, 'auth.login', 'success', NULL)",
                     rolledBackId,
                 )
                 throw IllegalStateException("force rollback")
-            }
+            })
         }
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.audit_events WHERE id = ?", Int::class.java, rolledBackId))
 
         val committedId = UUID.randomUUID().toString()
-        transactionRunner.run {
+        transactionRunner.run(TransactionRunDto {
             jdbc.update(
                 "INSERT INTO core.audit_events(id, event_type, outcome, subject_user_id) VALUES (?, 'auth.login', 'success', NULL)",
                 committedId,
             )
-        }
+        })
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.audit_events WHERE id = ?", Int::class.java, committedId))
     }
 }

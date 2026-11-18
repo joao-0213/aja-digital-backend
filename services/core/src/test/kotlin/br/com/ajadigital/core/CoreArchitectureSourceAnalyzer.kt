@@ -17,7 +17,7 @@ internal object CoreArchitectureSourceAnalyzer {
         val policy = pkg.isPackageOrDescendant("domain.policies")
         val normalized = path.replace('\\', '/')
 
-        if (pkg.startsWith("br.com.ajadigital.core.classroom.")) add("obsolete classroom feature name; target is academic")
+        if (pkg.startsWith("br.com.ajadigital.core.") && pkg.isPackageOrDescendant("classroom")) add("obsolete classroom feature name; target is academic")
         if (pkg.isPackageOrDescendant("domain.ports") || pkg.isPackageOrDescendant("domain.usecases") ||
             normalized.contains("/domain/ports/") || normalized.contains("/domain/usecases/")) add("legacy port/use case placement; target is application")
         if (domain) file.importDirectives.forEach { directive ->

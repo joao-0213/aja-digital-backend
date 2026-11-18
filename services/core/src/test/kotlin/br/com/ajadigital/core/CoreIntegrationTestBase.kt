@@ -39,9 +39,9 @@ import org.testcontainers.rabbitmq.RabbitMQContainer
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.springframework.context.annotation.Import
-import br.com.ajadigital.core.outbox.domain.ports.`in`.PublishPendingEventsUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.CreateClassUseCase
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
+import br.com.ajadigital.core.outbox.application.ports.`in`.PublishPendingEventsInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.CreateClassInputPort
+import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @AutoConfigureMockMvc
@@ -52,11 +52,11 @@ abstract class CoreIntegrationTestBase {
     @Autowired protected lateinit var flyway: Flyway
     @Autowired protected lateinit var mvc: MockMvc
     @Autowired protected lateinit var rabbitTemplate: RabbitTemplate
-    @Autowired protected lateinit var outboxPublisher: PublishPendingEventsUseCase
+    @Autowired protected lateinit var outboxPublisher: PublishPendingEventsInputPort
     @Autowired protected lateinit var passwordEncoder: PasswordEncoder
     @Autowired protected lateinit var mutableClock: MutableTestClock
-    @Autowired protected lateinit var createClassUseCase: CreateClassUseCase
-    @Autowired protected lateinit var idempotencyStore: IdempotencyStore
+    @Autowired protected lateinit var createClassUseCase: CreateClassInputPort
+    @Autowired protected lateinit var idempotencyStore: IdempotencyStoreOutputPort
     @Autowired protected lateinit var questionSnapshotProvider: TestQuestionSnapshotProvider
     @Autowired protected lateinit var webContext: ServletWebServerApplicationContext
     @Autowired protected lateinit var openApiCoverage: CoreOpenApiCoverageFilter

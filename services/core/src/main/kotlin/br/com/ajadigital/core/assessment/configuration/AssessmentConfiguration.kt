@@ -1,137 +1,137 @@
 package br.com.ajadigital.core.assessment.configuration
 
-import br.com.ajadigital.core.assessment.domain.ports.`in`.CheckPracticeBlockedUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.CountPendingFeedbackUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.CountPendingStudentAssessmentsUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.CreateAssessmentUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.CreateSubmissionUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.GetAssessmentUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.GetAttemptResultUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.GetAttemptUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.GetSubmissionUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.ListAssessmentsUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.ListAttemptsUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.ListDashboardAssessmentsUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.ListSubmissionsUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.PublishAssessmentUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.PublishSubmissionFeedbackUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.SaveAttemptAnswersUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.SaveSubmissionFeedbackUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.StartAttemptUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.SubmitAttemptUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.SubmitSubmissionUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.UpdateAssessmentUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.UpdateSubmissionUseCase
-import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStore
-import br.com.ajadigital.core.assessment.domain.ports.out.AttemptStore
-import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProvider
-import br.com.ajadigital.core.assessment.domain.ports.out.SubmissionStore
-import br.com.ajadigital.core.assessment.domain.usecases.CheckPracticeBlocked
-import br.com.ajadigital.core.assessment.domain.usecases.CountPendingFeedback
-import br.com.ajadigital.core.assessment.domain.usecases.CountPendingStudentAssessments
-import br.com.ajadigital.core.assessment.domain.usecases.CreateAssessment
-import br.com.ajadigital.core.assessment.domain.usecases.CreateSubmission
-import br.com.ajadigital.core.assessment.domain.usecases.GetAssessment
-import br.com.ajadigital.core.assessment.domain.usecases.GetAttempt
-import br.com.ajadigital.core.assessment.domain.usecases.GetAttemptResult
-import br.com.ajadigital.core.assessment.domain.usecases.GetSubmission
-import br.com.ajadigital.core.assessment.domain.usecases.ListAssessments
-import br.com.ajadigital.core.assessment.domain.usecases.ListAttempts
-import br.com.ajadigital.core.assessment.domain.usecases.ListDashboardAssessments
-import br.com.ajadigital.core.assessment.domain.usecases.ListSubmissions
-import br.com.ajadigital.core.assessment.domain.usecases.PublishAssessment
-import br.com.ajadigital.core.assessment.domain.usecases.PublishSubmissionFeedback
-import br.com.ajadigital.core.assessment.domain.usecases.SaveAttemptAnswers
-import br.com.ajadigital.core.assessment.domain.usecases.SaveSubmissionFeedback
-import br.com.ajadigital.core.assessment.domain.usecases.StartAttempt
-import br.com.ajadigital.core.assessment.domain.usecases.SubmitAttempt
-import br.com.ajadigital.core.assessment.domain.usecases.SubmitSubmission
-import br.com.ajadigital.core.assessment.domain.usecases.UpdateAssessment
-import br.com.ajadigital.core.assessment.domain.usecases.UpdateSubmission
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
+import br.com.ajadigital.core.assessment.application.ports.`in`.CheckPracticeBlockedInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingFeedbackInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingStudentAssessmentsInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.CreateAssessmentInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.CreateSubmissionInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.GetAssessmentInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.GetAttemptResultInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.GetAttemptInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.GetSubmissionInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.ListAssessmentsInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.ListAttemptsInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.ListDashboardAssessmentsInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.ListSubmissionsInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.PublishAssessmentInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.PublishSubmissionFeedbackInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.SaveAttemptAnswersInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.SaveSubmissionFeedbackInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.StartAttemptInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.SubmitAttemptInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.SubmitSubmissionInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.UpdateAssessmentInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.UpdateSubmissionInputPort
+import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStoreOutputPort
+import br.com.ajadigital.core.assessment.domain.ports.out.AttemptStoreOutputPort
+import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProviderOutputPort
+import br.com.ajadigital.core.assessment.domain.ports.out.SubmissionStoreOutputPort
+import br.com.ajadigital.core.assessment.application.usecases.CheckPracticeBlockedUseCase
+import br.com.ajadigital.core.assessment.application.usecases.CountPendingFeedbackUseCase
+import br.com.ajadigital.core.assessment.application.usecases.CountPendingStudentAssessmentsUseCase
+import br.com.ajadigital.core.assessment.application.usecases.CreateAssessmentUseCase
+import br.com.ajadigital.core.assessment.application.usecases.CreateSubmissionUseCase
+import br.com.ajadigital.core.assessment.application.usecases.GetAssessmentUseCase
+import br.com.ajadigital.core.assessment.application.usecases.GetAttemptUseCase
+import br.com.ajadigital.core.assessment.application.usecases.GetAttemptResultUseCase
+import br.com.ajadigital.core.assessment.application.usecases.GetSubmissionUseCase
+import br.com.ajadigital.core.assessment.application.usecases.ListAssessmentsUseCase
+import br.com.ajadigital.core.assessment.application.usecases.ListAttemptsUseCase
+import br.com.ajadigital.core.assessment.application.usecases.ListDashboardAssessmentsUseCase
+import br.com.ajadigital.core.assessment.application.usecases.ListSubmissionsUseCase
+import br.com.ajadigital.core.assessment.application.usecases.PublishAssessmentUseCase
+import br.com.ajadigital.core.assessment.application.usecases.PublishSubmissionFeedbackUseCase
+import br.com.ajadigital.core.assessment.application.usecases.SaveAttemptAnswersUseCase
+import br.com.ajadigital.core.assessment.application.usecases.SaveSubmissionFeedbackUseCase
+import br.com.ajadigital.core.assessment.application.usecases.StartAttemptUseCase
+import br.com.ajadigital.core.assessment.application.usecases.SubmitAttemptUseCase
+import br.com.ajadigital.core.assessment.application.usecases.SubmitSubmissionUseCase
+import br.com.ajadigital.core.assessment.application.usecases.UpdateAssessmentUseCase
+import br.com.ajadigital.core.assessment.application.usecases.UpdateSubmissionUseCase
+import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import tools.jackson.databind.ObjectMapper
+import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 
 @Configuration
 class AssessmentConfiguration {
     @Bean
     fun createAssessment(
-        store: AssessmentStore,
-        snapshots: QuestionSnapshotProvider,
-        idempotency: IdempotencyStore,
-        mapper: ObjectMapper,
-    ): CreateAssessmentUseCase = CreateAssessment(store, snapshots, idempotency, mapper)
+        store: AssessmentStoreOutputPort,
+        snapshots: QuestionSnapshotProviderOutputPort,
+        idempotency: IdempotencyStoreOutputPort,
+        mapper: JsonSerializerOutputPort,
+    ): CreateAssessmentInputPort = CreateAssessmentUseCase(store, snapshots, idempotency, mapper)
 
     @Bean
     fun updateAssessment(
-        store: AssessmentStore,
-        snapshots: QuestionSnapshotProvider,
-        idempotency: IdempotencyStore,
-        mapper: ObjectMapper,
-    ): UpdateAssessmentUseCase = UpdateAssessment(store, snapshots, idempotency, mapper)
+        store: AssessmentStoreOutputPort,
+        snapshots: QuestionSnapshotProviderOutputPort,
+        idempotency: IdempotencyStoreOutputPort,
+        mapper: JsonSerializerOutputPort,
+    ): UpdateAssessmentInputPort = UpdateAssessmentUseCase(store, snapshots, idempotency, mapper)
 
     @Bean
     fun publishAssessment(
-        store: AssessmentStore,
-        idempotency: IdempotencyStore,
-        mapper: ObjectMapper,
-    ): PublishAssessmentUseCase = PublishAssessment(store, idempotency, mapper)
+        store: AssessmentStoreOutputPort,
+        idempotency: IdempotencyStoreOutputPort,
+        mapper: JsonSerializerOutputPort,
+    ): PublishAssessmentInputPort = PublishAssessmentUseCase(store, idempotency, mapper)
 
     @Bean
-    fun getAssessment(store: AssessmentStore): GetAssessmentUseCase = GetAssessment(store)
+    fun getAssessment(store: AssessmentStoreOutputPort): GetAssessmentInputPort = GetAssessmentUseCase(store)
 
     @Bean
-    fun listAssessments(store: AssessmentStore): ListAssessmentsUseCase = ListAssessments(store)
+    fun listAssessments(store: AssessmentStoreOutputPort): ListAssessmentsInputPort = ListAssessmentsUseCase(store)
 
     @Bean
-    fun listDashboardAssessments(store: AssessmentStore): ListDashboardAssessmentsUseCase = ListDashboardAssessments(store)
+    fun listDashboardAssessments(store: AssessmentStoreOutputPort): ListDashboardAssessmentsInputPort = ListDashboardAssessmentsUseCase(store)
 
     @Bean
-    fun countPendingStudentAssessments(store: AssessmentStore): CountPendingStudentAssessmentsUseCase = CountPendingStudentAssessments(store)
+    fun countPendingStudentAssessments(store: AssessmentStoreOutputPort): CountPendingStudentAssessmentsInputPort = CountPendingStudentAssessmentsUseCase(store)
 
     @Bean
-    fun checkPracticeBlocked(store: AttemptStore): CheckPracticeBlockedUseCase = CheckPracticeBlocked(store)
+    fun checkPracticeBlocked(store: AttemptStoreOutputPort): CheckPracticeBlockedInputPort = CheckPracticeBlockedUseCase(store)
 
     @Bean
-    fun startAttempt(store: AttemptStore, mapper: ObjectMapper): StartAttemptUseCase = StartAttempt(store, mapper)
+    fun startAttempt(store: AttemptStoreOutputPort, mapper: JsonSerializerOutputPort): StartAttemptInputPort = StartAttemptUseCase(store, mapper)
 
     @Bean
-    fun listAttempts(store: AttemptStore): ListAttemptsUseCase = ListAttempts(store)
+    fun listAttempts(store: AttemptStoreOutputPort): ListAttemptsInputPort = ListAttemptsUseCase(store)
 
     @Bean
-    fun getAttempt(store: AttemptStore): GetAttemptUseCase = GetAttempt(store)
+    fun getAttempt(store: AttemptStoreOutputPort): GetAttemptInputPort = GetAttemptUseCase(store)
 
     @Bean
-    fun saveAttemptAnswers(store: AttemptStore): SaveAttemptAnswersUseCase = SaveAttemptAnswers(store)
+    fun saveAttemptAnswers(store: AttemptStoreOutputPort): SaveAttemptAnswersInputPort = SaveAttemptAnswersUseCase(store)
 
     @Bean
-    fun submitAttempt(store: AttemptStore, mapper: ObjectMapper): SubmitAttemptUseCase = SubmitAttempt(store, mapper)
+    fun submitAttempt(store: AttemptStoreOutputPort, mapper: JsonSerializerOutputPort): SubmitAttemptInputPort = SubmitAttemptUseCase(store, mapper)
 
     @Bean
-    fun getAttemptResult(store: AttemptStore): GetAttemptResultUseCase = GetAttemptResult(store)
+    fun getAttemptResult(store: AttemptStoreOutputPort): GetAttemptResultInputPort = GetAttemptResultUseCase(store)
 
     @Bean
-    fun createSubmission(store: SubmissionStore, mapper: ObjectMapper): CreateSubmissionUseCase = CreateSubmission(store, mapper)
+    fun createSubmission(store: SubmissionStoreOutputPort, mapper: JsonSerializerOutputPort): CreateSubmissionInputPort = CreateSubmissionUseCase(store, mapper)
 
     @Bean
-    fun listSubmissions(store: SubmissionStore): ListSubmissionsUseCase = ListSubmissions(store)
+    fun listSubmissions(store: SubmissionStoreOutputPort): ListSubmissionsInputPort = ListSubmissionsUseCase(store)
 
     @Bean
-    fun countPendingFeedback(store: SubmissionStore): CountPendingFeedbackUseCase = CountPendingFeedback(store)
+    fun countPendingFeedback(store: SubmissionStoreOutputPort): CountPendingFeedbackInputPort = CountPendingFeedbackUseCase(store)
 
     @Bean
-    fun getSubmission(store: SubmissionStore): GetSubmissionUseCase = GetSubmission(store)
+    fun getSubmission(store: SubmissionStoreOutputPort): GetSubmissionInputPort = GetSubmissionUseCase(store)
 
     @Bean
-    fun updateSubmission(store: SubmissionStore): UpdateSubmissionUseCase = UpdateSubmission(store)
+    fun updateSubmission(store: SubmissionStoreOutputPort): UpdateSubmissionInputPort = UpdateSubmissionUseCase(store)
 
     @Bean
-    fun submitSubmission(store: SubmissionStore, mapper: ObjectMapper): SubmitSubmissionUseCase = SubmitSubmission(store, mapper)
+    fun submitSubmission(store: SubmissionStoreOutputPort, mapper: JsonSerializerOutputPort): SubmitSubmissionInputPort = SubmitSubmissionUseCase(store, mapper)
 
     @Bean
-    fun saveSubmissionFeedback(store: SubmissionStore): SaveSubmissionFeedbackUseCase = SaveSubmissionFeedback(store)
+    fun saveSubmissionFeedback(store: SubmissionStoreOutputPort): SaveSubmissionFeedbackInputPort = SaveSubmissionFeedbackUseCase(store)
 
     @Bean
-    fun publishSubmissionFeedback(store: SubmissionStore, mapper: ObjectMapper): PublishSubmissionFeedbackUseCase = PublishSubmissionFeedback(store, mapper)
+    fun publishSubmissionFeedback(store: SubmissionStoreOutputPort, mapper: JsonSerializerOutputPort): PublishSubmissionFeedbackInputPort = PublishSubmissionFeedbackUseCase(store, mapper)
 }

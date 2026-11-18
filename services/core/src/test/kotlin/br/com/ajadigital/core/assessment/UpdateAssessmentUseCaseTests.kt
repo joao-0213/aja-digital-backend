@@ -1,11 +1,12 @@
 package br.com.ajadigital.core.assessment
+import br.com.ajadigital.core.assessment.application.models.*
 
 import br.com.ajadigital.core.assessment.domain.models.*
 import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStoreOutputPort
 import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProviderOutputPort
-import br.com.ajadigital.core.assessment.domain.usecases.UpdateAssessmentUseCase
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.classroom.domain.models.AcademicActor
+import br.com.ajadigital.core.assessment.application.usecases.UpdateAssessmentUseCase
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.shared.adapters.out.serialization.JacksonJsonSerializer
 import br.com.ajadigital.core.shared.domain.models.*
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
@@ -17,7 +18,7 @@ import java.time.Instant
 
 class UpdateAssessmentUseCaseTests {
     private val mapper = JsonMapper.builder().build()
-    private val teacher = AcademicActor("teacher-1", "teacher", true, Instant.parse("2026-01-01T00:00:00Z"), "session-hash")
+    private val teacher = AuthenticatedActor("teacher-1", "teacher", true, Instant.parse("2026-01-01T00:00:00Z"), "session-hash")
 
     @Test
     fun `confirmResetDrafts absence false and true are accepted and mapped`() {
@@ -36,7 +37,7 @@ class UpdateAssessmentUseCaseTests {
     @Test
     fun `authorization precedes malformed confirmation value validation`() {
         val forbidden = useCase()
-        val student = teacher.copy(role = "student")
+        val student = AuthenticatedActor(teacher.id, "student", teacher.active, teacher.emailConfirmedAt, teacher.sessionValidationReference)
         assertThrows(AcademicForbidden::class.java) {
             forbidden.update(UpdateAssessmentDto(student, "assessment-1", "idempotency-123", body(mapOf("confirmResetDrafts" to null))))
         }

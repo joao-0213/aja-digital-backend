@@ -1,19 +1,19 @@
 package br.com.ajadigital.core.dashboard.configuration
 
-import br.com.ajadigital.core.announcements.domain.ports.`in`.ListDashboardAnnouncementsUseCase
-import br.com.ajadigital.core.announcements.domain.ports.`in`.ListDashboardUpcomingEventsUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.CountPendingFeedbackUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.CountPendingStudentAssessmentsUseCase
-import br.com.ajadigital.core.assessment.domain.ports.`in`.ListDashboardAssessmentsUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.CountMyPendingEnrollmentsUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.ListDashboardClassesUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.ListEnrollmentsUseCase
-import br.com.ajadigital.core.classroom.domain.ports.`in`.ListStudentsUseCase
-import br.com.ajadigital.core.curriculum.domain.ports.`in`.ListSubjectsUseCase
-import br.com.ajadigital.core.dashboard.domain.ports.`in`.GetDashboardUseCase
-import br.com.ajadigital.core.dashboard.domain.usecases.GetDashboard
-import br.com.ajadigital.core.forum.domain.ports.`in`.ListDashboardTopicsUseCase
-import br.com.ajadigital.core.materials.domain.ports.`in`.GetDashboardContentUseCase
+import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardAnnouncementsInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardUpcomingEventsInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingFeedbackInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingStudentAssessmentsInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.ListDashboardAssessmentsInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.CountMyPendingEnrollmentsInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.ListDashboardClassesInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.ListEnrollmentsInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.ListStudentsInputPort
+import br.com.ajadigital.core.curriculum.application.ports.`in`.ListSubjectsInputPort
+import br.com.ajadigital.core.dashboard.application.ports.`in`.GetDashboardInputPort
+import br.com.ajadigital.core.dashboard.application.usecases.GetDashboardUseCase
+import br.com.ajadigital.core.forum.application.ports.`in`.ListDashboardTopicsInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.GetDashboardContentInputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import java.time.Clock
@@ -22,20 +22,20 @@ import java.time.Clock
 class DashboardConfiguration {
     @Bean
     fun getDashboard(
-        subjects: ListSubjectsUseCase,
-        dashboardAssessments: ListDashboardAssessmentsUseCase,
-        dashboardAnnouncements: ListDashboardAnnouncementsUseCase,
-        dashboardUpcoming: ListDashboardUpcomingEventsUseCase,
-        dashboardTopics: ListDashboardTopicsUseCase,
-        dashboardContent: GetDashboardContentUseCase,
-        myPendingEnrollments: CountMyPendingEnrollmentsUseCase,
-        pendingStudentAssessments: CountPendingStudentAssessmentsUseCase,
-        dashboardClasses: ListDashboardClassesUseCase,
-        enrollments: ListEnrollmentsUseCase,
-        students: ListStudentsUseCase,
-        pendingFeedback: CountPendingFeedbackUseCase,
+        subjects: ListSubjectsInputPort,
+        dashboardAssessments: ListDashboardAssessmentsInputPort,
+        dashboardAnnouncements: ListDashboardAnnouncementsInputPort,
+        dashboardUpcoming: ListDashboardUpcomingEventsInputPort,
+        dashboardTopics: ListDashboardTopicsInputPort,
+        dashboardContent: GetDashboardContentInputPort,
+        myPendingEnrollments: CountMyPendingEnrollmentsInputPort,
+        pendingStudentAssessments: CountPendingStudentAssessmentsInputPort,
+        dashboardClasses: ListDashboardClassesInputPort,
+        enrollments: ListEnrollmentsInputPort,
+        students: ListStudentsInputPort,
+        pendingFeedback: CountPendingFeedbackInputPort,
         clock: Clock,
-    ): GetDashboardUseCase = GetDashboard(
+    ): GetDashboardInputPort = GetDashboardUseCase(
         subjects,
         dashboardAssessments,
         dashboardAnnouncements,

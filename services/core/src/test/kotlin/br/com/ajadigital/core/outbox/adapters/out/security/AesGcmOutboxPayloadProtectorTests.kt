@@ -1,5 +1,8 @@
 package br.com.ajadigital.core.outbox.adapters.out.security
 
+import br.com.ajadigital.core.outbox.domain.models.EncryptOutboxPayloadDto
+import br.com.ajadigital.core.outbox.domain.models.OutboxPayloadKeyDto
+
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -16,10 +19,11 @@ class AesGcmOutboxPayloadProtectorTests {
         val protector = AesGcmOutboxPayloadProtector(Base64.getEncoder().encodeToString(rawKey))
         val plaintext = """{"hello":"world"}""".toByteArray()
 
-        val encrypted = protector.encrypt("evt-1", "identity.student.registered", 1, plaintext)
+        val encrypted = protector.encrypt(EncryptOutboxPayloadDto("evt-1", "identity.student.registered", 1, plaintext))
 
-        assertEquals(16, protector.keyId.length)
-        assertEquals(protector.keyId, encrypted.keyId)
+        val keyId = protector.keyId(OutboxPayloadKeyDto)
+        assertEquals(16, keyId.length)
+        assertEquals(keyId, encrypted.keyId)
         assertEquals(12, encrypted.nonce.size)
 
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")

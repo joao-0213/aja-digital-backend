@@ -1,0 +1,30 @@
+package br.com.ajadigital.core.academic.application.usecases
+import br.com.ajadigital.core.academic.application.models.*
+import br.com.ajadigital.core.academic.application.capabilities.AcademicAuthorization
+
+import br.com.ajadigital.core.academic.application.models.AcademicStoreUpdateUserDto
+
+import br.com.ajadigital.core.academic.application.models.UpdateUserDto
+
+import br.com.ajadigital.core.academic.application.models.FindUserDto
+
+import br.com.ajadigital.core.academic.domain.policies.AcademicPolicy
+import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
+
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
+import br.com.ajadigital.core.academic.application.ports.`in`.UpdateUserInputPort
+import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
+import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+
+class UpdateUserUseCase(
+    private val store: AcademicStoreOutputPort,
+    private val transactionRunner: TransactionRunnerOutputPort,
+) : UpdateUserInputPort {
+    override fun updateUser(request: UpdateUserDto): Map<String, Any?> {
+                val (actor, id, revision, name, email) = request
+        return         transactionRunner.run(TransactionRunDto {
+            store.updateUser(AcademicStoreUpdateUserDto(id, AcademicAuthorization.requireAdmin(store, actor, true).id, revision.also { require(it > 0) }, name?.trim(), email?.trim()))
+                ?: AcademicPolicy.conflict(store.findUser(FindUserDto(id)))
+        })
+    }
+}

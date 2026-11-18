@@ -16,7 +16,7 @@ import javax.sql.DataSource
 import java.util.UUID
 import java.time.Instant
 import br.com.ajadigital.core.announcements.adapters.out.persistence.JdbcAnnouncementStore
-import br.com.ajadigital.core.classroom.adapters.out.persistence.JdbcAcademicStore
+import br.com.ajadigital.core.academic.adapters.out.persistence.JdbcAcademicStore
 import br.com.ajadigital.core.forum.adapters.out.persistence.JdbcTopicStore
 import br.com.ajadigital.core.outbox.adapters.out.security.AesGcmOutboxPayloadProtector
 
@@ -172,7 +172,7 @@ class DashboardIntegrationTests : CoreIntegrationTestBase() {
             override fun getConnection(username: String, password: String): Connection = getConnection()
         }
         val store = JdbcTopicStore(JdbcTemplate(countingDataSource), tools.jackson.databind.json.JsonMapper.builder().build(), mutableClock, idempotencyStore)
-        assertEquals(1, store.dashboardTopics(teacherId, "teacher", sha256(teacherCookie), 5).size)
+        assertEquals(1, store.dashboardTopics(br.com.ajadigital.core.forum.domain.models.ListDashboardStoredTopicsDto(teacherId, "teacher", sha256(teacherCookie), 5)).size)
         assertTrue(queryCount.get() <= 2, "Expected at most two SQL statements for the scoped topic summary, observed ${queryCount.get()}")
     }
 
@@ -333,15 +333,15 @@ class DashboardIntegrationTests : CoreIntegrationTestBase() {
         val sessionHash = sha256(studentCookie)
         repeat(3) { createB06Class(adminCookie) }
         capturedSql.clear()
-        val classPage = JdbcAcademicStore(JdbcTemplate(countingDataSource), mutableClock).dashboardClasses(adminId, "admin", 100)
+        val classPage = JdbcAcademicStore(JdbcTemplate(countingDataSource), mutableClock).dashboardClasses(br.com.ajadigital.core.academic.application.models.AcademicStoreDashboardClassesDto(adminId, "admin", 100))
         assertTrue(classPage.items.size >= 3)
         assertTrue(classPage.items.all { it.containsKey("studentCount") })
         val classQueries = capturedSql.filter { it.contains("FROM core.classes", ignoreCase = true) }
         assertEquals(1, classQueries.size, classQueries.toString())
         assertTrue(Regex("\\bLIMIT\\s+\\?", RegexOption.IGNORE_CASE).containsMatchIn(classQueries.single()))
         capturedSql.clear()
-        val notices = store.dashboardAnnouncements(studentId, "student", sessionHash, 5)
-        val upcoming = store.dashboardUpcoming(studentId, "student", sessionHash, "2026-11-12", "2026-12-12", 5)
+        val notices = store.dashboardAnnouncements(br.com.ajadigital.core.announcements.domain.models.ListDashboardAnnouncementRecordsDto(studentId, "student", sessionHash, 5))
+        val upcoming = store.dashboardUpcoming(br.com.ajadigital.core.announcements.domain.models.ListDashboardUpcomingRecordsDto(studentId, "student", sessionHash, "2026-11-12", "2026-12-12", 5))
         assertEquals(5, notices.size)
         assertEquals(5, upcoming.size)
         val announcementQueries = capturedSql.filter { it.contains("FROM core.announcements", ignoreCase = true) }

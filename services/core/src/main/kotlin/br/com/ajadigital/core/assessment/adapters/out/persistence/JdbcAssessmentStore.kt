@@ -1,15 +1,33 @@
 package br.com.ajadigital.core.assessment.adapters.out.persistence
 
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicConflict
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
+import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreCreateDto
+
+import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreUpdateDto
+
+import br.com.ajadigital.core.assessment.domain.models.AssessmentStorePublishDto
+
+import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAssessmentDto
+
+import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAssessmentsDto
+
+import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreDashboardAssessmentsDto
+
+import br.com.ajadigital.core.assessment.domain.models.AssessmentStorePendingStudentCountDto
+
+import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAuthorizeWriteDto
+
+import br.com.ajadigital.core.shared.domain.models.SaveIdempotencyDto
+import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
 import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
 import br.com.ajadigital.core.assessment.domain.models.AssessmentPage
 import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestion
 import br.com.ajadigital.core.assessment.domain.policies.AssessmentEditPolicy
-import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStore
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyKeyReuse
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
+import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStoreOutputPort
+import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
+import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
@@ -20,15 +38,17 @@ import java.time.Clock
 import java.util.UUID
 
 @Repository
-class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val clock: Clock, private val idempotency: IdempotencyStore) : AssessmentStore {
+class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val clock: Clock, private val idempotency: IdempotencyStoreOutputPort) : AssessmentStoreOutputPort {
     @Transactional
-    override fun authorizeWrite(actorId: String, role: String, sessionHash: String, moduleId: String) {
+    override fun authorizeWrite(request: AssessmentStoreAuthorizeWriteDto) {
+        val (actorId, role, sessionHash, moduleId) = request
         lockAuthInvariant()
         if (lockModuleForWrite(moduleId, actorId, sessionHash, role) == null) throw AcademicNotFound()
     }
 
     @Transactional
-    override fun create(actorId: String, role: String, sessionHash: String, key: String, requestHash: String, draft: AssessmentDraft, questions: List<AssessmentQuestion>): Map<String, Any?> {
+    override fun create(request: AssessmentStoreCreateDto): Map<String, Any?> {
+        val (actorId, role, sessionHash, key, requestHash, draft, questions) = request
         lockAuthInvariant()
         val module = lockModuleForWrite(draft.moduleId, actorId, sessionHash, role) ?: throw AcademicNotFound()
         replay(actorId, "createAssessment", "/assessments", key, requestHash)?.let { return it }
@@ -39,13 +59,14 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
             VALUES(?,?,?,'draft',1,NULL,?,?,?,?,?,?,?,?,?,?)""", id, draft.moduleId, draft.kind, draft.deadline?.let(Timestamp::from), draft.allowLate, now, now, actorId, draft.title, draft.description, draft.maxGrade, draft.required, order)
         writeQuestions(id, questions)
         audit(actorId, "academic.assessment_created", id)
-        val result = assessment(actorId, role, sessionHash, id) ?: throw AcademicNotFound()
-        idempotency.save(actorId, "createAssessment", "/assessments", key, requestHash, result)
+        val result = assessment(br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAssessmentDto(actorId, role, sessionHash, id)) ?: throw AcademicNotFound()
+        idempotency.save(SaveIdempotencyDto(actorId, "createAssessment", "/assessments", key, requestHash, result))
         return result
     }
 
     @Transactional
-    override fun update(actorId: String, role: String, sessionHash: String, id: String, key: String, requestHash: String, expectedRevision: Int, draft: AssessmentDraft?, questions: List<AssessmentQuestion>?, confirmResetDrafts: Boolean): Map<String, Any?>? {
+    override fun update(request: AssessmentStoreUpdateDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id, key, requestHash, expectedRevision, draft, questions, confirmResetDrafts) = request
         lockAuthInvariant()
         val priorModule = jdbc.query("SELECT module_id FROM core.assessments WHERE id=?", { rs, _ -> rs.getString(1) }, id).firstOrNull() ?: return null
         val moduleIds = (listOf(priorModule) + listOfNotNull(draft?.moduleId)).distinct().sorted()
@@ -83,13 +104,14 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
             now, actorId, changedQuestions, now, id, expectedRevision) != 1) return null
         if (current["moduleId"] != next.moduleId) updatePublicationSubject(id, next.moduleId)
         audit(actorId, "academic.assessment_updated", id)
-        val result = assessment(actorId, role, sessionHash, id) ?: return null
-        idempotency.save(actorId, "updateAssessment", "/assessments/$id", key, requestHash, result)
+        val result = assessment(br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAssessmentDto(actorId, role, sessionHash, id)) ?: return null
+        idempotency.save(SaveIdempotencyDto(actorId, "updateAssessment", "/assessments/$id", key, requestHash, result))
         return result
     }
 
     @Transactional
-    override fun publish(actorId: String, role: String, sessionHash: String, id: String, key: String, requestHash: String, expectedRevision: Int): Map<String, Any?>? {
+    override fun publish(request: AssessmentStorePublishDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id, key, requestHash, expectedRevision) = request
         lockAuthInvariant()
         val moduleId = jdbc.query("SELECT module_id FROM core.assessments WHERE id=?", { rs, _ -> rs.getString(1) }, id).firstOrNull() ?: return null
         val module = lockModuleForWrite(moduleId, actorId, sessionHash, role) ?: return null
@@ -103,12 +125,13 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         jdbc.update("UPDATE core.assessments SET status='published',published_at=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=?", now, now, actorId, id, expectedRevision)
         jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?) ON CONFLICT DO NOTHING", module.first, "assessment:$id")
         audit(actorId, "academic.assessment_published", id)
-        val result = assessment(actorId, role, sessionHash, id) ?: return null
-        idempotency.save(actorId, "publishAssessment", "/assessments/$id/publish", key, requestHash, result)
+        val result = assessment(br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAssessmentDto(actorId, role, sessionHash, id)) ?: return null
+        idempotency.save(SaveIdempotencyDto(actorId, "publishAssessment", "/assessments/$id/publish", key, requestHash, result))
         return result
     }
 
-    override fun assessment(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>? {
+    override fun assessment(request: AssessmentStoreAssessmentDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id) = request
         requireSession(actorId, sessionHash)
         val where = accessPredicate(role)
         val row = jdbc.query("""SELECT a.*,m.subject_id,s.class_id,c.active AS class_active,
@@ -119,12 +142,12 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         return dto(row, actorId, role, sessionHash)
     }
 
-    override fun assessments(actorId: String, role: String, sessionHash: String, page: Int, pageSize: Int, sort: String, subjectId: String?, moduleId: String?, kind: String?, status: String?): AssessmentPage {
+    override fun assessments(request: AssessmentStoreAssessmentsDto): AssessmentPage {
+        val (actorId, role, sessionHash, page, pageSize, sort, subjectId, moduleId, kind, status) = request
         return assessmentPage(actorId, role, sessionHash, page, pageSize, sort, subjectId, moduleId, kind, status, false)
     }
 
-    override fun dashboardAssessments(actorId: String, role: String, sessionHash: String, pageSize: Int): AssessmentPage =
-        assessmentPage(actorId, role, sessionHash, 1, pageSize, "id", null, null, null, "published", true)
+    override fun dashboardAssessments(request: AssessmentStoreDashboardAssessmentsDto): AssessmentPage = run { val (actorId, role, sessionHash, pageSize) = request; assessmentPage(actorId, role, sessionHash, 1, pageSize, "id", null, null, null, "published", true) }
 
     private fun assessmentPage(actorId: String, role: String, sessionHash: String, page: Int, pageSize: Int, sort: String, subjectId: String?, moduleId: String?, kind: String?, status: String?, dashboard: Boolean): AssessmentPage {
         requireSession(actorId, sessionHash)
@@ -154,7 +177,8 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     }
 
     @Transactional(readOnly = true)
-    override fun pendingStudentCount(actorId: String, sessionHash: String): Int {
+    override fun pendingStudentCount(request: AssessmentStorePendingStudentCountDto): Int {
+        val (actorId, sessionHash) = request
         requireSession(actorId, sessionHash, "student")
         val where = accessPredicate("student")
         return jdbc.queryForObject("""SELECT count(*) FROM core.assessments a
@@ -295,8 +319,8 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     }
     private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }
     private fun replay(actorId: String, operation: String, target: String, key: String, requestHash: String): Map<String, Any?>? = try {
-        idempotency.find(actorId, operation, target, key, requestHash)
-    } catch (_: IdempotencyKeyReuse) { throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicIdempotencyConflict() }
+        idempotency.find(FindIdempotencyDto(actorId, operation, target, key, requestHash))
+    } catch (_: IdempotencyKeyReuse) { throw br.com.ajadigital.core.academic.domain.exceptions.AcademicIdempotencyConflict() }
     private fun audit(actorId: String, eventType: String, id: String) { jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), eventType, id, actorId) }
     private fun ResultSet.assessmentBase() = mapOf(
         "id" to getString("id"), "revision" to getInt("revision"), "createdAt" to getTimestamp("created_at").toInstant().toString(), "updatedAt" to getTimestamp("updated_at").toInstant().toString(),

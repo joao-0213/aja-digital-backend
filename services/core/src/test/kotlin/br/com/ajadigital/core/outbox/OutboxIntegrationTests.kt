@@ -10,15 +10,15 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import br.com.ajadigital.core.outbox.adapters.`in`.controllers.OutboxOperationsController
 import br.com.ajadigital.core.outbox.adapters.out.persistence.JdbcOutboxRepository
-import br.com.ajadigital.core.outbox.domain.usecases.RedriveOutboxEvent
+import br.com.ajadigital.core.outbox.application.usecases.RedriveOutboxEventUseCase
 
 class OutboxIntegrationTests : CoreIntegrationTestBase() {
     @Test
     fun outboxOperatorRejectsBlankConfiguredSecret() {
         assertThrows(IllegalArgumentException::class.java) {
-            OutboxOperationsController(RedriveOutboxEvent(JdbcOutboxRepository(jdbc), mutableClock), " \t")
+            OutboxOperationsController(RedriveOutboxEventUseCase(JdbcOutboxRepository(jdbc), mutableClock), " \t")
         }
-        assertEquals(401, OutboxOperationsController(RedriveOutboxEvent(JdbcOutboxRepository(jdbc), mutableClock), "a-valid-secret")
+        assertEquals(401, OutboxOperationsController(RedriveOutboxEventUseCase(JdbcOutboxRepository(jdbc), mutableClock), "a-valid-secret")
             .redrive("not-a-uuid", " \t").statusCode.value())
     }
 
@@ -121,7 +121,7 @@ class OutboxIntegrationTests : CoreIntegrationTestBase() {
                 listOf("email.identity.events", "email.identity.retry", "email.identity.dlq").forEach(channel::queueDelete)
             }
             jdbc.update("update core.outbox_events set next_attempt_at=? where id=?", java.sql.Timestamp.from(mutableClock.instant()), id)
-            outboxPublisher.publishAvailable()
+            outboxPublisher.publishAvailable(br.com.ajadigital.core.outbox.domain.models.PublishAvailableDto)
 
             assertEquals(null, jdbc.queryForObject("select published_at from core.outbox_events where id=?", java.sql.Timestamp::class.java, id),
                 "An unroutable publisher-confirmed event must remain pending")
@@ -131,7 +131,7 @@ class OutboxIntegrationTests : CoreIntegrationTestBase() {
 
             declareEmailQueueTopology()
             jdbc.update("update core.outbox_events set next_attempt_at=? where id=?", java.sql.Timestamp.from(mutableClock.instant()), id)
-            outboxPublisher.publishAvailable()
+            outboxPublisher.publishAvailable(br.com.ajadigital.core.outbox.domain.models.PublishAvailableDto)
             awaitPublished(id)
             assertTrue(receivePublishedEvent(id).contains(id), "Event should arrive after Email declares and binds its queue")
         } finally {

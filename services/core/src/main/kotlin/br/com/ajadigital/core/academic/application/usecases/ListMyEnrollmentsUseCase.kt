@@ -1,0 +1,21 @@
+package br.com.ajadigital.core.academic.application.usecases
+import br.com.ajadigital.core.academic.application.models.*
+
+import br.com.ajadigital.core.academic.application.models.AcademicStoreMyEnrollmentsDto
+
+import br.com.ajadigital.core.academic.application.models.ListMyEnrollmentsDto
+
+import br.com.ajadigital.core.academic.domain.policies.AcademicPolicy
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
+import br.com.ajadigital.core.academic.application.ports.`in`.ListMyEnrollmentsInputPort
+import br.com.ajadigital.core.academic.application.models.AcademicPage
+import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
+
+class ListMyEnrollmentsUseCase(private val store: AcademicStoreOutputPort) : ListMyEnrollmentsInputPort {
+    override fun myEnrollments(request: ListMyEnrollmentsDto): AcademicPage {
+                val (actor, page, size, sort) = request
+        if (actor.role != "student" || !actor.active || actor.emailConfirmedAt == null) throw AcademicForbidden()
+        return store.myEnrollments(AcademicStoreMyEnrollmentsDto(actor.id, AcademicPolicy.checkedPage(page), AcademicPolicy.checkedSize(size), AcademicPolicy.checkedSort(sort)))
+    }
+}

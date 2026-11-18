@@ -1,64 +1,64 @@
 package br.com.ajadigital.core.announcements.configuration
 
-import br.com.ajadigital.core.announcements.domain.ports.`in`.CreateAnnouncementUseCase
-import br.com.ajadigital.core.announcements.domain.ports.`in`.GetAnnouncementUseCase
-import br.com.ajadigital.core.announcements.domain.ports.`in`.ListAnnouncementsUseCase
-import br.com.ajadigital.core.announcements.domain.ports.`in`.ListCalendarEventsUseCase
-import br.com.ajadigital.core.announcements.domain.ports.`in`.ListDashboardAnnouncementsUseCase
-import br.com.ajadigital.core.announcements.domain.ports.`in`.ListDashboardUpcomingEventsUseCase
-import br.com.ajadigital.core.announcements.domain.ports.`in`.UpdateAnnouncementUseCase
-import br.com.ajadigital.core.announcements.domain.ports.`in`.WithdrawAnnouncementUseCase
-import br.com.ajadigital.core.announcements.domain.ports.out.AnnouncementStore
-import br.com.ajadigital.core.announcements.domain.usecases.CreateAnnouncement
-import br.com.ajadigital.core.announcements.domain.usecases.GetAnnouncement
-import br.com.ajadigital.core.announcements.domain.usecases.ListAnnouncements
-import br.com.ajadigital.core.announcements.domain.usecases.ListCalendarEvents
-import br.com.ajadigital.core.announcements.domain.usecases.ListDashboardAnnouncements
-import br.com.ajadigital.core.announcements.domain.usecases.ListDashboardUpcomingEvents
-import br.com.ajadigital.core.announcements.domain.usecases.UpdateAnnouncement
-import br.com.ajadigital.core.announcements.domain.usecases.WithdrawAnnouncement
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunner
+import br.com.ajadigital.core.announcements.application.ports.`in`.CreateAnnouncementInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.GetAnnouncementInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.ListAnnouncementsInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.ListCalendarEventsInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardAnnouncementsInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardUpcomingEventsInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.UpdateAnnouncementInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.WithdrawAnnouncementInputPort
+import br.com.ajadigital.core.announcements.domain.ports.out.AnnouncementStoreOutputPort
+import br.com.ajadigital.core.announcements.application.usecases.CreateAnnouncementUseCase
+import br.com.ajadigital.core.announcements.application.usecases.GetAnnouncementUseCase
+import br.com.ajadigital.core.announcements.application.usecases.ListAnnouncementsUseCase
+import br.com.ajadigital.core.announcements.application.usecases.ListCalendarEventsUseCase
+import br.com.ajadigital.core.announcements.application.usecases.ListDashboardAnnouncementsUseCase
+import br.com.ajadigital.core.announcements.application.usecases.ListDashboardUpcomingEventsUseCase
+import br.com.ajadigital.core.announcements.application.usecases.UpdateAnnouncementUseCase
+import br.com.ajadigital.core.announcements.application.usecases.WithdrawAnnouncementUseCase
+import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import tools.jackson.databind.ObjectMapper
+import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 
 @Configuration
 class AnnouncementsConfiguration {
     @Bean
     fun createAnnouncement(
-        store: AnnouncementStore,
-        mapper: ObjectMapper,
-        idempotency: IdempotencyStore,
-        transactionRunner: TransactionRunner,
-    ): CreateAnnouncementUseCase = CreateAnnouncement(store, mapper, idempotency, transactionRunner)
+        store: AnnouncementStoreOutputPort,
+        mapper: JsonSerializerOutputPort,
+        idempotency: IdempotencyStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): CreateAnnouncementInputPort = CreateAnnouncementUseCase(store, mapper, idempotency, transactionRunner)
 
     @Bean
     fun updateAnnouncement(
-        store: AnnouncementStore,
-        transactionRunner: TransactionRunner,
-    ): UpdateAnnouncementUseCase = UpdateAnnouncement(store, transactionRunner)
+        store: AnnouncementStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): UpdateAnnouncementInputPort = UpdateAnnouncementUseCase(store, transactionRunner)
 
     @Bean
     fun withdrawAnnouncement(
-        store: AnnouncementStore,
-        transactionRunner: TransactionRunner,
-    ): WithdrawAnnouncementUseCase = WithdrawAnnouncement(store, transactionRunner)
+        store: AnnouncementStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): WithdrawAnnouncementInputPort = WithdrawAnnouncementUseCase(store, transactionRunner)
 
     @Bean
-    fun getAnnouncement(store: AnnouncementStore): GetAnnouncementUseCase = GetAnnouncement(store)
+    fun getAnnouncement(store: AnnouncementStoreOutputPort): GetAnnouncementInputPort = GetAnnouncementUseCase(store)
 
     @Bean
-    fun listAnnouncements(store: AnnouncementStore): ListAnnouncementsUseCase = ListAnnouncements(store)
+    fun listAnnouncements(store: AnnouncementStoreOutputPort): ListAnnouncementsInputPort = ListAnnouncementsUseCase(store)
 
     @Bean
-    fun listCalendarEvents(store: AnnouncementStore): ListCalendarEventsUseCase = ListCalendarEvents(store)
+    fun listCalendarEvents(store: AnnouncementStoreOutputPort): ListCalendarEventsInputPort = ListCalendarEventsUseCase(store)
 
     @Bean
-    fun listDashboardAnnouncements(store: AnnouncementStore): ListDashboardAnnouncementsUseCase =
-        ListDashboardAnnouncements(store)
+    fun listDashboardAnnouncements(store: AnnouncementStoreOutputPort): ListDashboardAnnouncementsInputPort =
+        ListDashboardAnnouncementsUseCase(store)
 
     @Bean
-    fun listDashboardUpcomingEvents(store: AnnouncementStore): ListDashboardUpcomingEventsUseCase =
-        ListDashboardUpcomingEvents(store)
+    fun listDashboardUpcomingEvents(store: AnnouncementStoreOutputPort): ListDashboardUpcomingEventsInputPort =
+        ListDashboardUpcomingEventsUseCase(store)
 }

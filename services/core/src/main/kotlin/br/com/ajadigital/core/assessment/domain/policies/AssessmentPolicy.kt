@@ -7,9 +7,9 @@ import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
 import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestion
 import br.com.ajadigital.core.assessment.domain.models.BankQuestionSnapshot
 import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProviderOutputPort
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicIdempotencyConflict
-import br.com.ajadigital.core.classroom.domain.models.AcademicActor
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicIdempotencyConflict
+import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
 import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
@@ -165,9 +165,9 @@ internal object AssessmentPolicy {
     fun validId(value: String) = value.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"))
     fun validKey(value: String) { require(value.length in 8..128) }
     fun requestHash(mapper: JsonSerializerOutputPort, body: Any?) = MessageDigest.getInstance("SHA-256").digest(mapper.serialize(SerializeJsonDto(body))).joinToString("") { "%02x".format(it) }
-    fun findReplay(idempotency: IdempotencyStoreOutputPort, actor: AcademicActor, operation: String, target: String, key: String, hash: String): Map<String, Any?>? =
+    fun findReplay(idempotency: IdempotencyStoreOutputPort, actor: AuthenticatedActor, operation: String, target: String, key: String, hash: String): Map<String, Any?>? =
         try { idempotency.find(FindIdempotencyDto(actor.id, operation, target, key, hash)) } catch (_: IdempotencyKeyReuse) { throw AcademicIdempotencyConflict() }
     fun fieldNames(value: Any?) = objectValue(value).keys.filterIsInstance<String>().toSet()
-    fun writer(actor: AcademicActor) { if (!actor.active || actor.role !in setOf("admin", "teacher")) throw AcademicForbidden() }
-    fun reader(actor: AcademicActor) { if (!actor.active || actor.role !in setOf("admin", "teacher", "student") || actor.role == "student" && actor.emailConfirmedAt == null) throw AcademicForbidden() }
+    fun writer(actor: AuthenticatedActor) { if (!actor.active || actor.role !in setOf("admin", "teacher")) throw AcademicForbidden() }
+    fun reader(actor: AuthenticatedActor) { if (!actor.active || actor.role !in setOf("admin", "teacher", "student") || actor.role == "student" && actor.emailConfirmedAt == null) throw AcademicForbidden() }
 }

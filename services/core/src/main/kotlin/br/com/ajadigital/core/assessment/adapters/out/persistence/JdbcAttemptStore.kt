@@ -1,15 +1,31 @@
 package br.com.ajadigital.core.assessment.adapters.out.persistence
 
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicConflict
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
+import br.com.ajadigital.core.assessment.domain.models.AttemptStoreStartDto
+
+import br.com.ajadigital.core.assessment.domain.models.AttemptStoreAttemptsDto
+
+import br.com.ajadigital.core.assessment.domain.models.AttemptStoreAttemptDto
+
+import br.com.ajadigital.core.assessment.domain.models.AttemptStoreSaveAnswersDto
+
+import br.com.ajadigital.core.assessment.domain.models.AttemptStoreSubmitDto
+
+import br.com.ajadigital.core.assessment.domain.models.AttemptStoreResultDto
+
+import br.com.ajadigital.core.assessment.domain.models.AttemptStorePracticeBlockedDto
+
+import br.com.ajadigital.core.shared.domain.models.SaveIdempotencyDto
+import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
 import br.com.ajadigital.core.assessment.domain.exceptions.InvalidAttemptAnswers
 import br.com.ajadigital.core.assessment.domain.models.AssessmentPage
 import br.com.ajadigital.core.assessment.domain.policies.AttemptScoringPolicy
 import br.com.ajadigital.core.assessment.domain.policies.DeadlinePolicy
-import br.com.ajadigital.core.assessment.domain.ports.out.AttemptStore
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyKeyReuse
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
+import br.com.ajadigital.core.assessment.domain.ports.out.AttemptStoreOutputPort
+import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
+import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
@@ -25,10 +41,11 @@ class JdbcAttemptStore(
     private val jdbc: JdbcTemplate,
     private val mapper: ObjectMapper,
     private val clock: Clock,
-    private val idempotency: IdempotencyStore,
-) : AttemptStore {
+    private val idempotency: IdempotencyStoreOutputPort,
+) : AttemptStoreOutputPort {
     @Transactional
-    override fun practiceBlocked(actorId: String, role: String, sessionHash: String, questionId: String): Boolean {
+    override fun practiceBlocked(request: AttemptStorePracticeBlockedDto): Boolean {
+        val (actorId, role, sessionHash, questionId) = request
         lockAuthInvariant()
         requireSession(actorId, sessionHash)
         if (role != "student") return false
@@ -50,7 +67,8 @@ class JdbcAttemptStore(
     }
 
     @Transactional
-    override fun start(actorId: String, role: String, sessionHash: String, assessmentId: String, key: String, requestHash: String): Map<String, Any?> {
+    override fun start(request: AttemptStoreStartDto): Map<String, Any?> {
+        val (actorId, role, sessionHash, assessmentId, key, requestHash) = request
         lockAuthInvariant()
         requireSession(actorId, sessionHash, "student")
         val assessment = studentAssessment(actorId, assessmentId) ?: throw AcademicNotFound()
@@ -59,7 +77,7 @@ class JdbcAttemptStore(
         if (existing != null) {
             val attempt = authorizedAttempt(actorId, role, sessionHash, existing) ?: throw AcademicNotFound()
             val dto = attemptDto(attempt)
-            idempotency.save(actorId, "startAttempt", "/attempts", key, requestHash, dto)
+            idempotency.save(SaveIdempotencyDto(actorId, "startAttempt", "/attempts", key, requestHash, dto))
             return dto
         }
         if (!DeadlinePolicy.isBeforeDeadline((assessment["deadline"] as Timestamp?)?.toInstant(), assessment["allowLate"] as Boolean, clock.instant())) throw AcademicConflict()
@@ -77,12 +95,13 @@ class JdbcAttemptStore(
             mapper.writeValueAsString(order), mapper.writeValueAsString(questions), assessment["questionsUpdatedAt"])
         val attempt = authorizedAttempt(actorId, role, sessionHash, attemptId) ?: throw AcademicNotFound()
         val dto = attemptDto(attempt)
-        idempotency.save(actorId, "startAttempt", "/attempts", key, requestHash, dto)
+        idempotency.save(SaveIdempotencyDto(actorId, "startAttempt", "/attempts", key, requestHash, dto))
         return dto
     }
 
     @Transactional(readOnly = true)
-    override fun attempts(actorId: String, role: String, sessionHash: String, page: Int, pageSize: Int, sort: String, assessmentId: String?, studentId: String?): AssessmentPage {
+    override fun attempts(request: AttemptStoreAttemptsDto): AssessmentPage {
+        val (actorId, role, sessionHash, page, pageSize, sort, assessmentId, studentId) = request
         lockAuthInvariant()
         requireSession(actorId, sessionHash)
         if (role == "student" && studentId != null && studentId != actorId) throw AcademicNotFound()
@@ -104,13 +123,15 @@ class JdbcAttemptStore(
     }
 
     @Transactional(readOnly = true)
-    override fun attempt(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>? {
+    override fun attempt(request: AttemptStoreAttemptDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id) = request
         lockAuthInvariant(); requireSession(actorId, sessionHash)
         return authorizedAttempt(actorId, role, sessionHash, id)?.let(::attemptDto)
     }
 
     @Transactional
-    override fun saveAnswers(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, answers: Map<String, Int?>): Map<String, Any?>? {
+    override fun saveAnswers(request: AttemptStoreSaveAnswersDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id, expectedRevision, answers) = request
         lockAuthInvariant(); requireSession(actorId, sessionHash, "student")
         val current = authorizedAttempt(actorId, role, sessionHash, id, forUpdate = true) ?: return null
         if (current["submittedAt"] != null) throw AcademicConflict(current["revision"] as Int)
@@ -125,13 +146,14 @@ class JdbcAttemptStore(
     }
 
     @Transactional
-    override fun submit(actorId: String, role: String, sessionHash: String, id: String, key: String, requestHash: String, expectedRevision: Int): Map<String, Any?>? {
+    override fun submit(request: AttemptStoreSubmitDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id, key, requestHash, expectedRevision) = request
         lockAuthInvariant(); requireSession(actorId, sessionHash, "student")
         val current = authorizedAttempt(actorId, role, sessionHash, id, forUpdate = true) ?: return null
         replay(actorId, "submitAttempt", "/attempts/$id/submit", key, requestHash)?.let { return it }
         if (current["submittedAt"] != null) {
             val response = attemptResult(current)
-            idempotency.save(actorId, "submitAttempt", "/attempts/$id/submit", key, requestHash, response)
+            idempotency.save(SaveIdempotencyDto(actorId, "submitAttempt", "/attempts/$id/submit", key, requestHash, response))
             return response
         }
         if (current["revision"] != expectedRevision) throw AcademicConflict(current["revision"] as Int)
@@ -150,12 +172,13 @@ class JdbcAttemptStore(
         if (jdbc.update("UPDATE core.attempts SET submitted_at=?,receipt_id=?,score=?,max_score=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=? AND submitted_at IS NULL", now, receiptId, score, maxScore, now, actorId, id, expectedRevision) != 1) throw AcademicConflict(current["revision"] as Int)
         val submitted = authorizedAttempt(actorId, role, sessionHash, id) ?: return null
         val response = attemptResult(submitted)
-        idempotency.save(actorId, "submitAttempt", "/attempts/$id/submit", key, requestHash, response)
+        idempotency.save(SaveIdempotencyDto(actorId, "submitAttempt", "/attempts/$id/submit", key, requestHash, response))
         return response
     }
 
     @Transactional(readOnly = true)
-    override fun result(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>? {
+    override fun result(request: AttemptStoreResultDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id) = request
         lockAuthInvariant(); requireSession(actorId, sessionHash)
         val current = authorizedAttempt(actorId, role, sessionHash, id) ?: return null
         return if (current["submittedAt"] == null) null else attemptResult(current)
@@ -236,8 +259,8 @@ class JdbcAttemptStore(
     }
 
     private fun replay(actorId: String, operation: String, target: String, key: String, hash: String): Map<String, Any?>? = try {
-        idempotency.find(actorId, operation, target, key, hash)
-    } catch (_: IdempotencyKeyReuse) { throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicIdempotencyConflict() }
+        idempotency.find(FindIdempotencyDto(actorId, operation, target, key, hash))
+    } catch (_: IdempotencyKeyReuse) { throw br.com.ajadigital.core.academic.domain.exceptions.AcademicIdempotencyConflict() }
 
     private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }
 

@@ -1,18 +1,26 @@
 package br.com.ajadigital.core.announcements.adapters.`in`.controllers
+import br.com.ajadigital.core.announcements.application.models.*
+import br.com.ajadigital.core.academic.application.models.AcademicPage
 import br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.requests.AnnouncementCreateRequest
 import br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.requests.AnnouncementEditRequest
 import br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.requests.AnnouncementRevisionRequest
 
-import br.com.ajadigital.core.classroom.domain.models.AcademicActor
-import br.com.ajadigital.core.announcements.domain.ports.`in`.CreateAnnouncementUseCase
-import br.com.ajadigital.core.announcements.domain.ports.`in`.GetAnnouncementUseCase
-import br.com.ajadigital.core.announcements.domain.ports.`in`.ListAnnouncementsUseCase
-import br.com.ajadigital.core.announcements.domain.ports.`in`.ListCalendarEventsUseCase
-import br.com.ajadigital.core.announcements.domain.ports.`in`.UpdateAnnouncementUseCase
-import br.com.ajadigital.core.announcements.domain.ports.`in`.WithdrawAnnouncementUseCase
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
+import br.com.ajadigital.core.announcements.application.ports.`in`.CreateAnnouncementInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.GetAnnouncementInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.ListAnnouncementsInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.ListCalendarEventsInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.UpdateAnnouncementInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.WithdrawAnnouncementInputPort
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementDraft
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementOccurrence
-import br.com.ajadigital.core.identity.domain.ports.`in`.AuthenticateStudentUseCase
+import br.com.ajadigital.core.announcements.application.models.CreateAnnouncementDto
+import br.com.ajadigital.core.announcements.application.models.GetAnnouncementDto
+import br.com.ajadigital.core.announcements.application.models.ListAnnouncementsDto
+import br.com.ajadigital.core.announcements.application.models.ListCalendarEventsDto
+import br.com.ajadigital.core.announcements.application.models.UpdateAnnouncementDto
+import br.com.ajadigital.core.announcements.application.models.WithdrawAnnouncementDto
+import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.CookieValue
@@ -31,13 +39,13 @@ import tools.jackson.databind.node.MissingNode
 
 @RestController
 class AnnouncementController(
-    private val auth: AuthenticateStudentUseCase,
-    private val createAnnouncement: CreateAnnouncementUseCase,
-    private val updateAnnouncement: UpdateAnnouncementUseCase,
-    private val withdrawAnnouncement: WithdrawAnnouncementUseCase,
-    private val getAnnouncement: GetAnnouncementUseCase,
-    private val listAnnouncements: ListAnnouncementsUseCase,
-    private val listCalendarEvents: ListCalendarEventsUseCase,
+    private val auth: ResolveAuthenticatedActorInputPort,
+    private val createAnnouncement: CreateAnnouncementInputPort,
+    private val updateAnnouncement: UpdateAnnouncementInputPort,
+    private val withdrawAnnouncement: WithdrawAnnouncementInputPort,
+    private val getAnnouncement: GetAnnouncementInputPort,
+    private val listAnnouncements: ListAnnouncementsInputPort,
+    private val listCalendarEvents: ListCalendarEventsInputPort,
     private val mapper: ObjectMapper,
 ) {
     @GetMapping("/api/v1/announcements")
@@ -49,7 +57,7 @@ class AnnouncementController(
         @RequestParam(required = false) classId: String?,
         @RequestParam(required = false) subjectId: String?,
         @RequestParam(required = false) q: String?,
-    ) = page(listAnnouncements.announcements(actor(cookie), page, pageSize, sort, classId?.let(::id), subjectId?.let(::id), q))
+    ) = page(listAnnouncements.announcements(ListAnnouncementsDto(actor(cookie), page, pageSize, sort, classId?.let(::id), subjectId?.let(::id), q)))
 
     @PostMapping("/api/v1/announcements")
     fun create(
@@ -58,17 +66,17 @@ class AnnouncementController(
         @RequestBody body: AnnouncementCreateRequest,
     ): ResponseEntity<Map<String, Any?>> {
         val draft = AnnouncementDraft(id(body.classId), nullableId(body.subjectId), body.title, body.body, boolean(body.notify), occurrence(body.occurrence))
-        return ResponseEntity.status(HttpStatus.CREATED).body(createAnnouncement.create(actor(cookie), draft, key ?: throw IllegalArgumentException()))
+        return ResponseEntity.status(HttpStatus.CREATED).body(createAnnouncement.create(CreateAnnouncementDto(actor(cookie), draft, key ?: throw IllegalArgumentException())))
     }
 
     @GetMapping("/api/v1/announcements/{id}")
-    fun get(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = getAnnouncement.announcement(actor(cookie), id(id))
+    fun get(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = getAnnouncement.announcement(GetAnnouncementDto(actor(cookie), id(id)))
 
     @PatchMapping("/api/v1/announcements/{id}")
     fun update(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: AnnouncementEditRequest): Map<String, Any?> {
         val principal = actor(cookie)
         val announcementId = id(id)
-        val current = getAnnouncement.announcement(principal, announcementId)
+        val current = getAnnouncement.announcement(GetAnnouncementDto(principal, announcementId))
         val occurrence = if (body.occurrence.isMissingNode) current["occurrence"]?.let(::mapperNode)?.let(::occurrence) else occurrence(body.occurrence)
         val draft = AnnouncementDraft(
             if (body.classId.isMissingNode) current.getValue("classId") as String else text(body.classId).let(::id),
@@ -78,12 +86,12 @@ class AnnouncementController(
             if (body.notify.isMissingNode) current.getValue("notify") as Boolean else boolean(body.notify),
             occurrence,
         )
-        return updateAnnouncement.update(principal, announcementId, revision(body.expectedRevision), draft)
+        return updateAnnouncement.update(UpdateAnnouncementDto(principal, announcementId, revision(body.expectedRevision), draft))
     }
 
     @PostMapping("/api/v1/announcements/{id}/withdraw")
     fun withdraw(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: AnnouncementRevisionRequest): Map<String, Any?> =
-        withdrawAnnouncement.withdraw(actor(cookie), id(id), revision(body.expectedRevision))
+        withdrawAnnouncement.withdraw(WithdrawAnnouncementDto(actor(cookie), id(id), revision(body.expectedRevision)))
 
     @GetMapping("/api/v1/calendar")
     fun calendar(
@@ -94,10 +102,10 @@ class AnnouncementController(
         @RequestParam(required = false) from: String?,
         @RequestParam(required = false) to: String?,
         @RequestParam(required = false) subjectId: String?,
-    ) = page(listCalendarEvents.calendar(actor(cookie), page, pageSize, sort, from, to, subjectId?.let(::id)))
+    ) = page(listCalendarEvents.calendar(ListCalendarEventsDto(actor(cookie), page, pageSize, sort, from, to, subjectId?.let(::id))))
 
-    private fun actor(cookie: String?): AcademicActor = auth.resolve(cookie).let { AcademicActor(it.user.id, it.user.role, it.user.active, it.user.emailConfirmedAt, it.tokenHash) }
-    private fun page(result: br.com.ajadigital.core.classroom.domain.ports.out.AcademicPage) = mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
+    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
+    private fun page(result: br.com.ajadigital.core.academic.application.models.AcademicPage) = mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     private fun id(value: String) = value.also { require(it.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"))) }
     private fun nullableId(node: JsonNode): String? = if (node.isNull) null else id(text(node))
     private fun text(node: JsonNode) = node.asString().also { require(node.isTextual) }

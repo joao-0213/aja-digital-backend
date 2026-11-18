@@ -1,16 +1,34 @@
 package br.com.ajadigital.core.assessment.adapters.out.persistence
 
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicConflict
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.classroom.domain.exceptions.AcademicNotFound
+import br.com.ajadigital.core.assessment.domain.models.SubmissionStoreSubmissionsDto
+
+import br.com.ajadigital.core.assessment.domain.models.SubmissionStorePendingFeedbackCountDto
+
+import br.com.ajadigital.core.assessment.domain.models.SubmissionStoreSubmissionDto
+
+import br.com.ajadigital.core.assessment.domain.models.SubmissionStoreUpdateDto
+
+import br.com.ajadigital.core.assessment.domain.models.SubmissionStoreSubmitDto
+
+import br.com.ajadigital.core.assessment.domain.models.SubmissionStoreSaveFeedbackDto
+
+import br.com.ajadigital.core.assessment.domain.models.SubmissionStorePublishFeedbackDto
+
+import br.com.ajadigital.core.assessment.domain.models.SubmissionStoreCreateDto
+
+import br.com.ajadigital.core.shared.domain.models.SaveIdempotencyDto
+import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
 import br.com.ajadigital.core.assessment.domain.exceptions.InvalidSubmissionFeedback
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyKeyReuse
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStore
+import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
+import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
 import br.com.ajadigital.core.assessment.domain.models.SubmissionAttachment
 import br.com.ajadigital.core.assessment.domain.models.SubmissionPage
 import br.com.ajadigital.core.assessment.domain.policies.DeadlinePolicy
 import br.com.ajadigital.core.assessment.domain.policies.SubmissionPolicy
-import br.com.ajadigital.core.assessment.domain.ports.out.SubmissionStore
+import br.com.ajadigital.core.assessment.domain.ports.out.SubmissionStoreOutputPort
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
@@ -28,10 +46,11 @@ class JdbcSubmissionStore(
     private val jdbc: JdbcTemplate,
     private val mapper: ObjectMapper,
     private val clock: Clock,
-    private val idempotency: IdempotencyStore,
-) : SubmissionStore {
+    private val idempotency: IdempotencyStoreOutputPort,
+) : SubmissionStoreOutputPort {
     @Transactional
-    override fun create(actorId: String, role: String, sessionHash: String, assessmentId: String, attachments: List<SubmissionAttachment>, key: String, requestHash: String): Map<String, Any?> {
+    override fun create(request: SubmissionStoreCreateDto): Map<String, Any?> {
+        val (actorId, role, sessionHash, assessmentId, attachments, key, requestHash) = request
         lockAuthInvariant(); requireSession(actorId, sessionHash, "student")
         val assessment = studentAssessment(actorId, assessmentId, enforceDeadline = false) ?: throw AcademicNotFound()
         replay(actorId, "createSubmission", "/submissions", key, requestHash)?.let { return it }
@@ -39,7 +58,7 @@ class JdbcSubmissionStore(
         if (existing != null) {
             val row = authorized(actorId, role, sessionHash, existing) ?: throw AcademicNotFound()
             val result = dto(row)
-            idempotency.save(actorId, "createSubmission", "/submissions", key, requestHash, result)
+            idempotency.save(SaveIdempotencyDto(actorId, "createSubmission", "/submissions", key, requestHash, result))
             return result
         }
         if (!DeadlinePolicy.isBeforeDeadline((assessment["deadline"] as Timestamp?)?.toInstant(), assessment["allowLate"] as Boolean, clock.instant())) throw AcademicNotFound()
@@ -50,12 +69,13 @@ class JdbcSubmissionStore(
             VALUES(?,1,?,?,?,?,?,?::jsonb)""", id, now, now, actorId, assessmentId, actorId, attachmentJson(attachments))
         audit(actorId, "academic.submission_created", id)
         val result = authorized(actorId, role, sessionHash, id)?.let(::dto) ?: throw AcademicNotFound()
-        idempotency.save(actorId, "createSubmission", "/submissions", key, requestHash, result)
+        idempotency.save(SaveIdempotencyDto(actorId, "createSubmission", "/submissions", key, requestHash, result))
         return result
     }
 
     @Transactional(readOnly = true)
-    override fun submissions(actorId: String, role: String, sessionHash: String, page: Int, pageSize: Int, sort: String, assessmentId: String?, studentId: String?): SubmissionPage {
+    override fun submissions(request: SubmissionStoreSubmissionsDto): SubmissionPage {
+        val (actorId, role, sessionHash, page, pageSize, sort, assessmentId, studentId) = request
         lockAuthInvariant(); requireSession(actorId, sessionHash)
         if (role == "student" && studentId != null && studentId != actorId) throw AcademicNotFound()
         val clauses = mutableListOf(accessClause(role))
@@ -72,7 +92,8 @@ class JdbcSubmissionStore(
     }
 
     @Transactional(readOnly = true)
-    override fun pendingFeedbackCount(actorId: String, role: String, sessionHash: String): Int {
+    override fun pendingFeedbackCount(request: SubmissionStorePendingFeedbackCountDto): Int {
+        val (actorId, role, sessionHash) = request
         require(role in setOf("teacher", "admin"))
         lockAuthInvariant(); requireSession(actorId, sessionHash, role)
         val where = accessClause(role) + " AND x.feedback_published IS NULL"
@@ -82,13 +103,15 @@ class JdbcSubmissionStore(
     }
 
     @Transactional(readOnly = true)
-    override fun submission(actorId: String, role: String, sessionHash: String, id: String): Map<String, Any?>? {
+    override fun submission(request: SubmissionStoreSubmissionDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id) = request
         lockAuthInvariant(); requireSession(actorId, sessionHash)
         return authorized(actorId, role, sessionHash, id)?.let(::dto)
     }
 
     @Transactional
-    override fun update(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, attachments: List<SubmissionAttachment>?): Map<String, Any?>? {
+    override fun update(request: SubmissionStoreUpdateDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id, expectedRevision, attachments) = request
         lockAuthInvariant(); requireSession(actorId, sessionHash, "student")
         val current = authorized(actorId, role, sessionHash, id, forUpdate = true) ?: return null
         if (current["submittedAt"] != null || current["revision"] != expectedRevision) throw AcademicConflict(current["revision"] as Int)
@@ -103,13 +126,14 @@ class JdbcSubmissionStore(
     }
 
     @Transactional
-    override fun submit(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, key: String, requestHash: String): Map<String, Any?>? {
+    override fun submit(request: SubmissionStoreSubmitDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id, expectedRevision, key, requestHash) = request
         lockAuthInvariant(); requireSession(actorId, sessionHash, "student")
         val current = authorized(actorId, role, sessionHash, id, forUpdate = true) ?: return null
         replay(actorId, "submitSubmission", "/submissions/$id/submit", key, requestHash)?.let { return it }
         if (current["submittedAt"] != null) {
             val result = dto(current)
-            idempotency.save(actorId, "submitSubmission", "/submissions/$id/submit", key, requestHash, result)
+            idempotency.save(SaveIdempotencyDto(actorId, "submitSubmission", "/submissions/$id/submit", key, requestHash, result))
             return result
         }
         if (current["revision"] != expectedRevision) throw AcademicConflict(current["revision"] as Int)
@@ -135,12 +159,13 @@ class JdbcSubmissionStore(
         if (jdbc.update("UPDATE core.submissions SET submitted_at=?,receipt_id=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=? AND submitted_at IS NULL", now, receiptId, now, actorId, id, expectedRevision) != 1) throw AcademicConflict(current["revision"] as Int)
         audit(actorId, "academic.submission_submitted", id)
         val result = authorized(actorId, role, sessionHash, id)?.let(::dto) ?: return null
-        idempotency.save(actorId, "submitSubmission", "/submissions/$id/submit", key, requestHash, result)
+        idempotency.save(SaveIdempotencyDto(actorId, "submitSubmission", "/submissions/$id/submit", key, requestHash, result))
         return result
     }
 
     @Transactional
-    override fun saveFeedback(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, comment: String, grade: BigDecimal?): Map<String, Any?>? {
+    override fun saveFeedback(request: SubmissionStoreSaveFeedbackDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id, expectedRevision, comment, grade) = request
         lockAuthInvariant(); requireSession(actorId, sessionHash, "admin", "teacher")
         val current = feedbackWriteRow(actorId, role, sessionHash, id) ?: return null
         if (current["submittedAt"] == null) throw AcademicNotFound()
@@ -156,7 +181,8 @@ class JdbcSubmissionStore(
     }
 
     @Transactional
-    override fun publishFeedback(actorId: String, role: String, sessionHash: String, id: String, expectedRevision: Int, key: String, requestHash: String): Map<String, Any?>? {
+    override fun publishFeedback(request: SubmissionStorePublishFeedbackDto): Map<String, Any?>? {
+        val (actorId, role, sessionHash, id, expectedRevision, key, requestHash) = request
         lockAuthInvariant(); requireSession(actorId, sessionHash, "admin", "teacher")
         val current = feedbackWriteRow(actorId, role, sessionHash, id) ?: return null
         replay(actorId, "publishSubmissionFeedback", "/submissions/$id/publish-feedback", key, requestHash)?.let { return it }
@@ -172,7 +198,7 @@ class JdbcSubmissionStore(
         jdbc.update("""UPDATE core.submissions SET feedback_draft=NULL,feedback_published=?::jsonb,feedback_history=?::jsonb,feedback_updated=false,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=?""", mapper.writeValueAsString(published), mapper.writeValueAsString(history + published), now, actorId, id, expectedRevision)
         audit(actorId, "academic.feedback_published", id)
         val result = authorized(actorId, role, sessionHash, id)?.let(::dto) ?: return null
-        idempotency.save(actorId, "publishSubmissionFeedback", "/submissions/$id/publish-feedback", key, requestHash, result)
+        idempotency.save(SaveIdempotencyDto(actorId, "publishSubmissionFeedback", "/submissions/$id/publish-feedback", key, requestHash, result))
         return result
     }
 
@@ -239,7 +265,7 @@ class JdbcSubmissionStore(
         val placeholders = accepted.joinToString(",") { "?" }
         if (jdbc.query("SELECT 1 FROM core.users u JOIN core.sessions s ON s.user_id=u.id WHERE u.id=? AND u.active AND u.role IN ($placeholders) AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?", { rs, _ -> rs.getInt(1) }, *(listOf(actorId) + accepted + listOf(hash, Timestamp.from(clock.instant()))).toTypedArray()).isEmpty()) throw AcademicForbidden()
     }
-    private fun replay(actorId: String, operation: String, target: String, key: String, hash: String): Map<String, Any?>? = try { idempotency.find(actorId, operation, target, key, hash) } catch (_: IdempotencyKeyReuse) { throw br.com.ajadigital.core.classroom.domain.exceptions.AcademicIdempotencyConflict() }
+    private fun replay(actorId: String, operation: String, target: String, key: String, hash: String): Map<String, Any?>? = try { idempotency.find(FindIdempotencyDto(actorId, operation, target, key, hash)) } catch (_: IdempotencyKeyReuse) { throw br.com.ajadigital.core.academic.domain.exceptions.AcademicIdempotencyConflict() }
     private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }
     private fun audit(actorId: String, type: String, targetId: String) { jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), type, targetId, actorId) }
 }
