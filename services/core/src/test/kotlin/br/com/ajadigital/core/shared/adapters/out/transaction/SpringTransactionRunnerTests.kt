@@ -22,13 +22,13 @@ import br.com.ajadigital.core.forum.domain.models.TopicDraft
 import br.com.ajadigital.core.forum.domain.ports.out.TopicStoreOutputPort
 import br.com.ajadigital.core.forum.application.usecases.CreateTopicUseCase
 import br.com.ajadigital.core.forum.application.usecases.ReplyToTopicUseCase
-import br.com.ajadigital.core.materials.domain.models.DashboardContent
-import br.com.ajadigital.core.materials.application.models.PublishMaterialsDto
-import br.com.ajadigital.core.materials.domain.models.DownloadedFile
-import br.com.ajadigital.core.materials.domain.models.MaterialCreate
-import br.com.ajadigital.core.materials.domain.models.*
-import br.com.ajadigital.core.materials.application.ports.out.ContentStoreOutputPort
+import br.com.ajadigital.core.materials.adapters.out.serialization.JacksonMaterialPublicationReceipt
+import br.com.ajadigital.core.materials.application.contracts.MaterialKind
+import br.com.ajadigital.core.materials.application.models.*
+import br.com.ajadigital.core.materials.application.ports.out.MaterialWriteOutputPort
 import br.com.ajadigital.core.materials.application.usecases.PublishMaterialsUseCase
+import br.com.ajadigital.core.shared.application.contracts.Page
+import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
 import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -139,33 +139,29 @@ class SpringTransactionRunnerTests {
         }
         var authorizeInTx = false
         var publishInTx = false
-        val contentStore = object : ContentStoreOutputPort {
-            override fun upload(request: br.com.ajadigital.core.materials.application.models.ContentStoreUploadDto): Map<String, Any?> = throw UnsupportedOperationException()
-            override fun provisionQuestionImage(request: br.com.ajadigital.core.materials.domain.models.ContentStoreProvisionQuestionImageDto): Map<String, Any?> = throw UnsupportedOperationException()
-            override fun file(request: br.com.ajadigital.core.materials.domain.models.ContentStoreFileDto): Map<String, Any?>? = throw UnsupportedOperationException()
-            override fun download(request: br.com.ajadigital.core.materials.domain.models.ContentStoreDownloadDto): DownloadedFile? = throw UnsupportedOperationException()
-            override fun discard(request: br.com.ajadigital.core.materials.domain.models.ContentStoreDiscardDto): Unit = throw UnsupportedOperationException()
-            override fun materials(request: br.com.ajadigital.core.materials.domain.models.ContentStoreMaterialsDto): AcademicPage = throw UnsupportedOperationException()
-            override fun material(request: br.com.ajadigital.core.materials.application.models.ContentStoreMaterialDto): Map<String, Any?>? = throw UnsupportedOperationException()
-            override fun authorizeMaterialPublication(request: br.com.ajadigital.core.materials.application.models.ContentStoreAuthorizeMaterialPublicationDto): Unit { authorizeInTx = inTx }
-            override fun publishMaterials(request: br.com.ajadigital.core.materials.application.models.ContentStorePublishMaterialsDto): AcademicPage? = run { publishInTx = inTx; AcademicPage(listOf(mapOf("id" to "mat-1")), 1, 20, 1) }
-            override fun updateMaterial(request: br.com.ajadigital.core.materials.application.models.ContentStoreUpdateMaterialDto): Map<String, Any?>? = throw UnsupportedOperationException()
-            override fun reorderMaterials(request: br.com.ajadigital.core.materials.application.models.ContentStoreReorderMaterialsDto): AcademicPage? = throw UnsupportedOperationException()
-            override fun progress(request: br.com.ajadigital.core.materials.application.models.ContentStoreProgressDto): AcademicPage = throw UnsupportedOperationException()
-            override fun dashboard(request: br.com.ajadigital.core.materials.application.models.ContentStoreDashboardDto): DashboardContent = throw UnsupportedOperationException()
-            override fun recordProgress(request: br.com.ajadigital.core.materials.application.models.ContentStoreRecordProgressDto): Map<String, Any?>? = throw UnsupportedOperationException()
+        val contentStore = object : MaterialWriteOutputPort {
+            override fun authorizeMaterialPublication(actor: AuthenticatedActor, moduleId: String) {
+                authorizeInTx = inTx
+            }
+            override fun publishMaterials(request: StorePublishMaterialsCommand): Page<Material> {
+                publishInTx = inTx
+                return Page(emptyList(), 1, 20, 0)
+            }
+            override fun updateMaterial(request: StoreUpdateMaterialCommand): Material = error("Unexpected update")
+            override fun reorderMaterials(request: ReorderMaterialsCommand): Page<Material> = error("Unexpected reorder")
         }
-        val failingIdempotency = object : IdempotencyStoreOutputPort {
-            override fun find(request: FindIdempotencyDto): Map<String, Any?>? = null
-            override fun save(request: SaveIdempotencyDto) {
+        val failingIdempotency = object : EncodedIdempotencyStoreOutputPort {
+            override fun findEncoded(request: FindIdempotencyDto): String? = null
+            override fun saveEncoded(request: FindIdempotencyDto, response: String) {
                 throw IllegalStateException("idempotency save failed")
             }
         }
 
-        val contentUseCase = PublishMaterialsUseCase(contentStore, failingIdempotency, serializer, runner)
-        assertThrows(IllegalStateException::class.java) {
-            contentUseCase.publish(PublishMaterialsDto(teacher, "idem-pub-1234", "mod-1", 1, listOf(MaterialCreate("mod-1", "L1", "lesson", 10.0, "Body", null, null))))
+        val contentUseCase = PublishMaterialsUseCase(contentStore, failingIdempotency, JacksonMaterialPublicationReceipt(mapper), runner)
+        val failure = assertThrows(IllegalStateException::class.java) {
+            contentUseCase.publish(PublishMaterialsCommand(teacher, "idem-pub-1234", "mod-1", 1, listOf(MaterialDraft("mod-1", "L1", MaterialKind.LESSON, 10.0, "Body", null, null))))
         }
+        assertEquals("idempotency save failed", failure.message)
         assertTrue(authorizeInTx)
         assertTrue(publishInTx)
         assertTrue(rolledBack)

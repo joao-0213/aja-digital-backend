@@ -143,3 +143,7 @@ Curriculum has typed subject, module, order and visit contracts. Pure decisions 
 
 The Ponytail follow-up removed the unused session reference from five store queries, redacted it from seven write and visit DTO descriptions, and protected returned subject and visit lists from source-list and nested mutation. The ArchUnit display name now states the scope of its dependency assertions. The post-fix focused selector passed 44 tests. The final forced Core suite and `build --rerun-tasks --console=plain` each passed 185 tests across 31 suites. All eight actionable build tasks ran in 9m10s. The final production architecture diagnostic reported 197 findings across Core, with zero Curriculum findings. Graphify refreshed the ignored local graph to 4,639 nodes and 12,939 edges. ECC and Ponytail approved after targeted rechecks; the database reviewer approved SQL, lock and receipt equivalence. Host controls did not expose the requested gpt-6-luna-high Ponytail model, so the available gpt-6.2-astra-high reviewer was used and recorded in evidence.
 
+
+## GP-04.2 - Materials
+
+**Status: GP-04.2 complete.** [GP-04.2 evidence](core-golden-path-gp042-evidence.md) records the acceptance checks, post-fix full gate, and independent reviews.

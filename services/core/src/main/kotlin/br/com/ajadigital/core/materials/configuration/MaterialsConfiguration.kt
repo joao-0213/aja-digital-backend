@@ -13,7 +13,13 @@ import br.com.ajadigital.core.materials.application.ports.`in`.RecordMaterialPro
 import br.com.ajadigital.core.materials.application.ports.`in`.ReorderMaterialsInputPort
 import br.com.ajadigital.core.materials.application.ports.`in`.UpdateMaterialInputPort
 import br.com.ajadigital.core.materials.application.ports.`in`.UploadFileInputPort
-import br.com.ajadigital.core.materials.application.ports.out.ContentStoreOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.FileStoreOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.QuestionImageOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.QuestionServiceAccessOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.MaterialReadOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.MaterialWriteOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.LearningProgressOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.MaterialPublicationReceiptOutputPort
 import br.com.ajadigital.core.materials.application.usecases.DiscardFileUseCase
 import br.com.ajadigital.core.materials.application.usecases.DownloadFileUseCase
 import br.com.ajadigital.core.materials.application.usecases.GetDashboardContentUseCase
@@ -27,55 +33,55 @@ import br.com.ajadigital.core.materials.application.usecases.RecordMaterialProgr
 import br.com.ajadigital.core.materials.application.usecases.ReorderMaterialsUseCase
 import br.com.ajadigital.core.materials.application.usecases.UpdateMaterialUseCase
 import br.com.ajadigital.core.materials.application.usecases.UploadFileUseCase
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 
 @Configuration
 class MaterialsConfiguration {
     @Bean
-    fun uploadFile(store: ContentStoreOutputPort): UploadFileInputPort = UploadFileUseCase(store)
+    fun uploadFile(store: FileStoreOutputPort): UploadFileInputPort = UploadFileUseCase(store)
 
     @Bean
-    fun provisionQuestionImage(store: ContentStoreOutputPort): ProvisionQuestionImageInputPort = ProvisionQuestionImageUseCase(store)
+    fun provisionQuestionImage(store: QuestionImageOutputPort, serviceAccess: QuestionServiceAccessOutputPort): ProvisionQuestionImageInputPort =
+        ProvisionQuestionImageUseCase(store, serviceAccess)
 
     @Bean
-    fun getFileMetadata(store: ContentStoreOutputPort): GetFileMetadataInputPort = GetFileMetadataUseCase(store)
+    fun getFileMetadata(store: FileStoreOutputPort): GetFileMetadataInputPort = GetFileMetadataUseCase(store)
 
     @Bean
-    fun downloadFile(store: ContentStoreOutputPort): DownloadFileInputPort = DownloadFileUseCase(store)
+    fun downloadFile(store: FileStoreOutputPort): DownloadFileInputPort = DownloadFileUseCase(store)
 
     @Bean
-    fun discardFile(store: ContentStoreOutputPort): DiscardFileInputPort = DiscardFileUseCase(store)
+    fun discardFile(store: FileStoreOutputPort): DiscardFileInputPort = DiscardFileUseCase(store)
 
     @Bean
-    fun listMaterials(store: ContentStoreOutputPort): ListMaterialsInputPort = ListMaterialsUseCase(store)
+    fun listMaterials(store: MaterialReadOutputPort): ListMaterialsInputPort = ListMaterialsUseCase(store)
 
     @Bean
-    fun getMaterial(store: ContentStoreOutputPort): GetMaterialInputPort = GetMaterialUseCase(store)
+    fun getMaterial(store: MaterialReadOutputPort): GetMaterialInputPort = GetMaterialUseCase(store)
 
     @Bean
     fun publishMaterials(
-        store: ContentStoreOutputPort,
-        idempotency: IdempotencyStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
+        store: MaterialWriteOutputPort,
+        idempotency: EncodedIdempotencyStoreOutputPort,
+        codec: MaterialPublicationReceiptOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): PublishMaterialsInputPort = PublishMaterialsUseCase(store, idempotency, mapper, transactionRunner)
+    ): PublishMaterialsInputPort = PublishMaterialsUseCase(store, idempotency, codec, transactionRunner)
 
     @Bean
-    fun updateMaterial(store: ContentStoreOutputPort): UpdateMaterialInputPort = UpdateMaterialUseCase(store)
+    fun updateMaterial(store: MaterialWriteOutputPort): UpdateMaterialInputPort = UpdateMaterialUseCase(store)
 
     @Bean
-    fun reorderMaterials(store: ContentStoreOutputPort): ReorderMaterialsInputPort = ReorderMaterialsUseCase(store)
+    fun reorderMaterials(store: MaterialWriteOutputPort): ReorderMaterialsInputPort = ReorderMaterialsUseCase(store)
 
     @Bean
-    fun getLearningProgress(store: ContentStoreOutputPort): GetLearningProgressInputPort = GetLearningProgressUseCase(store)
+    fun getLearningProgress(store: LearningProgressOutputPort): GetLearningProgressInputPort = GetLearningProgressUseCase(store)
 
     @Bean
-    fun getDashboardContent(store: ContentStoreOutputPort): GetDashboardContentInputPort = GetDashboardContentUseCase(store)
+    fun getDashboardContent(store: LearningProgressOutputPort): GetDashboardContentInputPort = GetDashboardContentUseCase(store)
 
     @Bean
-    fun recordMaterialProgress(store: ContentStoreOutputPort): RecordMaterialProgressInputPort = RecordMaterialProgressUseCase(store)
+    fun recordMaterialProgress(store: LearningProgressOutputPort): RecordMaterialProgressInputPort = RecordMaterialProgressUseCase(store)
 }

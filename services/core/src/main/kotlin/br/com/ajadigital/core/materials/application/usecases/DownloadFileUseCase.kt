@@ -1,17 +1,16 @@
 package br.com.ajadigital.core.materials.application.usecases
-import br.com.ajadigital.core.materials.application.models.*
 
-import br.com.ajadigital.core.materials.domain.models.ContentStoreDownloadDto
-
-import br.com.ajadigital.core.materials.application.models.DownloadFileDto
-
-import br.com.ajadigital.core.materials.domain.policies.MaterialsPolicy
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
-import br.com.ajadigital.core.materials.domain.models.DownloadedFile
+import br.com.ajadigital.core.materials.application.models.DownloadFileQuery
+import br.com.ajadigital.core.materials.application.models.DownloadedFile
 import br.com.ajadigital.core.materials.application.ports.`in`.DownloadFileInputPort
-import br.com.ajadigital.core.materials.application.ports.out.ContentStoreOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.FileStoreOutputPort
+import br.com.ajadigital.core.materials.domain.exceptions.MaterialsNotFound
+import br.com.ajadigital.core.materials.domain.policies.MaterialRules
 
-class DownloadFileUseCase(private val store: ContentStoreOutputPort) : DownloadFileInputPort {
-    override fun download(request: DownloadFileDto): DownloadedFile = run { val (actor, id, disposition) = request; store.download(ContentStoreDownloadDto(MaterialsPolicy.id(id), actor.id, actor.role, actor.sessionValidationReference, disposition)) ?: throw AcademicNotFound() }
+class DownloadFileUseCase(private val store: FileStoreOutputPort) : DownloadFileInputPort {
+    override fun download(request: DownloadFileQuery): DownloadedFile {
+        MaterialRules.id(request.id)
+        request.actor.requireSessionRole()
+        return store.download(request) ?: throw MaterialsNotFound()
+    }
 }

@@ -1,11 +1,24 @@
 package br.com.ajadigital.core.materials
 import br.com.ajadigital.core.CoreIntegrationTestBase
+import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
+import br.com.ajadigital.core.materials.application.models.GetMaterialQuery
+import br.com.ajadigital.core.materials.application.models.ListMaterialsQuery
+import br.com.ajadigital.core.materials.application.models.MaterialSort
+import br.com.ajadigital.core.materials.application.ports.`in`.GetMaterialInputPort
+import br.com.ajadigital.core.materials.application.ports.`in`.ListMaterialsInputPort
+import br.com.ajadigital.core.materials.application.ports.out.FileStoreOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.MaterialWriteOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.QuestionImageOutputPort
+import br.com.ajadigital.core.materials.domain.exceptions.MaterialsNotFound
+import org.junit.jupiter.api.Assertions.assertAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart
 import org.springframework.mock.web.MockMultipartFile
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.test.web.servlet.post
 import org.springframework.test.web.servlet.patch
 import org.springframework.test.web.servlet.get
@@ -13,8 +26,110 @@ import jakarta.servlet.http.Cookie
 import java.time.Duration
 import java.security.MessageDigest
 import java.util.UUID
+import tools.jackson.databind.json.JsonMapper
 
 class MaterialsIntegrationTests : CoreIntegrationTestBase() {
+    @Autowired private lateinit var actors: ResolveAuthenticatedActorInputPort
+    @Autowired private lateinit var files: FileStoreOutputPort
+    @Autowired private lateinit var questions: QuestionImageOutputPort
+    @Autowired private lateinit var writes: MaterialWriteOutputPort
+    @Autowired private lateinit var readMaterial: GetMaterialInputPort
+    @Autowired private lateinit var listMaterials: ListMaterialsInputPort
+
+    @Test
+    fun pagesBeyondIntOffsetReturnNoItemsAndKeepTheirTotal() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (moduleId, materialId) = publishLesson(adminCookie, teacherCookie, teacherId)
+        val progress = liveHttp("PATCH", "/me/progress", teacherCookie, """{"materialId":"$materialId","completed":true}""")
+        assertEquals(200, progress.statusCode(), progress.body())
+        val page = 1_073_741_825
+        val size = 4
+        val paging = "page=$page&pageSize=$size"
+
+        fun assertBeyondEnd(body: String, status: Int) {
+            assertEquals(200, status, body)
+            val result = JsonMapper.builder().build().readTree(body)
+            assertEquals(page, result.get("page").intValue())
+            assertEquals(size, result.get("pageSize").intValue())
+            assertEquals(1, result.get("total").intValue())
+            assertEquals(0, result.get("items").size())
+        }
+
+        assertAll(
+            {
+                val result = liveHttp("GET", "/materials?moduleId=$moduleId&$paging", teacherCookie)
+                assertBeyondEnd(result.body(), result.statusCode())
+            },
+            {
+                val result = liveHttp("GET", "/me/progress?materialId=$materialId&$paging", teacherCookie)
+                assertBeyondEnd(result.body(), result.statusCode())
+            },
+            {
+                val result = liveHttp("POST", "/modules/$moduleId/reorder-materials?$paging", teacherCookie,
+                    """{"expectedRevision":2,"items":[{"id":"$materialId","expectedRevision":1}]}""")
+                assertBeyondEnd(result.body(), result.statusCode())
+                assertEquals(2, jdbc.queryForObject("SELECT revision FROM core.materials WHERE id=?", Int::class.java, materialId))
+            },
+        )
+    }
+
+    @Test
+    fun materialVisibilityUsesCurrentRoleForAnAlreadyResolvedActor() {
+        val (adminCookie, adminId) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (moduleId, materialId) = publishLesson(adminCookie, teacherCookie, teacherId)
+        val retainedActor = actors.resolve(adminCookie)
+        val query = GetMaterialQuery(retainedActor, materialId)
+        val listQuery = ListMaterialsQuery(retainedActor, 1, 20, MaterialSort.ASCENDING, moduleId, null)
+        assertEquals("admin", retainedActor.role)
+        assertEquals(materialId, readMaterial.material(query).material.id)
+        assertEquals(1, listMaterials.materials(listQuery).total)
+
+        // Preserve the session to isolate role revalidation from account commands that revoke it.
+        assertEquals(1, jdbc.update("UPDATE core.users SET role='teacher' WHERE id=?", adminId))
+        try {
+            assertEquals("teacher", actors.resolve(adminCookie).role)
+            assertThrows(MaterialsNotFound::class.java) { readMaterial.material(query) }
+            assertEquals(0, listMaterials.materials(listQuery).total)
+        } finally {
+            jdbc.update("UPDATE core.users SET role='admin' WHERE id=?", adminId)
+        }
+    }
+
+    private fun publishLesson(adminCookie: String, teacherCookie: String, teacherId: String): Pair<String, String> {
+        val classId = createB06Class(adminCookie)
+        val subjectId = createB06Subject(adminCookie, classId, teacherId)
+        val mapper = JsonMapper.builder().build()
+        val module = liveHttp("POST", "/modules", teacherCookie, """{"subjectId":"$subjectId","title":"Materials fixture","description":""}""", "module-${UUID.randomUUID()}")
+        assertEquals(201, module.statusCode(), module.body())
+        val moduleId = mapper.readTree(module.body()).get("id").asString()
+        val published = liveHttp(
+            "POST", "/materials/batch", teacherCookie,
+            """{"moduleId":"$moduleId","expectedRevision":1,"items":[{"moduleId":"$moduleId","title":"Lesson","kind":"lesson","duration":1,"content":"Body"}]}""",
+            "batch-${UUID.randomUUID()}",
+        )
+        assertEquals(201, published.statusCode(), published.body())
+        return moduleId to mapper.readTree(published.body()).at("/items/0/id").asString()
+    }
+
+    @Test
+    fun jdbcStoresMeetTheSharedMaterialsPortContracts() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (otherCookie, _) = userSession("teacher")
+        val classId = createB06Class(adminCookie)
+        val subjectId = createB06Subject(adminCookie, classId, teacherId)
+        val created = liveHttp("POST", "/modules", teacherCookie, """{"subjectId":"$subjectId","title":"Port contract module","description":""}""", "module-contract-${UUID.randomUUID()}")
+        assertEquals(201, created.statusCode(), created.body())
+        val moduleId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.body()).get("id").asString()
+        val actor = actors.resolve(teacherCookie)
+        val other = actors.resolve(otherCookie)
+        MaterialsPortContract.stagedFile(files, actor, other, moduleId)
+        MaterialsPortContract.immutableQuestionImage(questions, "contract-${UUID.randomUUID()}")
+        MaterialsPortContract.materialWrites(writes, actor, other, moduleId)
+    }
+
     @Test
     fun stagedMaterialFileIsStoredAndReadableOnlyByItsAuthorizedOwner() {
         val (adminCookie, _) = adminSession()
@@ -218,13 +333,24 @@ class MaterialsIntegrationTests : CoreIntegrationTestBase() {
             content = command
         }.andExpect { status { isCreated() }; jsonPath("$.total") { value(1) } }.andReturn()
         val materialId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(published.response.contentAsString).get("items").get(0).get("id").asText()
-        mvc.post("/api/v1/materials/batch") {
+        val historicalFingerprint = """{"moduleId":"$moduleId","expectedRevision":1,"items":[{"moduleId":"$moduleId","title":"PDF lesson","kind":"pdf","duration":10.0,"content":"","fileId":"$fileId","videoUrl":null}]}"""
+        val hash = java.security.MessageDigest.getInstance("SHA-256").digest(historicalFingerprint.toByteArray()).joinToString("") { "%02x".format(it) }
+        val receipt = jdbc.queryForMap("SELECT request_hash,response_body FROM core.command_idempotency WHERE actor_id=? AND operation='publishMaterials' AND target='/materials/batch' AND idempotency_key=?", teacherId, batchKey)
+        assertEquals(hash, receipt["request_hash"])
+        val publication = tools.jackson.databind.json.JsonMapper.builder().build().readTree(published.response.contentAsString).at("/items/0")
+        val createdAt = publication.get("createdAt").asText()
+        val updatedAt = publication.get("updatedAt").asText()
+        val authorName = publication.at("/author/name").asText()
+        val historicalReceipt = """{"items":[{"id":"$materialId","revision":1,"createdAt":"$createdAt","updatedAt":"$updatedAt","updatedBy":"$teacherId","moduleId":"$moduleId","title":"PDF lesson","kind":"pdf","duration":10.0,"content":"","fileId":"$fileId","videoUrl":null,"file":{"id":"$fileId","name":"lesson.pdf","size":${upload.size},"mime":"application/pdf","purpose":"material","parentId":"$moduleId","status":"attached","downloadUrl":"/api/v1/files/$fileId/content"},"author":{"id":"$teacherId","name":"$authorName"},"order":0}],"page":1,"pageSize":1,"total":1}"""
+        assertEquals(historicalReceipt, receipt["response_body"])
+        val replay = mvc.post("/api/v1/materials/batch") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
             header("Idempotency-Key", batchKey)
             cookie(Cookie("aja_session", teacherCookie))
-            content = command
-        }.andExpect { status { isCreated() }; jsonPath("$.items[0].id") { value(materialId) } }
+            content = command.replace("\"fileId\":\"$fileId\"", "\"fileId\":\"$fileId\",\"videoUrl\":null")
+        }.andExpect { status { isCreated() }; jsonPath("$.items[0].id") { value(materialId) } }.andReturn()
+        assertEquals(published.response.contentAsString, replay.response.contentAsString)
         val material = liveHttp("GET", "/materials/$materialId", teacherCookie)
         assertEquals(200, material.statusCode(), material.body())
         val materialBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(material.body())
@@ -263,6 +389,11 @@ class MaterialsIntegrationTests : CoreIntegrationTestBase() {
         )
         assertEquals(201, created.statusCode(), created.body())
         val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.body()).get("items").get(0).get("id").asText()
+
+        val cannotChangeLessonSource = liveHttp("PATCH", "/materials/$id", teacherCookie, """{"expectedRevision":1,"videoUrl":"https://example.test/video"}""")
+        assertEquals(422, cannotChangeLessonSource.statusCode(), cannotChangeLessonSource.body())
+        val error = tools.jackson.databind.json.JsonMapper.builder().build().readTree(cannotChangeLessonSource.body())
+        assertEquals("VALIDATION_ERROR", error.at("/error/code").asString())
 
         val updated = liveHttp("PATCH", "/materials/$id", teacherCookie, """{"expectedRevision":1,"title":"Updated","duration":12,"content":"Revised body"}""")
 

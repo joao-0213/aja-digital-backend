@@ -1,11 +1,9 @@
 package br.com.ajadigital.core.materials.application.ports.`in`
-import br.com.ajadigital.core.materials.application.models.*
 
-import br.com.ajadigital.core.materials.application.models.PublishMaterialsDto
+import br.com.ajadigital.core.materials.application.models.Material
+import br.com.ajadigital.core.materials.application.models.PublishMaterialsCommand
+import br.com.ajadigital.core.shared.application.contracts.Page
 
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
-import br.com.ajadigital.core.materials.domain.models.MaterialCreate
-
-interface PublishMaterialsInputPort {
-    fun publish(request: PublishMaterialsDto): Map<String, Any?>
+fun interface PublishMaterialsInputPort {
+    fun publish(request: PublishMaterialsCommand): Page<Material>
 }

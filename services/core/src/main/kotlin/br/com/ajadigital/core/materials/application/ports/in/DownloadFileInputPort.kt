@@ -1,11 +1,8 @@
 package br.com.ajadigital.core.materials.application.ports.`in`
-import br.com.ajadigital.core.materials.application.models.*
 
-import br.com.ajadigital.core.materials.application.models.DownloadFileDto
+import br.com.ajadigital.core.materials.application.models.DownloadFileQuery
+import br.com.ajadigital.core.materials.application.models.DownloadedFile
 
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
-import br.com.ajadigital.core.materials.domain.models.DownloadedFile
-
-interface DownloadFileInputPort {
-    fun download(request: DownloadFileDto): DownloadedFile
+fun interface DownloadFileInputPort {
+    fun download(request: DownloadFileQuery): DownloadedFile
 }

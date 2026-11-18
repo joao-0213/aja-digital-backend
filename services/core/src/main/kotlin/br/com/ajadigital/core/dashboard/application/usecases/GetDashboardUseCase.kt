@@ -63,9 +63,9 @@ class GetDashboardUseCase(
     }
 
     private fun studentDashboard(actor: AuthenticatedActor, summary: Map<String, Any?>): Map<String, Any?> {
-        val contentProjection = dashboardContent.dashboard(br.com.ajadigital.core.materials.application.models.GetDashboardContentDto(actor))
+        val contentProjection = dashboardContent.dashboard(actor)
         return summary + mapOf(
-            "resume" to contentProjection.resume,
+            "resume" to contentProjection.resume?.let { mapOf("id" to it.id, "title" to it.title, "moduleId" to it.moduleId, "kind" to it.kind.value) },
             "progress" to contentProjection.progress,
             "completedMaterials" to contentProjection.completedMaterials,
             "totalMaterials" to contentProjection.totalMaterials,

@@ -1,23 +1,20 @@
 package br.com.ajadigital.core.materials.application.usecases
-import br.com.ajadigital.core.materials.application.models.*
 
-import br.com.ajadigital.core.materials.domain.models.ContentStoreMaterialsDto
-
-import br.com.ajadigital.core.materials.application.models.ListMaterialsDto
-
-import br.com.ajadigital.core.materials.domain.policies.MaterialsPolicy
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
-import br.com.ajadigital.core.academic.domain.contracts.AcademicPage
+import br.com.ajadigital.core.materials.application.models.ListMaterialsQuery
+import br.com.ajadigital.core.materials.application.models.Material
+import br.com.ajadigital.core.materials.application.models.StoreMaterialsQuery
 import br.com.ajadigital.core.materials.application.ports.`in`.ListMaterialsInputPort
-import br.com.ajadigital.core.materials.application.ports.out.ContentStoreOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.MaterialReadOutputPort
+import br.com.ajadigital.core.materials.domain.policies.MaterialRules
+import br.com.ajadigital.core.shared.application.contracts.Page
 
-class ListMaterialsUseCase(private val store: ContentStoreOutputPort) : ListMaterialsInputPort {
-    override fun materials(request: ListMaterialsDto): AcademicPage {
-                val (actor, page, size, sort, moduleId, subjectId) = request
-        MaterialsPolicy.reader(actor)
-        require(page > 0 && size in 1..100 && sort in setOf("order", "-order"))
-        require(moduleId == null || MaterialsPolicy.validId(moduleId))
-        require(subjectId == null || MaterialsPolicy.validId(subjectId))
-        return store.materials(ContentStoreMaterialsDto(actor.id, actor.role, actor.sessionValidationReference, page, size, sort, moduleId, subjectId))
+class ListMaterialsUseCase(private val store: MaterialReadOutputPort) : ListMaterialsInputPort {
+    override fun materials(request: ListMaterialsQuery): Page<Material> {
+        val (actor, page, size, sort, moduleId, subjectId) = request
+        actor.requireReader()
+        require(page > 0 && size in 1..100 && sort != null)
+        require(moduleId == null || MaterialRules.validId(moduleId))
+        require(subjectId == null || MaterialRules.validId(subjectId))
+        return store.materials(StoreMaterialsQuery(actor, page, size, sort, moduleId, subjectId))
     }
 }

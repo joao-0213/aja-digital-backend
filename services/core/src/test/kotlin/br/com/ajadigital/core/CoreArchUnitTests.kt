@@ -152,6 +152,25 @@ class CoreArchUnitTests {
     }
 
     @Test
+    fun `materials ports use typed contracts and feature dependencies stay within the inventory`() {
+        val classes = production.toList()
+        val ports = CoreContractTypeAnalyzer.selectRoots(classes).filter {
+            it.packageName.startsWith("br.com.ajadigital.core.materials.") && it.simpleName.endsWith("Port")
+        }
+        val portNames = ports.map { it.simpleName }.toSet()
+        assertTrue(portNames.containsAll(setOf("FileStoreOutputPort", "MaterialWriteOutputPort", "PublishMaterialsInputPort", "GetDashboardContentInputPort")))
+        val findings = CoreContractTypeAnalyzer.analyze(classes, ports)
+        assertTrue(findings.isEmpty(), findings.joinToString("\n"))
+        noClasses().that().resideInAPackage("..materials..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                "..academic..", "..curriculum..", "..assessment..", "..forum..", "..dashboard..",
+                "..identity.application.models..", "..identity.application.usecases..",
+                "..identity.application.ports.out..", "..identity.adapters..", "..identity.configuration..",
+            )
+            .check(production)
+    }
+
+    @Test
     fun `contract walker preserves project generic bindings and only allows exact transaction callback`() {
         val fixtures = ClassFileImporter().importClasses(
             br.com.ajadigital.core.architecture.contractfixtures.application.contracts.Page::class.java,
