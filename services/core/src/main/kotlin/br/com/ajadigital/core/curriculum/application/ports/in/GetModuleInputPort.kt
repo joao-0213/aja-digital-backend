@@ -1,8 +1,8 @@
 package br.com.ajadigital.core.curriculum.application.ports.`in`
-import br.com.ajadigital.core.curriculum.application.models.*
 
-import br.com.ajadigital.core.curriculum.application.models.GetModuleDto
+import br.com.ajadigital.core.curriculum.application.models.GetModuleQuery
+import br.com.ajadigital.core.curriculum.application.models.Module
 
 interface GetModuleInputPort {
-    fun module(request: GetModuleDto): Map<String, Any?>
+    fun module(request: GetModuleQuery): Module
 }

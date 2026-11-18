@@ -14,6 +14,8 @@ import br.com.ajadigital.core.academic.application.ports.`in`.CountMyPendingEnro
 import br.com.ajadigital.core.academic.application.ports.`in`.ListDashboardClassesInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.ListEnrollmentsInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.ListStudentsInputPort
+import br.com.ajadigital.core.curriculum.application.contracts.ListSubjectsQuery
+import br.com.ajadigital.core.curriculum.application.contracts.SubjectSummary
 import br.com.ajadigital.core.curriculum.application.ports.`in`.ListSubjectsInputPort
 import br.com.ajadigital.core.dashboard.application.ports.`in`.GetDashboardInputPort
 import br.com.ajadigital.core.dashboard.application.models.GetDashboardDto
@@ -42,14 +44,14 @@ class GetDashboardUseCase(
     override fun dashboard(request: GetDashboardDto): Map<String, Any?> {
         val (actor) = request
         require(actor.active && actor.role in setOf("student", "teacher", "admin") && (actor.role != "student" || actor.emailConfirmedAt != null)) { throw AcademicForbidden() }
-        val subjectsPage = subjects.subjects(br.com.ajadigital.core.curriculum.application.models.ListSubjectsDto(actor, 1, LIMIT, "id", null, null))
+        val subjectsPage = subjects.subjects(ListSubjectsQuery(actor, 1, LIMIT, "id", null, null))
         val assessmentPage = dashboardAssessments.dashboardAssessments(br.com.ajadigital.core.assessment.application.models.ListDashboardAssessmentsDto(actor, LIMIT))
         val announcementItems = dashboardAnnouncements.dashboardAnnouncements(ListDashboardAnnouncementsDto(actor, 5))
         val today = LocalDate.ofInstant(clock.instant(), BRASILIA)
         val upcomingItems = dashboardUpcoming.dashboardUpcoming(ListDashboardUpcomingEventsDto(actor, today, today.plusDays(30), 5))
         val topicItems = dashboardTopics.dashboardTopics(ListDashboardTopicsDto(actor))
         val summary = mapOf(
-            "subjects" to subjectsPage.items.map { it.project(SUBJECT_FIELDS) },
+            "subjects" to subjectsPage.items.map(::subjectProjection),
             "assessments" to items(assessmentPage).map { it.project(ASSESSMENT_FIELDS) },
             "announcements" to announcementItems,
             "upcoming" to upcomingItems,
@@ -84,13 +86,23 @@ class GetDashboardUseCase(
         )
     }
 
+    private fun subjectProjection(summary: SubjectSummary): Map<String, Any?> {
+        val subject = summary.subject
+        return mapOf(
+            "id" to subject.id, "revision" to subject.revision, "createdAt" to subject.createdAt,
+            "updatedAt" to subject.updatedAt, "updatedBy" to subject.updatedBy, "classId" to subject.classId,
+            "name" to subject.name, "teacherIds" to subject.teacherIds, "color" to subject.color,
+            "icon" to subject.icon, "description" to subject.description, "className" to summary.className,
+            "teachers" to summary.teachers, "canManageContent" to summary.canManageContent, "hasUpdates" to summary.hasUpdates,
+        )
+    }
+
     private fun items(page: Map<String, Any?>) = (page["items"] as? List<*>)?.filterIsInstance<Map<String, Any?>>().orEmpty()
     private fun Map<String, Any?>.project(fields: Set<String>) = filterKeys(fields::contains)
 
     private companion object {
         const val LIMIT = 100
         val BRASILIA: ZoneId = ZoneId.of("America/Sao_Paulo")
-        val SUBJECT_FIELDS = setOf("id", "revision", "createdAt", "updatedAt", "updatedBy", "classId", "className", "name", "teacherIds", "color", "icon", "description", "teachers", "canManageContent", "hasUpdates")
         val CLASS_FIELDS = setOf("id", "revision", "createdAt", "updatedAt", "updatedBy", "name", "code", "year", "shift", "active", "studentCount")
         val ASSESSMENT_FIELDS = setOf("id", "revision", "createdAt", "updatedAt", "updatedBy", "moduleId", "title", "description", "kind", "maxGrade", "deadline", "required", "allowLate", "status", "publishedAt", "questionCount", "assigned", "subjectName")
     }

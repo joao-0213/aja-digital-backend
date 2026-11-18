@@ -1,8 +1,8 @@
 package br.com.ajadigital.core.curriculum.application.ports.`in`
-import br.com.ajadigital.core.curriculum.application.models.*
 
-import br.com.ajadigital.core.curriculum.application.models.CreateModuleDto
+import br.com.ajadigital.core.curriculum.application.models.CreateModuleCommand
+import br.com.ajadigital.core.curriculum.application.models.Module
 
 interface CreateModuleInputPort {
-    fun createModule(request: CreateModuleDto): Map<String, Any?>
+    fun createModule(request: CreateModuleCommand): Module
 }

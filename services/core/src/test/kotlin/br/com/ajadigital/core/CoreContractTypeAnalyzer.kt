@@ -10,6 +10,16 @@ import com.tngtech.archunit.core.domain.JavaClasses
 
 /** Traverses only declared port signatures and project contract properties; library types are leaves. */
 internal object CoreContractTypeAnalyzer {
+    private val publishedTypes = setOf(
+        "br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor",
+        "br.com.ajadigital.core.curriculum.application.contracts.ListSubjectsQuery",
+        "br.com.ajadigital.core.curriculum.application.contracts.SubjectSummary",
+        "br.com.ajadigital.core.curriculum.application.contracts.Subject",
+        "br.com.ajadigital.core.curriculum.application.contracts.SubjectTeacher",
+        "br.com.ajadigital.core.shared.application.contracts.FieldChange",
+        "br.com.ajadigital.core.shared.application.contracts.Page",
+    )
+
     fun analyze(classes: JavaClasses): List<String> {
         val imported = classes.toList()
         val roots = selectRoots(imported)
@@ -110,6 +120,7 @@ internal object CoreContractTypeAnalyzer {
         val rootFeature = root.packageName.split('.').getOrNull(4)
         val nestedFeature = type.packageName.split('.').getOrNull(4)
         if (rootFeature != null && nestedFeature != null && rootFeature != nestedFeature &&
+            type.name !in publishedTypes &&
             (type.packageName.contains(".adapters.") || type.packageName.contains(".domain.") || type.packageName.contains(".application."))) {
             add("${root.name}: references internal cross-feature type ${type.name}")
         }

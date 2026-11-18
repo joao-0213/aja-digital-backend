@@ -1,8 +1,8 @@
 package br.com.ajadigital.core.curriculum.application.ports.`in`
-import br.com.ajadigital.core.curriculum.application.models.*
 
-import br.com.ajadigital.core.curriculum.application.models.ListSubjectModulesDto
+import br.com.ajadigital.core.curriculum.application.models.ListSubjectModulesQuery
+import br.com.ajadigital.core.curriculum.application.models.Module
 
 interface ListSubjectModulesInputPort {
-    fun subjectModules(request: ListSubjectModulesDto): List<Map<String, Any?>>
+    fun subjectModules(request: ListSubjectModulesQuery): List<Module>
 }

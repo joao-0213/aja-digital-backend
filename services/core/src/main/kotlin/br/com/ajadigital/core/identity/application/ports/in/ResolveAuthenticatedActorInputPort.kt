@@ -5,5 +5,7 @@ import br.com.ajadigital.core.identity.application.models.ResolveStudentSessionD
 
 /** Resolves only the published actor facts required by other feature applications. */
 interface ResolveAuthenticatedActorInputPort {
+    fun resolve(sessionCookie: String?): AuthenticatedActor = resolve(ResolveStudentSessionDto(sessionCookie))
+
     fun resolve(request: ResolveStudentSessionDto): AuthenticatedActor
 }

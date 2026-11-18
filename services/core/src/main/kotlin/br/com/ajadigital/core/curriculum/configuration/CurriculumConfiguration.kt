@@ -11,7 +11,7 @@ import br.com.ajadigital.core.curriculum.application.ports.`in`.ReorderModulesIn
 import br.com.ajadigital.core.curriculum.application.ports.`in`.UpdateModuleInputPort
 import br.com.ajadigital.core.curriculum.application.ports.`in`.UpdateSubjectInputPort
 import br.com.ajadigital.core.curriculum.application.ports.`in`.VisitSubjectInputPort
-import br.com.ajadigital.core.curriculum.domain.ports.out.SubjectStoreOutputPort
+import br.com.ajadigital.core.curriculum.application.ports.out.SubjectStoreOutputPort
 import br.com.ajadigital.core.curriculum.application.usecases.CreateModuleUseCase
 import br.com.ajadigital.core.curriculum.application.usecases.CreateSubjectUseCase
 import br.com.ajadigital.core.curriculum.application.usecases.GetModuleUseCase
@@ -23,11 +23,11 @@ import br.com.ajadigital.core.curriculum.application.usecases.ReorderModulesUseC
 import br.com.ajadigital.core.curriculum.application.usecases.UpdateModuleUseCase
 import br.com.ajadigital.core.curriculum.application.usecases.UpdateSubjectUseCase
 import br.com.ajadigital.core.curriculum.application.usecases.VisitSubjectUseCase
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
+import br.com.ajadigital.core.curriculum.application.ports.out.CurriculumReceiptCodecOutputPort
 
 @Configuration
 class CurriculumConfiguration {
@@ -43,10 +43,10 @@ class CurriculumConfiguration {
     @Bean
     fun createSubject(
         store: SubjectStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
-        idempotency: IdempotencyStoreOutputPort,
+        codec: CurriculumReceiptCodecOutputPort,
+        idempotency: EncodedIdempotencyStoreOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): CreateSubjectInputPort = CreateSubjectUseCase(store, mapper, idempotency, transactionRunner)
+    ): CreateSubjectInputPort = CreateSubjectUseCase(store, codec, idempotency, transactionRunner)
 
     @Bean
     fun updateSubject(
@@ -63,10 +63,10 @@ class CurriculumConfiguration {
     @Bean
     fun createModule(
         store: SubjectStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
-        idempotency: IdempotencyStoreOutputPort,
+        codec: CurriculumReceiptCodecOutputPort,
+        idempotency: EncodedIdempotencyStoreOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): CreateModuleInputPort = CreateModuleUseCase(store, mapper, idempotency, transactionRunner)
+    ): CreateModuleInputPort = CreateModuleUseCase(store, codec, idempotency, transactionRunner)
 
     @Bean
     fun updateModule(

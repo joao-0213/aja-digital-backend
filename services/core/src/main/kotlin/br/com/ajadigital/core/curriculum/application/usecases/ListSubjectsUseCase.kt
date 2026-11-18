@@ -1,22 +1,23 @@
 package br.com.ajadigital.core.curriculum.application.usecases
-import br.com.ajadigital.core.curriculum.application.models.*
 
-import br.com.ajadigital.core.curriculum.domain.policies.CurriculumPolicy
-
-import br.com.ajadigital.core.curriculum.domain.models.*
-
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
-import br.com.ajadigital.core.academic.domain.contracts.AcademicPage
+import br.com.ajadigital.core.curriculum.application.contracts.ListSubjectsQuery
+import br.com.ajadigital.core.curriculum.application.contracts.SubjectSummary
+import br.com.ajadigital.core.curriculum.application.models.store.StoreListSubjectsQuery
 import br.com.ajadigital.core.curriculum.application.ports.`in`.ListSubjectsInputPort
-import br.com.ajadigital.core.curriculum.application.models.ListSubjectsDto
-import br.com.ajadigital.core.curriculum.domain.ports.out.SubjectStoreOutputPort
+import br.com.ajadigital.core.curriculum.application.ports.out.SubjectStoreOutputPort
+import br.com.ajadigital.core.curriculum.domain.policies.CurriculumPolicy
+import br.com.ajadigital.core.shared.application.contracts.Page
 
 class ListSubjectsUseCase(
     private val store: SubjectStoreOutputPort,
 ) : ListSubjectsInputPort {
-    override fun subjects(request: ListSubjectsDto): AcademicPage {
+    override fun subjects(request: ListSubjectsQuery): Page<SubjectSummary> {
         val (actor, page, size, sort, classId, query) = request
-                CurriculumPolicy.requireReader(actor)
-        return store.subjects(ListSubjectsRecordDto(actor.id, actor.role, actor.sessionValidationReference, CurriculumPolicy.checkedPage(page), CurriculumPolicy.checkedSize(size), CurriculumPolicy.checkedSort(sort), classId, query?.trim()))
+        CurriculumPolicy.requireReader(actor.active, actor.role, actor.emailConfirmedAt != null)
+        return store.subjects(StoreListSubjectsQuery(
+            actor.id, actor.role,
+            CurriculumPolicy.checkedPage(page), CurriculumPolicy.checkedSize(size),
+            CurriculumPolicy.checkedSort(sort), classId, query?.trim(),
+        ))
     }
 }

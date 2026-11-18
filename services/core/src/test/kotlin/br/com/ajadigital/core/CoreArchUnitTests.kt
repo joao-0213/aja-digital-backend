@@ -134,6 +134,24 @@ class CoreArchUnitTests {
     }
 
     @Test
+    fun `curriculum ports have typed contracts and avoid Academic and selected Identity packages`() {
+        val classes = production.toList()
+        val ports = CoreContractTypeAnalyzer.selectRoots(classes).filter {
+            it.packageName.startsWith("br.com.ajadigital.core.curriculum.") && it.simpleName.endsWith("Port")
+        }
+        assertTrue(ports.any { it.simpleName == "SubjectStoreOutputPort" })
+        assertTrue(ports.any { it.simpleName == "ListSubjectsInputPort" })
+        val findings = CoreContractTypeAnalyzer.analyze(classes, ports)
+        assertTrue(findings.isEmpty(), findings.joinToString("\n"))
+        noClasses().that().resideInAPackage("..curriculum..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                "..academic..", "..identity.application.models..", "..identity.application.usecases..",
+                "..identity.application.ports.out..", "..identity.adapters..", "..identity.configuration..",
+            )
+            .check(production)
+    }
+
+    @Test
     fun `contract walker preserves project generic bindings and only allows exact transaction callback`() {
         val fixtures = ClassFileImporter().importClasses(
             br.com.ajadigital.core.architecture.contractfixtures.application.contracts.Page::class.java,

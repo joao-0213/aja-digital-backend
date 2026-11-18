@@ -71,17 +71,19 @@ class IdentityApplicationUseCaseTests {
         val sessionResolver = object : ResolveSessionInputPort {
             override fun resolve(request: ResolveStudentSessionDto): SessionRecord = session
         }
-        val actorPort = ResolveAuthenticatedActorUseCase(sessionResolver)
+        val actorPort: ResolveAuthenticatedActorInputPort = ResolveAuthenticatedActorUseCase(sessionResolver)
 
-        val actor = actorPort.resolve(ResolveStudentSessionDto("cookie"))
-        val declaredReturnType = ResolveAuthenticatedActorInputPort::class.java.methods.single { it.name == "resolve" }.returnType
+        val actors = listOf(actorPort.resolve(ResolveStudentSessionDto("cookie")), actorPort.resolve("cookie"))
+        val declaredReturnTypes = ResolveAuthenticatedActorInputPort::class.java.methods
+            .filter { it.name == "resolve" }.map { it.returnType }.toSet()
 
-        assertEquals(AuthenticatedActor::class.java, declaredReturnType)
-        assertEquals("user-1", actor.id)
-        assertEquals("teacher", actor.role)
-        org.junit.jupiter.api.Assertions.assertFalse(SessionRecord::class.java.isAssignableFrom(declaredReturnType))
-        org.junit.jupiter.api.Assertions.assertFalse(actor.toString().contains("opaque-token-hash"))
-        org.junit.jupiter.api.Assertions.assertFalse(actor.toString().contains("session-id"))
+        assertEquals(setOf(AuthenticatedActor::class.java), declaredReturnTypes)
+        actors.forEach { actor ->
+            assertEquals("user-1", actor.id)
+            assertEquals("teacher", actor.role)
+            org.junit.jupiter.api.Assertions.assertFalse(actor.toString().contains("opaque-token-hash"))
+            org.junit.jupiter.api.Assertions.assertFalse(actor.toString().contains("session-id"))
+        }
     }
 
     private inline fun <reified T> proxy(crossinline answer: (String, Array<out Any?>) -> Any?): T =

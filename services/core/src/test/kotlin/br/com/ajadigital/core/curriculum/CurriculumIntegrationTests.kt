@@ -1,5 +1,6 @@
 package br.com.ajadigital.core.curriculum
 import br.com.ajadigital.core.CoreIntegrationTestBase
+import br.com.ajadigital.core.curriculum.application.ports.out.SubjectStoreOutputPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -10,13 +11,135 @@ import org.springframework.test.web.servlet.patch
 import org.springframework.test.web.servlet.get
 import jakarta.servlet.http.Cookie
 import java.sql.DriverManager
+import java.sql.Timestamp
+import java.security.MessageDigest
+import java.time.Duration
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import org.springframework.beans.factory.annotation.Autowired
+import tools.jackson.databind.json.JsonMapper
 
 class CurriculumIntegrationTests : CoreIntegrationTestBase() {
+    @Autowired private lateinit var curriculumStore: SubjectStoreOutputPort
+
+    @Test
+    fun postgresStoreHonorsTheCriticalCurriculumPortContract() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (outsiderCookie, outsiderId) = userSession("teacher")
+        val subjectId = createB06Subject(adminCookie, createB06Class(adminCookie), teacherId)
+        val json = JsonMapper.builder().build()
+        val (first, second) = listOf("First", "Second").map { title ->
+            val response = liveHttp("POST", "/modules", teacherCookie,
+                """{"subjectId":"$subjectId","title":"$title","description":""}""", "module-${UUID.randomUUID()}")
+            assertEquals(201, response.statusCode(), response.body())
+            json.readTree(response.body()).get("id").asText()
+        }
+        listOf("material:observed", "notice:later").forEach { publication ->
+            jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?)", subjectId, publication)
+        }
+        assertCurriculumStoreContract(curriculumStore, teacherId, legacyHash(teacherCookie), outsiderId,
+            legacyHash(outsiderCookie), subjectId, first, second)
+    }
+
+    @Test
+    fun liveCurriculumPreservesLegacyReceiptBytesAndReplaysExistingReceipts() {
+        mutableClock.freezeAt(Instant.now().truncatedTo(ChronoUnit.SECONDS))
+        val (adminCookie, adminId) = adminSession()
+        val (_, firstTeacher) = userSession("teacher")
+        val (_, secondTeacher) = userSession("teacher")
+        val classId = createB06Class(adminCookie)
+        val (first, second) = listOf(firstTeacher, secondTeacher).sorted()
+        val subjectKey = "subject-${UUID.randomUUID()}"
+        val subjectCommand = """{"classId":"$classId","name":"  Currículo  ","teacherIds":["$second","$first"],"color":"blue","icon":"book","description":""}"""
+        val json = JsonMapper.builder().build()
+
+        val subject = liveHttp("POST", "/subjects", adminCookie, subjectCommand, subjectKey)
+        assertEquals(201, subject.statusCode(), subject.body())
+        val subjectId = json.readTree(subject.body()).get("id").asText()
+        val timestamp = mutableClock.instant().toString()
+        val subjectReceipt = """{"id":"$subjectId","revision":1,"createdAt":"$timestamp","updatedAt":"$timestamp","updatedBy":"$adminId","classId":"$classId","name":"Currículo","teacherIds":["$first","$second"],"color":"blue","icon":"book","description":""}"""
+        assertLegacyReceipt(adminId, "createSubject", "/subjects", subjectKey, subjectCommand, subjectReceipt)
+        assertEquals(json.readTree(subjectReceipt), json.readTree(subject.body()))
+
+        val subjects = liveHttp("GET", "/subjects?pageSize=1&sort=-id&classId=$classId", adminCookie)
+        assertEquals(200, subjects.statusCode(), subjects.body())
+        val summary = json.readTree(subjects.body()).at("/items/0")
+        assertEquals(subjectId, summary.get("id").asText())
+        assertEquals(2, summary.get("teachers").size())
+        assertEquals("B06 gate", summary.get("className").asText())
+
+        val omitted = liveHttp("PATCH", "/subjects/$subjectId", adminCookie, """{"expectedRevision":1,"description":""}""")
+        assertEquals(200, omitted.statusCode(), omitted.body())
+        assertEquals(2, json.readTree(omitted.body()).get("teacherIds").size())
+        val explicitNull = liveHttp("PATCH", "/subjects/$subjectId", adminCookie, """{"expectedRevision":2,"teacherIds":null}""")
+        assertEquals(422, explicitNull.statusCode(), explicitNull.body())
+        val cleared = liveHttp("PATCH", "/subjects/$subjectId", adminCookie, """{"expectedRevision":2,"teacherIds":[]}""")
+        assertEquals(200, cleared.statusCode(), cleared.body())
+        assertEquals(0, json.readTree(cleared.body()).get("teacherIds").size())
+        val permuted = subjectCommand.replace("\"$second\",\"$first\"", "\"$first\",\"$second\"")
+        val reuse = liveHttp("POST", "/subjects", adminCookie, permuted, subjectKey)
+        assertEquals(409, reuse.statusCode(), reuse.body())
+        assertEquals("IDEMPOTENCY_CONFLICT", json.readTree(reuse.body()).at("/error/code").asText())
+
+        val moduleKey = "module-${UUID.randomUUID()}"
+        val moduleCommand = """{"subjectId":"$subjectId","title":"  Módulo  ","description":""}"""
+        val module = liveHttp("POST", "/modules", adminCookie, moduleCommand, moduleKey)
+        assertEquals(201, module.statusCode(), module.body())
+        val moduleId = json.readTree(module.body()).get("id").asText()
+        val moduleReceipt = """{"id":"$moduleId","revision":1,"createdAt":"$timestamp","updatedAt":"$timestamp","updatedBy":"$adminId","subjectId":"$subjectId","title":"Módulo","description":"","order":0}"""
+        assertLegacyReceipt(adminId, "createModule", "/modules", moduleKey, moduleCommand, moduleReceipt)
+        assertEquals(json.readTree(moduleReceipt), json.readTree(module.body()))
+
+        listOf(
+            listOf("createSubject", "/subjects", subjectCommand, subjectReceipt),
+            listOf("createModule", "/modules", moduleCommand, moduleReceipt),
+        ).forEach { (operation, target, command, receipt) ->
+            val oldKey = "legacy-${UUID.randomUUID()}"
+            val legacyReceipt = receipt.replace("\"revision\":1", "\"revision\":7")
+            val now = mutableClock.instant()
+            jdbc.update("""INSERT INTO core.command_idempotency(actor_id,operation,target,idempotency_key,request_hash,response_body,created_at,expires_at)
+                VALUES(?,?,?,?,?,?,?,?)""", adminId, operation, target, oldKey, legacyHash(command), legacyReceipt,
+                Timestamp.from(now.minusSeconds(1)), Timestamp.from(now.plusSeconds(86399)))
+            val replay = liveHttp("POST", target, adminCookie, command, oldKey)
+            assertEquals(201, replay.statusCode(), replay.body())
+            assertEquals(json.readTree(legacyReceipt), json.readTree(replay.body()))
+            assertEquals(legacyReceipt, jdbc.queryForObject(
+                "SELECT response_body FROM core.command_idempotency WHERE actor_id=? AND operation=? AND target=? AND idempotency_key=?",
+                String::class.java, adminId, operation, target, oldKey,
+            ))
+        }
+
+        val expiration = mutableClock.instant()
+        jdbc.update("UPDATE core.command_idempotency SET created_at=?, expires_at=? WHERE actor_id=? AND operation='createModule' AND idempotency_key=?",
+            Timestamp.from(expiration.minus(Duration.ofHours(24))), Timestamp.from(expiration), adminId, moduleKey)
+        val replacement = moduleCommand.replace("Módulo", "Novo")
+        val afterExpiry = liveHttp("POST", "/modules", adminCookie, replacement, moduleKey)
+        assertEquals(201, afterExpiry.statusCode(), afterExpiry.body())
+        assertEquals(1, json.readTree(afterExpiry.body()).get("order").asInt())
+        assertEquals("Novo", json.readTree(afterExpiry.body()).get("title").asText())
+    }
+
+    private fun assertLegacyReceipt(actorId: String, operation: String, target: String, key: String, request: String, expected: String) {
+        val receipt = jdbc.queryForMap(
+            "SELECT request_hash,response_body,created_at,expires_at FROM core.command_idempotency WHERE actor_id=? AND operation=? AND target=? AND idempotency_key=?",
+            actorId, operation, target, key,
+        )
+        assertEquals(legacyHash(request), receipt["request_hash"])
+        assertEquals(expected, receipt["response_body"])
+        val createdAt = (receipt["created_at"] as Timestamp).toInstant()
+        val expiresAt = (receipt["expires_at"] as Timestamp).toInstant()
+        assertEquals(Duration.ofHours(24), Duration.between(createdAt, expiresAt))
+    }
+
+    private fun legacyHash(value: String): String =
+        MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+
     @Test
     fun userAndClassReadAndPatchOperationsReturnTheirCurrentRepresentations() {
         val (adminCookie, _) = adminSession()

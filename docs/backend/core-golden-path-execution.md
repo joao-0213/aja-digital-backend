@@ -135,3 +135,11 @@ The architecture report still records structural violations, including an identi
 
 GP-03 is complete. The one outbox assertion failure is accepted as a non-reproduced timing flake after the isolated method and subsequent full build suite passed. ECC/Ponytail targeted rechecks approve the fixes and evidence; database review is approved. Core architecture compliance and downstream R-07 application migration remain pending later authorized work.
 
+## GP-04.1 — Curriculum
+
+**Status: GP-04.1 complete.** Starting revision `bf8b5a0`. The existing unrelated worktree files are outside GP-04.1. [GP-04.1 evidence](core-golden-path-gp041-evidence.md) records the preflight, scoped architecture RED/GREEN, live receipt compatibility, shared in-memory/PostgreSQL store contract, final gates, and independent reviews.
+
+Curriculum has typed subject, module, order and visit contracts. Pure decisions cover module ordering and observed publication merging. Curriculum translates its own errors, and Dashboard consumes its existing bounded subject-list capability. The receipt codec preserves the historical create fingerprints and receipt format. The underlying PostgreSQL SQL, authorization/lock order and writes retain their existing behavior.
+
+The Ponytail follow-up removed the unused session reference from five store queries, redacted it from seven write and visit DTO descriptions, and protected returned subject and visit lists from source-list and nested mutation. The ArchUnit display name now states the scope of its dependency assertions. The post-fix focused selector passed 44 tests. The final forced Core suite and `build --rerun-tasks --console=plain` each passed 185 tests across 31 suites. All eight actionable build tasks ran in 9m10s. The final production architecture diagnostic reported 197 findings across Core, with zero Curriculum findings. Graphify refreshed the ignored local graph to 4,639 nodes and 12,939 edges. ECC and Ponytail approved after targeted rechecks; the database reviewer approved SQL, lock and receipt equivalence. Host controls did not expose the requested gpt-6-luna-high Ponytail model, so the available gpt-6.2-astra-high reviewer was used and recorded in evidence.
+
