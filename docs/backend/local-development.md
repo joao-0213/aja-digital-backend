@@ -1,5 +1,26 @@
 # Backend local development
 
+## Integrated stack
+
+For one-command local startup, copy `env.integrated.example` to `.env.integrated` and run this from the repository root:
+
+```powershell
+Copy-Item env.integrated.example .env.integrated
+docker compose --env-file .env.integrated -f compose.integrated.yaml -p aja-integrated up --build --wait
+```
+
+The public API base is `http://127.0.0.1:3002/api/v1`. Only the gateway is published; PostgreSQL, RabbitMQ, the service HTTP ports, actuator routes, and private interfaces stay on the Compose network. Use the same hostname for the frontend and gateway (`127.0.0.1` by default) so the `SameSite=Lax` session cookie works. The sample CORS allowlist includes `localhost` and `127.0.0.1` on ports 3000 and 3002; if changing the gateway host or port, also update `CORE_PUBLIC_API_URL`.
+
+The sample credentials and encryption key are for a disposable local environment only. Email uses the intentionally failing `127.0.0.1:9` provider URL, so delivery will retry until `EMAIL_PROVIDER_URL` points at a compatible provider. `EMAIL_ACTION_BASE_URL` must point to the frontend that handles confirmation and reset links.
+
+```powershell
+docker compose --env-file .env.integrated -f compose.integrated.yaml -p aja-integrated ps
+docker compose --env-file .env.integrated -f compose.integrated.yaml -p aja-integrated logs -f core questions email
+docker compose --env-file .env.integrated -f compose.integrated.yaml -p aja-integrated down
+```
+
+Run `python scripts/check-gateway-routes.py` after changing OpenAPI paths or gateway route rules to check the 98 public operations against service ownership and verify private paths remain excluded.
+
 Prerequisites: JDK 21 and Docker Compose. The services run as separate processes and connect to real PostgreSQL and RabbitMQ dependencies. Set local-only credentials in the environment; do not commit `.env` files or real secrets.
 
 ## Start dependencies

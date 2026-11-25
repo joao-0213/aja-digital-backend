@@ -1,0 +1,129 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: aja
+      POSTGRES_USER: ${POSTGRES_USER:?copy env.integrated.example to .env.integrated}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      CORE_DATABASE_PASSWORD: ${CORE_DATABASE_PASSWORD:?}
+      QUESTIONS_DATABASE_PASSWORD: ${QUESTIONS_DATABASE_PASSWORD:?}
+      EMAIL_DATABASE_PASSWORD: ${EMAIL_DATABASE_PASSWORD:?}
+    volumes:
+      - integrated-postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+      - ./infra/postgres/roles.sql:/opt/aja/roles.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d aja"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  core:
+    build:
+      context: .
+      dockerfile: infra/docker/service.Dockerfile
+      args: { SERVICE: core }
+    environment:
+      SERVER_PORT: 8081
+      CORE_DATABASE_URL: jdbc:postgresql://postgres:5432/aja?currentSchema=core
+      CORE_DATABASE_USER: core
+      CORE_DATABASE_PASSWORD: ${CORE_DATABASE_PASSWORD:?}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:?}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?}
+      CORE_OUTBOX_ENCRYPTION_KEY: ${CORE_OUTBOX_ENCRYPTION_KEY:?}
+      CORE_OUTBOX_OPERATOR_TOKEN: ${CORE_OUTBOX_OPERATOR_TOKEN:?}
+      CORE_QUESTIONS_SERVICE_TOKEN: ${CORE_QUESTIONS_SERVICE_TOKEN:?}
+      CORE_QUESTIONS_SNAPSHOTS_URL: http://questions:8082/internal/v1/snapshots
+      API_ALLOWED_ORIGINS: ${API_ALLOWED_ORIGINS:?}
+      AJA_COOKIE_SECURE: ${AJA_COOKIE_SECURE:-false}
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8081/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  questions:
+    build:
+      context: .
+      dockerfile: infra/docker/service.Dockerfile
+      args: { SERVICE: questions }
+    environment:
+      SERVER_PORT: 8082
+      QUESTIONS_DATABASE_URL: jdbc:postgresql://postgres:5432/aja?currentSchema=questions
+      QUESTIONS_DATABASE_USER: questions
+      QUESTIONS_DATABASE_PASSWORD: ${QUESTIONS_DATABASE_PASSWORD:?}
+      CORE_QUESTIONS_SERVICE_TOKEN: ${CORE_QUESTIONS_SERVICE_TOKEN:?}
+      CORE_INTERNAL_SESSION_URL: http://core:8081/internal/v1/session
+      CORE_PUBLIC_API_URL: ${CORE_PUBLIC_API_URL:?}
+      API_ALLOWED_ORIGINS: ${API_ALLOWED_ORIGINS:?}
+    depends_on:
+      postgres: { condition: service_healthy }
+      core: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8082/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  email:
+    build:
+      context: .
+      dockerfile: infra/docker/service.Dockerfile
+      args: { SERVICE: email }
+    environment:
+      SERVER_PORT: 8083
+      EMAIL_DATABASE_URL: jdbc:postgresql://postgres:5432/aja?currentSchema=email
+      EMAIL_DATABASE_USER: email
+      EMAIL_DATABASE_PASSWORD: ${EMAIL_DATABASE_PASSWORD:?}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:?}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?}
+      CORE_OUTBOX_ENCRYPTION_KEY: ${CORE_OUTBOX_ENCRYPTION_KEY:?}
+      EMAIL_DELIVERY_OPERATOR_TOKEN: ${EMAIL_DELIVERY_OPERATOR_TOKEN:?}
+      EMAIL_PROVIDER_URL: ${EMAIL_PROVIDER_URL:-http://127.0.0.1:9/email}
+      EMAIL_PROVIDER_TOKEN: ${EMAIL_PROVIDER_TOKEN:-}
+      EMAIL_ACTION_BASE_URL: ${EMAIL_ACTION_BASE_URL:-http://localhost:3000}
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8083/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  gateway:
+    build:
+      context: ./infra/docker
+      dockerfile: gateway.Dockerfile
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-3002}:8080"
+    depends_on:
+      core: { condition: service_healthy }
+      questions: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/api/v1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  integrated-postgres-data:

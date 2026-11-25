@@ -12,4 +12,4 @@ Comece por [`ARQUITETURA.md`](ARQUITETURA.md), [`AGENTS.md`](AGENTS.md), o cabe�
 
 As [skills locais](docs/agents/skills.md) preservam a pipeline de execução e incluem as nove orientações técnicas aprovadas. O [Graphify](docs/graphify.md) indexa os contratos e as issues localmente; seus artefatos não são versionados. Veja as [verificações da preparação](docs/setup-validation.md).
 
-Este repositório tem Git próprio, sem remoto configurado. A cópia dos contratos não modifica o frontend nem configura comunicação entre os repositórios. API Gateway, integração de telas e implementação das issues exigem trabalho posterior explicitamente solicitado.
+Este repositório tem Git próprio, sem remoto configurado. A cópia dos contratos não modifica o frontend nem configura comunicação entre os repositórios. O gateway de entrada é entregue separadamente por INT-02; integração de telas e implementação das issues seguem como trabalho distinto. Veja o [ambiente integrado local](docs/backend/local-development.md#integrated-stack).

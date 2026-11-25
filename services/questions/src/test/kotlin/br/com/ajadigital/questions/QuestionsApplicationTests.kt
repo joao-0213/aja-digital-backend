@@ -120,6 +120,7 @@ class QuestionsApplicationTests @Autowired constructor(
         openApiCoverage.unauthenticatedProbes().forEach { (method, path, body) ->
             val request = java.net.http.HttpRequest.newBuilder(URI("http://localhost:$port/api/v1$path"))
                 .header("Content-Type", "application/json")
+                .header("Origin", "http://127.0.0.1:3000")
                 .method(method, body?.let(java.net.http.HttpRequest.BodyPublishers::ofString) ?: java.net.http.HttpRequest.BodyPublishers.noBody())
                 .build()
             val response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString())
@@ -312,6 +313,7 @@ class QuestionsApplicationTests @Autowired constructor(
             .exchange { _, response -> response.statusCode.value() }
         assertEquals(422, duplicate)
         val publicPath = client.post().uri("http://localhost:$port/api/v1/internal/v1/snapshots")
+            .header("Origin", "http://127.0.0.1:3000")
             .header("X-AJA-Service-Token", "questions-core-test-token-0123456789")
             .contentType(MediaType.APPLICATION_JSON).body("""{"ids":["q1"]}""")
             .exchange { _, response -> response.statusCode.value() }
@@ -325,6 +327,7 @@ class QuestionsApplicationTests @Autowired constructor(
 
     private fun postPractice(id: String, choice: Int, cookie: String = "A".repeat(43), query: String = ""): Pair<Int, String> = RestClient.create().post()
         .uri("http://localhost:$port/api/v1/questions/$id/practice$query")
+        .header("Origin", "http://127.0.0.1:3000")
         .header("Cookie", "aja_session=$cookie")
         .contentType(MediaType.APPLICATION_JSON).body("""{"choice":$choice}""")
         .exchange { _, response -> response.statusCode.value() to response.body.readAllBytes().decodeToString() }
@@ -408,6 +411,7 @@ class QuestionsApplicationTests @Autowired constructor(
             registry.add("questions.core.internal-session-url") { "http://127.0.0.1:${coreSessionServer.address.port}/internal/v1/session" }
             registry.add("questions.core.service-token") { "questions-core-test-token-0123456789" }
             registry.add("questions.core.public-api-url") { "http://localhost:8081/api/v1" }
+            registry.add("API_ALLOWED_ORIGINS") { "http://127.0.0.1:3000" }
         }
 
         @AfterAll @JvmStatic fun stopCoreSessionServer() = coreSessionServer.stop(0)

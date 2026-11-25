@@ -4,6 +4,8 @@ import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.core.Ordered
+import org.springframework.core.annotation.Order
 import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
 import java.net.URI
@@ -11,6 +13,7 @@ import java.util.Collections
 import java.util.UUID
 
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
 class OriginFilter(@Value("\${API_ALLOWED_ORIGINS:}") allowedOrigins: String) : OncePerRequestFilter() {
     private val allowed = allowedOrigins.split(',').map(String::trim).filter(String::isNotEmpty).toSet()
 
@@ -28,18 +31,19 @@ class OriginFilter(@Value("\${API_ALLOWED_ORIGINS:}") allowedOrigins: String) : 
         }
         response.setHeader("Access-Control-Allow-Origin", origin)
         response.setHeader("Access-Control-Allow-Credentials", "true")
+        response.setHeader("Access-Control-Expose-Headers", "Content-Disposition, X-Content-Type-Options")
         response.addHeader("Vary", "Origin")
         if (request.method == "OPTIONS" && request.getHeader("Access-Control-Request-Method") != null) {
             val methods = Collections.list(request.getHeaders("Access-Control-Request-Method"))
             val method = methods.singleOrNull()?.uppercase()
             val requestHeaders = Collections.list(request.getHeaders("Access-Control-Request-Headers"))
             val headers = requestHeaders.flatMap { it.split(',') }.map(String::trim).filter(String::isNotEmpty)
-            if (method !in setOf("POST", "PATCH") || headers.any { it.lowercase() != "content-type" }) {
+            if (method !in setOf("POST", "PATCH") || headers.any { it.lowercase() !in setOf("content-type", "idempotency-key") }) {
                 reject(response)
                 return
             }
             response.setHeader("Access-Control-Allow-Methods", method)
-            if (headers.isNotEmpty()) response.setHeader("Access-Control-Allow-Headers", "content-type")
+            if (headers.isNotEmpty()) response.setHeader("Access-Control-Allow-Headers", headers.joinToString(", ") { it.lowercase() })
             response.addHeader("Vary", "Access-Control-Request-Method")
             response.addHeader("Vary", "Access-Control-Request-Headers")
             response.status = HttpServletResponse.SC_NO_CONTENT

@@ -15,7 +15,7 @@ import java.util.UUID
 
 
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 class FileUploadSessionFilter(
     private val auth: ResolveAuthenticatedActorInputPort,
     private val serviceAccess: QuestionServiceAccessOutputPort,

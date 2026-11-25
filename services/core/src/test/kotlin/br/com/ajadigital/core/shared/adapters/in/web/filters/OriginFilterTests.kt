@@ -7,6 +7,9 @@ import org.junit.jupiter.api.Test
 import org.springframework.mock.web.MockFilterChain
 import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.mock.web.MockHttpServletResponse
+import org.springframework.core.Ordered
+import org.springframework.core.annotation.Order
+import br.com.ajadigital.core.materials.adapters.`in`.filters.FileUploadSessionFilter
 
 class OriginFilterTests {
     private val filter = OriginFilter("http://127.0.0.1:3000")
@@ -126,5 +129,32 @@ class OriginFilterTests {
         filter.doFilter(unsupportedMethod, response, chain)
         assertEquals(403, response.status)
         assertNull(chain.request)
+    }
+
+    @Test
+    fun `allows idempotency key in preflight and exposes download headers`() {
+        val request = MockHttpServletRequest("OPTIONS", "/api/v1/attempts").apply {
+            addHeader("Origin", "http://127.0.0.1:3000")
+            addHeader("Access-Control-Request-Method", "POST")
+            addHeader("Access-Control-Request-Headers", "content-type, idempotency-key")
+        }
+        val response = MockHttpServletResponse()
+        filter.doFilter(request, response, MockFilterChain())
+        assertEquals(204, response.status)
+        assertEquals("content-type, idempotency-key", response.getHeader("Access-Control-Allow-Headers"))
+
+        val download = MockHttpServletResponse()
+        filter.doFilter(MockHttpServletRequest("GET", "/api/v1/files/f1/content").apply {
+            addHeader("Origin", "http://127.0.0.1:3000")
+        }, download, MockFilterChain())
+        assertEquals("Content-Disposition, X-Content-Type-Options", download.getHeader("Access-Control-Expose-Headers"))
+    }
+
+    @Test
+    fun `checks origin before authenticating multipart uploads`() {
+        val originOrder = OriginFilter::class.java.getAnnotation(Order::class.java).value
+        val uploadOrder = FileUploadSessionFilter::class.java.getAnnotation(Order::class.java).value
+        assertEquals(Ordered.HIGHEST_PRECEDENCE, originOrder)
+        assertEquals(Ordered.HIGHEST_PRECEDENCE + 1, uploadOrder)
     }
 }

@@ -1,6 +1,6 @@
 # Ownership das operações backend
 
-Esta matriz atribui cada operação pública do OpenAPI 1.0.8 ao serviço que a implementará. São contratos-alvo do frontend atual, não prova de que os três serviços já existam. Caminhos são relativos a `/api/v1`. O gateway e a integração com frontend estão fora da etapa atual.
+Esta matriz atribui cada operação pública do OpenAPI 1.0.8 ao serviço que a implementará. São contratos-alvo do frontend atual, não prova de que os três serviços já existam. Caminhos são relativos a `/api/v1`. O gateway de entrada é entregue separadamente por INT-02 e encaminha sem alterar ownership; integração com frontend segue fora da etapa atual.
 
 ## Superfície pública
 

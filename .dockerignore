@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+**/*.env
+env.integrated
+graphify-out
+**/build
+**/.gradle
+**/runtime
+**/logs

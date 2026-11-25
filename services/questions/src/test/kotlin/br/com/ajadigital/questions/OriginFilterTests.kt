@@ -35,4 +35,39 @@ class OriginFilterTests {
         assertNull(chain.request)
         assertNull(response.getHeader("Access-Control-Allow-Origin"))
     }
+
+    @Test
+    fun `answers practice preflight and exposes safe download headers`() {
+        val request = MockHttpServletRequest("OPTIONS", "/api/v1/questions/q1/practice").apply {
+            addHeader("Origin", "http://127.0.0.1:3000")
+            addHeader("Access-Control-Request-Method", "POST")
+            addHeader("Access-Control-Request-Headers", "content-type")
+        }
+        val response = MockHttpServletResponse()
+        val chain = MockFilterChain()
+        filter.doFilter(request, response, chain)
+        assertEquals(204, response.status)
+        assertEquals("POST", response.getHeader("Access-Control-Allow-Methods"))
+        assertEquals("content-type", response.getHeader("Access-Control-Allow-Headers"))
+        assertNull(chain.request)
+
+        val download = MockHttpServletResponse()
+        filter.doFilter(MockHttpServletRequest("GET", "/api/v1/questions/q1").apply {
+            addHeader("Origin", "http://127.0.0.1:3000")
+        }, download, MockFilterChain())
+        assertEquals("Content-Disposition, X-Content-Type-Options", download.getHeader("Access-Control-Expose-Headers"))
+    }
+
+    @Test
+    fun `requires allowed origin for public writes and exempts private calls`() {
+        val deniedResponse = MockHttpServletResponse()
+        val deniedChain = MockFilterChain()
+        filter.doFilter(MockHttpServletRequest("POST", "/api/v1/questions/q1/practice"), deniedResponse, deniedChain)
+        assertEquals(403, deniedResponse.status)
+        assertNull(deniedChain.request)
+
+        val privateChain = MockFilterChain()
+        filter.doFilter(MockHttpServletRequest("POST", "/internal/v1/snapshots"), MockHttpServletResponse(), privateChain)
+        assertNotNull(privateChain.request)
+    }
 }
