@@ -102,6 +102,7 @@ abstract class CoreIntegrationTestBase {
             .redirectOutput(processLog.toFile())
             .apply {
                 environment().putAll(mapOf(
+                    "API_ALLOWED_ORIGINS" to "https://aja.example.test",
                     "QUESTIONS_DATABASE_URL" to "${postgres.jdbcUrl}&currentSchema=questions",
                     "QUESTIONS_DATABASE_USER" to "questions",
                     "QUESTIONS_DATABASE_PASSWORD" to "questions-test",

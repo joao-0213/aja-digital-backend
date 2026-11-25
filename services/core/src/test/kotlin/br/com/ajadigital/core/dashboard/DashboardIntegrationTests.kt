@@ -39,6 +39,58 @@ class DashboardIntegrationTests : CoreIntegrationTestBase() {
     }
 
     @Test
+    fun teacherClassReadsIncludeAssignedArchiveAndHideOtherAssignments() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (_, otherTeacherId) = userSession("teacher")
+        val assignedClassId = createB06Class(adminCookie)
+        val archivedClassId = createB06Class(adminCookie)
+        val otherTeacherClassId = createB06Class(adminCookie)
+        val unassignedClassId = createB06Class(adminCookie)
+        val (_, assignedStudentId) = userSession("student")
+        val (_, historicalStudentId) = userSession("student")
+        val (_, otherTeacherStudentId) = userSession("student")
+        createB06Subject(adminCookie, assignedClassId, teacherId)
+        createB06Subject(adminCookie, archivedClassId, teacherId)
+        createB06Subject(adminCookie, otherTeacherClassId, otherTeacherId)
+        createB07Enrollment(assignedClassId, assignedStudentId, teacherId)
+        val historicalEnrollmentId = createB07Enrollment(archivedClassId, historicalStudentId, teacherId)
+        jdbc.update("UPDATE core.enrollments SET status='ended',ended_at=? WHERE id=?", java.sql.Timestamp.from(mutableClock.instant()), historicalEnrollmentId)
+        createB07Enrollment(otherTeacherClassId, otherTeacherStudentId, otherTeacherId)
+        val pendingEmail = "pending-${UUID.randomUUID()}@aja.local.test"
+        assertEquals(201, liveHttp("POST", "/enrollments", adminCookie, """{"classId":"$assignedClassId","email":"$pendingEmail"}""", "pending-${UUID.randomUUID()}").statusCode())
+        assertEquals(200, liveHttp("POST", "/classes/$archivedClassId/close", adminCookie, """{"expectedRevision":1}""", "close-${UUID.randomUUID()}").statusCode())
+
+        val mapper = tools.jackson.databind.json.JsonMapper.builder().build()
+        val classes = mapper.readTree(liveHttp("GET", "/classes?page=1&pageSize=100", teacherCookie).body())
+        assertEquals(2, classes.get("total").intValue(), classes.toString())
+        assertEquals(setOf(assignedClassId, archivedClassId), classes.get("items").mapNotNull { it.get("id")?.asText() }.toSet(), classes.toString())
+        assertEquals(200, liveHttp("GET", "/classes/$assignedClassId", teacherCookie).statusCode())
+        assertEquals(200, liveHttp("GET", "/classes/$archivedClassId", teacherCookie).statusCode())
+        assertEquals(404, liveHttp("GET", "/classes/$otherTeacherClassId", teacherCookie).statusCode())
+        assertEquals(404, liveHttp("GET", "/classes/$unassignedClassId", teacherCookie).statusCode())
+
+        val students = mapper.readTree(liveHttp("GET", "/students?classId=$assignedClassId&page=1&pageSize=100", teacherCookie).body())
+        assertEquals(1, students.get("total").intValue(), students.toString())
+        assertEquals(setOf(assignedStudentId), students.get("items").mapNotNull { it.get("id")?.asText() }.toSet(), students.toString())
+        val studentHistory = mapper.readTree(liveHttp("GET", "/students?classId=$archivedClassId&history=true&page=1&pageSize=100", teacherCookie).body())
+        assertEquals(setOf(historicalStudentId), studentHistory.get("items").mapNotNull { it.get("id")?.asText() }.toSet(), studentHistory.toString())
+        assertEquals(200, liveHttp("GET", "/students/$assignedStudentId", teacherCookie).statusCode())
+        val historicalDetail = mapper.readTree(liveHttp("GET", "/students/$historicalStudentId", teacherCookie).body())
+        assertEquals(setOf(historicalEnrollmentId), historicalDetail.get("enrollments").mapNotNull { it.get("id")?.asText() }.toSet(), historicalDetail.toString())
+        assertEquals(404, liveHttp("GET", "/students/$otherTeacherStudentId", teacherCookie).statusCode())
+
+        val enrollments = mapper.readTree(liveHttp("GET", "/enrollments?classId=$assignedClassId&page=1&pageSize=100", teacherCookie).body())
+        assertEquals(1, enrollments.get("total").intValue(), enrollments.toString())
+        assertEquals(setOf(assignedStudentId), enrollments.get("items").mapNotNull { it.get("studentId")?.asText() }.toSet(), enrollments.toString())
+        assertTrue(enrollments.get("items").none { it.get("email").asText() == pendingEmail }, enrollments.toString())
+        assertEquals(404, liveHttp("GET", "/enrollments?classId=$otherTeacherClassId&page=1&pageSize=100", teacherCookie).statusCode())
+
+        val dashboard = mapper.readTree(liveHttp("GET", "/me/dashboard", teacherCookie).body())
+        assertEquals(setOf(assignedClassId), dashboard.get("classes").mapNotNull { it.get("id")?.asText() }.toSet(), dashboard.toString())
+    }
+
+    @Test
     fun dashboardReturnsScopedEmptyAndAssignedProjectionsAndRejectsRevokedSessions() {
         val (adminCookie, _) = adminSession()
         val (teacherCookie, teacherId) = userSession("teacher")

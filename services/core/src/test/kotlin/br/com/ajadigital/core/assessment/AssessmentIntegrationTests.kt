@@ -94,6 +94,7 @@ class AssessmentIntegrationTests : CoreIntegrationTestBase() {
             fun questionRequest(method: String, path: String, body: String? = null) = client.send(
                 HttpRequest.newBuilder(URI("http://127.0.0.1:${questions.port}/api/v1$path"))
                     .header("Cookie", "aja_session=$studentCookie")
+                    .header("Origin", "https://aja.example.test")
                     .header("Content-Type", "application/json")
                     .method(method, body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody())
                     .build(), HttpResponse.BodyHandlers.ofString(),

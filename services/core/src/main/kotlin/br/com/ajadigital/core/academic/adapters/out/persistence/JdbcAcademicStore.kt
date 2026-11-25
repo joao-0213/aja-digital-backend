@@ -59,6 +59,14 @@ import java.util.UUID
 
 @Repository
 class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock) : AcademicStoreOutputPort {
+    private val assignedTeacherClass = "EXISTS(SELECT 1 FROM core.subjects s JOIN core.subject_teachers st ON st.subject_id=s.id JOIN core.users u ON u.id=st.teacher_id WHERE s.class_id=c.id AND st.teacher_id=? AND u.active AND u.role='teacher')"
+
+    private fun requireAssignedTeacherClass(classId: String?, actorId: String) {
+        if (classId != null && jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM core.classes c WHERE c.id=? AND $assignedTeacherClass)", Boolean::class.java, classId, actorId) != true) {
+            throw br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound()
+        }
+    }
+
     override fun isCurrentAdminSession(request: AcademicStoreIsCurrentAdminSessionDto): Boolean {
         val (actorId, sessionTokenHash, serializeAdminInvariant) = request
         if (serializeAdminInvariant) jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java)
@@ -164,13 +172,13 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         val (actorId, role, page, size, sort, active, query) = request
         val predicates = mutableListOf<String>(); val args = mutableListOf<Any>()
         when (role) {
-            "student" -> { predicates += "active AND id IN (SELECT class_id FROM core.enrollments WHERE student_id=? AND status='active')"; args += actorId }
-            "teacher" -> predicates += "false" // B-06 introduces staff assignments; no assignment exists in B-04.
+            "student" -> { predicates += "c.active AND c.id IN (SELECT class_id FROM core.enrollments WHERE student_id=? AND status='active')"; args += actorId }
+            "teacher" -> { predicates += assignedTeacherClass; args += actorId }
             else -> Unit
         }
-        active?.let { predicates += "active=?"; args += it }; query?.takeIf(String::isNotBlank)?.let { predicates += "(name ILIKE ? OR code ILIKE ?)"; args += "%$it%"; args += "%$it%" }
+        active?.let { predicates += "c.active=?"; args += it }; query?.takeIf(String::isNotBlank)?.let { predicates += "(c.name ILIKE ? OR c.code ILIKE ?)"; args += "%$it%"; args += "%$it%" }
         val w = if (predicates.isEmpty()) "" else " WHERE ${predicates.joinToString(" AND ")}"
-        return page("SELECT * FROM core.classes$w ORDER BY id${sortDirection(sort)}", "SELECT count(*) FROM core.classes$w", args, page, size) { rs -> classMap(rs, role == "admin" || role == "teacher") }
+        return page("SELECT c.* FROM core.classes c$w ORDER BY c.id${sortDirection(sort)}", "SELECT count(*) FROM core.classes c$w", args, page, size) { rs -> classMap(rs, role == "admin" || role == "teacher") }
     }
 
     override fun dashboardClasses(request: AcademicStoreDashboardClassesDto): AcademicPage {
@@ -178,10 +186,10 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         require(pageSize in 1..100)
         val scope = when (role) {
             "student" -> " AND c.active AND EXISTS(SELECT 1 FROM core.enrollments mine WHERE mine.class_id=c.id AND mine.student_id=? AND mine.status='active')"
-            "teacher" -> " AND false"
+            "teacher" -> " AND $assignedTeacherClass"
             else -> ""
         }
-        val args = if (role == "student") arrayOf<Any>(actorId, pageSize) else arrayOf<Any>(pageSize)
+        val args = if (role == "student" || role == "teacher") arrayOf<Any>(actorId, pageSize) else arrayOf<Any>(pageSize)
         val items = jdbc.query("""SELECT c.*,
             (SELECT count(*)::integer FROM core.enrollments e WHERE e.class_id=c.id AND e.status='active' AND e.student_id IS NOT NULL) student_count
             FROM core.classes c WHERE c.active=true$scope ORDER BY c.id LIMIT ?""", { rs, _ ->
@@ -194,10 +202,10 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         val (id, actorId, role) = request
         val scope = when (role) {
             "student" -> " AND c.active AND EXISTS(SELECT 1 FROM core.enrollments e WHERE e.class_id=c.id AND e.student_id=? AND e.status='active')"
-            "teacher" -> " AND false"
+            "teacher" -> " AND $assignedTeacherClass"
             else -> ""
         }
-        val args = if (role == "student") arrayOf(id, actorId) else arrayOf(id)
+        val args = if (role == "student" || role == "teacher") arrayOf(id, actorId) else arrayOf(id)
         return jdbc.query("SELECT c.* FROM core.classes c WHERE c.id=?$scope", { rs, _ -> classMap(rs, role == "admin" || role == "teacher") }, *args).firstOrNull()
     }
 
@@ -237,10 +245,15 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
 
     override fun listEnrollments(request: AcademicStoreListEnrollmentsDto): AcademicPage {
         val (actorId, role, page, size, sort, classId, studentId, status, query) = request
+        if (role == "teacher") requireAssignedTeacherClass(classId, actorId)
         val p = mutableListOf<String>(); val a = mutableListOf<Any>()
         when (role) {
             "student" -> { p += "(e.student_id=? OR (e.student_id IS NULL AND e.normalized_email=(SELECT normalized_email FROM core.users WHERE id=?)))"; a += actorId; a += actorId }
-            "teacher" -> p += "false" // No staff assignment table exists until B-06.
+            "teacher" -> {
+                p += "e.student_id IS NOT NULL AND e.status IN ('active','ended') AND (e.enrolled_at IS NOT NULL OR e.legacy)"
+                p += assignedTeacherClass
+                a += actorId
+            }
             else -> Unit
         }
         classId?.let { p += "e.class_id=?"; a += it }; studentId?.let { p += "e.student_id=?"; a += it }
@@ -335,22 +348,28 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
 
     override fun listStudents(request: AcademicStoreListStudentsDto): AcademicPage {
         val (actorId, role, page, size, sort, classId, query, history) = request
+        if (role == "teacher") requireAssignedTeacherClass(classId, actorId)
         val predicates = mutableListOf<String>("u.role='student'", "(e.status='active'${if (history) " OR e.status='ended'" else ""})")
         val args = mutableListOf<Any>()
-        if (role == "teacher" || role == "student") predicates += "false" // B-06 introduces staff assignments; student records are staff-only.
+        if (role == "teacher") { predicates += assignedTeacherClass; args += actorId }
+        if (role == "student") predicates += "false"
         classId?.let { predicates += "e.class_id=?"; args += it }
         query?.takeIf(String::isNotBlank)?.let { predicates += "(u.name ILIKE ? OR u.email ILIKE ?)"; args += "%$it%"; args += "%$it%" }
         val where = predicates.joinToString(" AND ")
-        val sql = "SELECT DISTINCT u.* FROM core.users u JOIN core.enrollments e ON e.student_id=u.id WHERE $where ORDER BY u.id${sortDirection(sort)}"
-        val count = "SELECT count(DISTINCT u.id) FROM core.users u JOIN core.enrollments e ON e.student_id=u.id WHERE $where"
+        val from = " FROM core.users u JOIN core.enrollments e ON e.student_id=u.id JOIN core.classes c ON c.id=e.class_id"
+        val sql = "SELECT DISTINCT u.*$from WHERE $where ORDER BY u.id${sortDirection(sort)}"
+        val count = "SELECT count(DISTINCT u.id)$from WHERE $where"
         return page(sql, count, args, page, size) { rs -> summaryMap(rs, classId) }
     }
 
     override fun findStudent(request: AcademicStoreFindStudentDto): Map<String, Any?>? {
         val (id, actorId, role) = request
-        if (role != "admin") return null // Teacher detail is hidden until an assigned class context exists.
+        if (role !in setOf("admin", "teacher")) return null
         val student = jdbc.query("SELECT * FROM core.users WHERE id=? AND role='student'", { rs, _ -> userMap(rs) }, id).firstOrNull() ?: return null
-        val enrollments = jdbc.query("SELECT e.*,c.name class_name FROM core.enrollments e JOIN core.classes c ON c.id=e.class_id WHERE e.student_id=? ORDER BY e.created_at", { rs, _ -> enrollmentMap(rs) }, id)
+        val enrollmentScope = if (role == "teacher") " AND e.student_id IS NOT NULL AND e.status IN ('active','ended') AND (e.enrolled_at IS NOT NULL OR e.legacy) AND $assignedTeacherClass" else ""
+        val args = if (role == "teacher") listOf(id, actorId) else listOf(id)
+        val enrollments = jdbc.query("SELECT e.*,c.name class_name FROM core.enrollments e JOIN core.classes c ON c.id=e.class_id WHERE e.student_id=?$enrollmentScope ORDER BY e.created_at", { rs, _ -> enrollmentMap(rs) }, *args.toTypedArray())
+        if (role == "teacher" && enrollments.isEmpty()) return null
         return mapOf("student" to summaryMap(student, null), "enrollments" to enrollments, "attendance" to emptyList<Any>(), "attempts" to emptyList<Any>(), "submissions" to emptyList<Any>())
     }
 
