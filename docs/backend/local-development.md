@@ -28,9 +28,9 @@ Demo accounts use fictional `@aja.local.test` addresses and the shared local pas
 
 Demo records cover two classes and three subjects with modules, text, PDF, and video materials, a real PDF and question illustration, progress, graded and open quizzes, work submissions with pending and published feedback, active, pending, inactive, and archived records, upcoming announcements and calendar dates, attendance history, forum topics and replies, and a separate question catalogue. Relative dates use the PostgreSQL server's current date so deadlines and events remain useful when first started.
 
-The public API base is `http://127.0.0.1:3002/api/v1`. Only the gateway is published; PostgreSQL, RabbitMQ, the service HTTP ports, actuator routes, and private interfaces stay on the Compose network. Use the same hostname for the frontend and gateway (`127.0.0.1` by default) so the `SameSite=Lax` session cookie works. The sample CORS allowlist includes `localhost` and `127.0.0.1` on ports 3000 and 3002; if changing the gateway host or port, also update `CORE_PUBLIC_API_URL`.
+The public API base is `http://127.0.0.1:3002/api/v1`. Compose publishes the gateway and local Mailpit inbox on loopback. PostgreSQL, RabbitMQ, the service HTTP ports, actuator routes, and private interfaces stay on the Compose network. Use the same hostname for the frontend and gateway (`127.0.0.1` by default) so the `SameSite=Lax` session cookie works. The sample CORS allowlist includes `localhost` and `127.0.0.1` on ports 3000 and 3002. If changing the gateway host or port, also update `CORE_PUBLIC_API_URL`.
 
-The sample credentials and encryption key are for a disposable local environment only. Email uses the intentionally failing `127.0.0.1:9` provider URL, so delivery will retry until `EMAIL_PROVIDER_URL` points at a compatible provider. `EMAIL_ACTION_BASE_URL` must point to the frontend that handles confirmation and reset links.
+The sample credentials and encryption key are for a disposable local environment only.
 
 ```powershell
 docker compose --env-file .env.integrated -f compose.integrated.yaml -p aja-integrated ps
@@ -49,6 +49,38 @@ Run the real Docker acceptance check from PowerShell with a separate project and
 The check logs in through the gateway as administrator, teacher, and student, reads the question catalogue, and runs the seed a second time to verify it is idempotent. It leaves its isolated stack running for inspection; stop only that project with `docker compose --env-file "$env:TEMP/aja-int03-check.env" -f compose.integrated.yaml -p aja-int03-check down`. The script keeps that temporary environment file and its isolated database volume for inspection.
 
 Run `python scripts/check-gateway-routes.py` after changing OpenAPI paths or gateway route rules to check the 98 public operations against service ownership and verify private paths remain excluded.
+
+## Email delivery
+
+The integrated stack captures email in the [local Mailpit inbox](http://127.0.0.1:8025) without provider credentials or SMTP relay. Mailpit stores the messages in memory and exposes the inbox only on loopback. Change `MAILPIT_PORT` if port 8025 is in use. If `.env.integrated` still uses the old `http://127.0.0.1:9/email` placeholder, set `EMAIL_PROVIDER_MODE=mailpit`, `EMAIL_PROVIDER_URL=http://mailpit:8025/api/v1/send`, and `EMAIL_PROVIDER_FROM=no-reply@aja.local.test` in that file. Keep `EMAIL_PROVIDER_TOKEN` empty for local capture. [Mailpit Send API](https://mailpit.axllent.org/docs/api-v1/)
+
+Set `EMAIL_ACTION_BASE_URL` to the frontend origin and include that origin in `API_ALLOWED_ORIGINS`. With the default integrated settings, run these commands from the frontend repository after installing its dependencies.
+
+```powershell
+$env:NEXT_PUBLIC_API_URL='http://127.0.0.1:3002/api/v1'
+npm run dev -- --port 3000
+```
+
+1. Register a new fictional account at `/cadastro`. Open its confirmation message in Mailpit and follow the `/cadastro?token=…` link to confirm the address.
+2. Request recovery for that account at `/recuperar-senha`. Open its message in Mailpit and follow `/recuperar-senha?token=…` to choose a new password.
+3. Sign in as the demo teacher and publish an announcement with notifications enabled for the demo mathematics subject. In Mailpit, check the messages for `aluno@aja.local.test` and `bia@aja.local.test`. Follow the `/avisos#aviso-…` link while signed in as one of the recipients.
+
+Run the automated acceptance check against the running integrated stack with the demo seed enabled. It reads messages from Mailpit and submits the tokens to Core. It checks the frontend URLs and can run with the frontend process stopped.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance-int04-email.ps1
+```
+
+For external delivery, set the following values in the Email service environment. Supply `EMAIL_PROVIDER_TOKEN` as a sending API key through a secret store or your deployment environment. Set `EMAIL_PROVIDER_FROM` to a sender address on a domain verified in Resend and `EMAIL_ACTION_BASE_URL` to the deployed frontend. [Resend Send Email API](https://resend.com/docs/api-reference/emails/send-email)
+
+```dotenv
+EMAIL_PROVIDER_MODE=resend
+EMAIL_PROVIDER_URL=https://api.resend.com/emails
+EMAIL_PROVIDER_FROM=no-reply@example.org
+EMAIL_ACTION_BASE_URL=https://app.example.org
+```
+
+For a standalone Email process using local Mailpit, use `EMAIL_PROVIDER_MODE=mailpit`, `EMAIL_PROVIDER_URL=http://127.0.0.1:8025/api/v1/send`, and the same local sender as the integrated stack. For a compatible existing HTTP endpoint, use `EMAIL_PROVIDER_MODE=http` with its `EMAIL_PROVIDER_URL` and optional `EMAIL_PROVIDER_TOKEN`.
 
 Prerequisites: JDK 21 and Docker Compose. The services run as separate processes and connect to real PostgreSQL and RabbitMQ dependencies. Set local-only credentials in the environment; do not commit `.env` files or real secrets.
 
@@ -97,7 +129,7 @@ Set-Location services/questions
 .\gradlew.bat bootRun
 ```
 
-Core requires both cryptographic secrets from the environment. Use the same outbox key for Core and the Email worker, and the same private service token for Core and the Questions caller. Set `AJA_COOKIE_SECURE=true` when TLS terminates before Core; direct HTTPS requests also set the cookie Secure flag. Questions needs `QUESTIONS_DATABASE_PASSWORD`, `CORE_QUESTIONS_SERVICE_TOKEN` (the same value configured in Core), `CORE_INTERNAL_SESSION_URL` (for example `http://localhost:8081/internal/v1/session`), and does not require RabbitMQ. Set `CORE_PUBLIC_API_URL` to Core's public API base (default `http://localhost:8081/api/v1`) so question image references point to Core-owned file content. Its public routes use `/api/v1`; the authenticated snapshot provider is private at `/internal/v1/snapshots`, outside the public OpenAPI. Email needs `EMAIL_DATABASE_PASSWORD`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, the same `CORE_OUTBOX_ENCRYPTION_KEY` as Core, and `EMAIL_DELIVERY_OPERATOR_TOKEN` for its private DLQ redrive operation. Configure `EMAIL_PROVIDER_URL`, `EMAIL_PROVIDER_TOKEN`, and `EMAIL_ACTION_BASE_URL` for the delivery adapter. Core and Questions health are `GET /api/v1/health`; Email health is operational at `GET /health`.
+Core requires both cryptographic secrets from the environment. Use the same outbox key for Core and the Email worker, and the same private service token for Core and the Questions caller. Set `AJA_COOKIE_SECURE=true` when TLS terminates before Core; direct HTTPS requests also set the cookie Secure flag. Questions needs `QUESTIONS_DATABASE_PASSWORD`, `CORE_QUESTIONS_SERVICE_TOKEN` (the same value configured in Core), `CORE_INTERNAL_SESSION_URL` (for example `http://localhost:8081/internal/v1/session`), and does not require RabbitMQ. Set `CORE_PUBLIC_API_URL` to Core's public API base (default `http://localhost:8081/api/v1`) so question image references point to Core-owned file content. Its public routes use `/api/v1`; the authenticated snapshot provider is private at `/internal/v1/snapshots`, outside the public OpenAPI. Email needs `EMAIL_DATABASE_PASSWORD`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, the same `CORE_OUTBOX_ENCRYPTION_KEY` as Core, and `EMAIL_DELIVERY_OPERATOR_TOKEN` for its private DLQ redrive operation. See [Email delivery](#email-delivery) for provider settings. Core and Questions health are `GET /api/v1/health`; Email health is operational at `GET /health`.
 
 ## Verify
 

@@ -7,7 +7,7 @@ import br.com.ajadigital.email.ports.out.EmailDeliveryStore
 import br.com.ajadigital.email.ports.out.EmailSender
 
 data class IdentityEmail(val eventId: String, val eventType: String, val recipient: String, val token: String, val purpose: String)
-data class AnnouncementEmail(val eventId: String, val eventType: String, val recipient: String, val title: String, val body: String)
+data class AnnouncementEmail(val eventId: String, val eventType: String, val recipient: String, val title: String, val body: String, val announcementId: String = "")
 
 class ProcessIdentityEmail(private val store: EmailDeliveryStore, private val sender: EmailSender) {
     fun process(email: IdentityEmail): DeliveryOutcome = process(email.eventId, email.eventType) {
@@ -15,7 +15,7 @@ class ProcessIdentityEmail(private val store: EmailDeliveryStore, private val se
     }
 
     fun processAnnouncement(email: AnnouncementEmail): DeliveryOutcome = process(email.eventId, email.eventType) {
-        sender.sendAnnouncement(email.eventId, email.recipient, email.title, email.body)
+        sender.sendAnnouncement(email.eventId, email.recipient, email.title, email.body, email.announcementId)
     }
 
     private fun process(eventId: String, eventType: String, send: () -> Unit): DeliveryOutcome = when (val attempt = store.begin(eventId, eventType)) {

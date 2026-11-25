@@ -133,7 +133,7 @@ class EmailApplicationTests @Autowired constructor(
         Thread.sleep(200)
 
         assertEquals(1, sender.announcements.count { it.eventId == eventId })
-        assertTrue(sender.announcements.any { it == CapturedAnnouncementEmail(eventId, "worker@example.test", "Class update", "Tomorrow at 10:30") })
+        assertTrue(sender.announcements.any { it == CapturedAnnouncementEmail(eventId, "worker@example.test", "Class update", "Tomorrow at 10:30", "announcement-1") })
         assertEquals("unknown", jdbc.queryForObject("select status from email.delivery_events where event_id=?", String::class.java, eventId))
     }
 
@@ -429,7 +429,7 @@ class EmailApplicationTests @Autowired constructor(
 }
 
 data class CapturedEmail(val eventId: String, val recipient: String, val token: String, val purpose: String)
-data class CapturedAnnouncementEmail(val eventId: String, val recipient: String, val title: String, val body: String)
+data class CapturedAnnouncementEmail(val eventId: String, val recipient: String, val title: String, val body: String, val announcementId: String)
 
 class CapturingEmailSender : EmailSender {
     val messages = CopyOnWriteArrayList<CapturedEmail>()
@@ -447,8 +447,8 @@ class CapturingEmailSender : EmailSender {
         delivered += CapturedEmail(eventId, recipient, token, purpose)
     }
 
-    override fun sendAnnouncement(eventId: String, recipient: String, title: String, body: String) {
-        announcements += CapturedAnnouncementEmail(eventId, recipient, title, body)
+    override fun sendAnnouncement(eventId: String, recipient: String, title: String, body: String, announcementId: String) {
+        announcements += CapturedAnnouncementEmail(eventId, recipient, title, body, announcementId)
         failures.remove(eventId)?.let { throw it }
     }
 }

@@ -111,7 +111,7 @@ class IdentityEventConsumer(
             require(payload.path("announcementId").asText().isNotBlank() && payload.path("recipientId").asText().isNotBlank() && payload.path("revision").asInt() > 0)
             val title = payload.path("title").asText().takeIf(String::isNotBlank) ?: error("missing title")
             val text = payload.path("body").asText()
-            return AnnouncementWork(AnnouncementEmail(id, type, recipient, title, text))
+            return AnnouncementWork(AnnouncementEmail(id, type, recipient, title, text, payload.path("announcementId").asText()))
         }
         val purpose = payload.path("purpose").asText()
         require(purpose == if (type == "identity.email-confirmation-requested") "email_confirmation" else "password_reset")

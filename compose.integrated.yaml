@@ -82,6 +82,13 @@ services:
       retries: 30
       start_period: 30s
 
+  mailpit:
+    image: axllent/mailpit:v1.34.0
+    environment:
+      MP_DISABLE_VERSION_CHECK: "true"
+    ports:
+      - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
+
   email:
     build:
       context: .
@@ -97,12 +104,15 @@ services:
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?}
       CORE_OUTBOX_ENCRYPTION_KEY: ${CORE_OUTBOX_ENCRYPTION_KEY:?}
       EMAIL_DELIVERY_OPERATOR_TOKEN: ${EMAIL_DELIVERY_OPERATOR_TOKEN:?}
-      EMAIL_PROVIDER_URL: ${EMAIL_PROVIDER_URL:-http://127.0.0.1:9/email}
+      EMAIL_PROVIDER_MODE: ${EMAIL_PROVIDER_MODE:-mailpit}
+      EMAIL_PROVIDER_URL: ${EMAIL_PROVIDER_URL:-http://mailpit:8025/api/v1/send}
       EMAIL_PROVIDER_TOKEN: ${EMAIL_PROVIDER_TOKEN:-}
-      EMAIL_ACTION_BASE_URL: ${EMAIL_ACTION_BASE_URL:-http://localhost:3000}
+      EMAIL_PROVIDER_FROM: ${EMAIL_PROVIDER_FROM:-no-reply@aja.local.test}
+      EMAIL_ACTION_BASE_URL: ${EMAIL_ACTION_BASE_URL:-http://127.0.0.1:3000}
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
+      mailpit: { condition: service_healthy }
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8083/actuator/health"]
       interval: 10s
