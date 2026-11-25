@@ -28,9 +28,11 @@ Demo accounts use fictional `@aja.local.test` addresses and the shared local pas
 
 Demo records cover two classes and three subjects with modules, text, PDF, and video materials, a real PDF and question illustration, progress, graded and open quizzes, work submissions with pending and published feedback, active, pending, inactive, and archived records, upcoming announcements and calendar dates, attendance history, forum topics and replies, and a separate question catalogue. Relative dates use the PostgreSQL server's current date so deadlines and events remain useful when first started.
 
-The public API base is `http://127.0.0.1:3002/api/v1`. Compose publishes the gateway and local Mailpit inbox on loopback. PostgreSQL, RabbitMQ, the service HTTP ports, actuator routes, and private interfaces stay on the Compose network. Use the same hostname for the frontend and gateway (`127.0.0.1` by default) so the `SameSite=Lax` session cookie works. The sample CORS allowlist includes `localhost` and `127.0.0.1` on ports 3000 and 3002. If changing the gateway host or port, also update `CORE_PUBLIC_API_URL`.
+The public API base is `http://127.0.0.1:3002/api/v1`. Compose publishes the gateway and local Mailpit inbox on loopback. PostgreSQL, RabbitMQ, the service HTTP ports, actuator routes, and private interfaces stay on the Compose network. Use the same hostname for the frontend and gateway (`127.0.0.1` by default) so the `SameSite=Lax` session cookie works. The sample CORS allowlist includes `localhost` and `127.0.0.1` on frontend ports 3000 (Next development) and 3001 (static preview), retaining the existing 3002 origins. If changing the gateway host or port, also update `CORE_PUBLIC_API_URL`.
 
 The sample credentials and encryption key are for a disposable local environment only.
+
+If an existing `.env.integrated` predates preview support, append `http://127.0.0.1:3001` and `http://localhost:3001` to its `API_ALLOWED_ORIGINS` value without replacing its other local settings, then rerun the Compose `up --build --wait` command. Do not overwrite an existing environment file with the sample.
 
 ```powershell
 docker compose --env-file .env.integrated -f compose.integrated.yaml -p aja-integrated ps

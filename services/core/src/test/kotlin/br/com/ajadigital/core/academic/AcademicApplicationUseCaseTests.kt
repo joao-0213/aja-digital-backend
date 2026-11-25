@@ -4,6 +4,7 @@ import br.com.ajadigital.core.academic.application.models.*
 import br.com.ajadigital.core.academic.application.models.CreateClassDto
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
 import br.com.ajadigital.core.academic.application.usecases.CreateClassUseCase
+import br.com.ajadigital.core.academic.application.usecases.ListMyEnrollmentsUseCase
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.academic.domain.policies.AcademicPolicy
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
@@ -65,6 +66,27 @@ class AcademicApplicationUseCaseTests {
         assertThrows(AcademicForbidden::class.java) {
             AcademicPolicy.requireAdmin("admin", false)
         }
+    }
+
+    @Test
+    fun `profile enrollment query follows the current user for each documented role`() {
+        val queries = mutableListOf<AcademicStoreMyEnrollmentsDto>()
+        val store = proxy<AcademicStoreOutputPort> { method, args ->
+            when (method) {
+                "myEnrollments" -> {
+                    queries += args[0] as AcademicStoreMyEnrollmentsDto
+                    AcademicPage(emptyList(), 1, 20, 0)
+                }
+                else -> error("Unexpected academic-store call: $method")
+            }
+        }
+        val useCase = ListMyEnrollmentsUseCase(store)
+
+        for (role in listOf("student", "teacher", "admin")) {
+            useCase.myEnrollments(ListMyEnrollmentsDto(actor(role, "user-$role"), 1, 20, "id"))
+        }
+
+        assertEquals(listOf("user-student", "user-teacher", "user-admin"), queries.map { it.studentId })
     }
 
     @Test
@@ -140,7 +162,7 @@ class AcademicApplicationUseCaseTests {
         },
     )
 
-    private fun actor(role: String) = AuthenticatedActor("user-1", role, true, Instant.EPOCH, "session-reference")
+    private fun actor(role: String, id: String = "user-1") = AuthenticatedActor(id, role, true, Instant.EPOCH, "session-reference")
 
     private inline fun <reified T> proxy(crossinline answer: (String, Array<out Any?>) -> Any?): T =
         Proxy.newProxyInstance(T::class.java.classLoader, arrayOf(T::class.java)) { _, method, args ->

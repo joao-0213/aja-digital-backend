@@ -15,7 +15,7 @@ import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutput
 class ListMyEnrollmentsUseCase(private val store: AcademicStoreOutputPort) : ListMyEnrollmentsInputPort {
     override fun myEnrollments(request: ListMyEnrollmentsDto): AcademicPage {
                 val (actor, page, size, sort) = request
-        if (actor.role != "student" || !actor.active || actor.emailConfirmedAt == null) throw AcademicForbidden()
+        if (!actor.active || actor.emailConfirmedAt == null) throw AcademicForbidden()
         return store.myEnrollments(AcademicStoreMyEnrollmentsDto(actor.id, AcademicPolicy.checkedPage(page), AcademicPolicy.checkedSize(size), AcademicPolicy.checkedSort(sort)))
     }
 }
