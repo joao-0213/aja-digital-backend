@@ -110,6 +110,20 @@ services:
       retries: 30
       start_period: 30s
 
+  demo-seed:
+    image: postgres:16-alpine
+    environment:
+      CORE_DATABASE_PASSWORD: ${CORE_DATABASE_PASSWORD:?}
+      QUESTIONS_DATABASE_PASSWORD: ${QUESTIONS_DATABASE_PASSWORD:?}
+      DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-true}
+    volumes:
+      - ./infra/postgres/demo:/opt/aja/demo:ro
+    entrypoint: ["sh", "/opt/aja/demo/seed.sh"]
+    depends_on:
+      core: { condition: service_healthy }
+      questions: { condition: service_healthy }
+    restart: "no"
+
   gateway:
     build:
       context: ./infra/docker
@@ -119,6 +133,7 @@ services:
     depends_on:
       core: { condition: service_healthy }
       questions: { condition: service_healthy }
+      demo-seed: { condition: service_completed_successfully }
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/api/v1/health"]
       interval: 10s
