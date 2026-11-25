@@ -64,6 +64,16 @@ class HttpEmailSenderTests {
             assertEquals("student@example.test", body.get("to")[0].asString())
             assertEquals("Confirme seu e-mail", body.get("subject").asString())
             assertTrue(body.get("text").asString().contains("http://localhost:3000/cadastro?token=a%2Bb%2Fc"))
+            assertTrue(body.get("text").asString().contains("Se você não solicitou"))
+            assertTrue(body.get("text").asString().contains("http://localhost:3000/cadastro?token=a%2Bb%2Fc"))
+            assertTrue(body.get("html").asString().contains("Confirmar e-mail"))
+            assertTrue(body.get("html").asString().contains("Use o botão abaixo para confirmar seu endereço de e-mail."))
+            assertTrue(body.get("html").asString().contains("http://localhost:3000/cadastro?token=a%2Bb%2Fc"))
+            assertTrue(body.get("html").asString().contains("cid:aja-symbol"))
+            assertEquals("aja-symbol.png", body.get("attachments")[0].get("filename").asString())
+            assertEquals("aja-symbol", body.get("attachments")[0].get("content_id").asString())
+            assertEquals("image/png", body.get("attachments")[0].get("content_type").asString())
+            assertEquals(java.util.Base64.getEncoder().encodeToString(javaClass.getResourceAsStream("/email/aja-symbol.png")!!.readAllBytes()), body.get("attachments")[0].get("content").asString())
             assertEquals("Bearer secret", headers.get().getFirst("Authorization"))
             assertEquals("event-2", headers.get().getFirst("Idempotency-Key"))
         } finally { server.stop(0) }
@@ -87,6 +97,12 @@ class HttpEmailSenderTests {
             assertEquals("student@example.test", body.get("To")[0].get("Email").asString())
             assertEquals("Redefina sua senha", body.get("Subject").asString())
             assertTrue(body.get("Text").asString().contains("/recuperar-senha?token=token"))
+            assertTrue(body.get("Text").asString().contains("Se você não solicitou"))
+            assertTrue(body.get("HTML").asString().contains("Redefinir senha"))
+            assertTrue(body.get("HTML").asString().contains("Use o botão abaixo para redefinir sua senha."))
+            assertTrue(body.get("HTML").asString().contains("cid:aja-symbol"))
+            assertEquals("aja-symbol", body.get("Attachments")[0].get("ContentID").asString())
+            assertEquals(java.util.Base64.getEncoder().encodeToString(javaClass.getResourceAsStream("/email/aja-symbol.png")!!.readAllBytes()), body.get("Attachments")[0].get("Content").asString())
         } finally { server.stop(0) }
     }
 
@@ -105,6 +121,30 @@ class HttpEmailSenderTests {
                 .sendAnnouncement("event-4", "student@example.test", "Class update", "Tomorrow", "id with/slash")
             val text = JsonMapper.builder().build().readTree(payload.get()).get("text").asString()
             assertTrue(text.contains("http://localhost:3000/avisos#aviso-id%20with%2Fslash"))
+        } finally { server.stop(0) }
+    }
+
+    @Test
+    fun announcementHtmlEscapesUserContentAndKeepsPlainTextFallback() {
+        val payload = AtomicReference<String>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/emails") { exchange ->
+            payload.set(exchange.requestBody.readAllBytes().decodeToString())
+            exchange.sendResponseHeaders(200, -1)
+            exchange.close()
+        }
+        server.start()
+        try {
+            HttpEmailSender("http://127.0.0.1:${server.address.port}/emails", "secret", "https://app.example.test/", JsonMapper.builder().build(), "resend", "AJA <noreply@example.test>")
+                .sendAnnouncement("event-xss", "student@example.test", "<img src=x onerror=alert(1)>", "Hello <script>alert(1)</script> & goodbye's", "id-1")
+            val body = JsonMapper.builder().build().readTree(payload.get())
+            val html = body.get("html").asString()
+            assertTrue(html.contains("&lt;img src=x onerror=alert(1)&gt;"))
+            assertTrue(html.contains("Hello &lt;script&gt;alert(1)&lt;/script&gt; &amp; goodbye&#39;s"))
+            assertTrue(!html.contains("<script>"))
+            assertTrue(body.get("text").asString().contains("Hello <script>alert(1)</script> & goodbye's"))
+            assertTrue(body.get("html").asString().contains("https://app.example.test/avisos#aviso-id-1"))
+            assertTrue(body.get("html").asString().contains("Ler aviso"))
         } finally { server.stop(0) }
     }
 }

@@ -25,6 +25,10 @@ class HttpEmailSender(
 ) : EmailSender {
     private val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build()
     private val provider = mode.lowercase()
+    private val logoContent by lazy {
+        javaClass.getResourceAsStream("/email/aja-symbol.png")?.use { java.util.Base64.getEncoder().encodeToString(it.readAllBytes()) }
+            ?: error("email brand image is missing")
+    }
 
     init {
         require(provider in setOf("http", "resend", "mailpit")) { "unsupported email provider mode" }
@@ -41,20 +45,25 @@ class HttpEmailSender(
     override fun send(eventId: String, recipient: String, token: String, purpose: String) {
         val path = if (purpose == "email_confirmation") "/cadastro" else "/recuperar-senha"
         val actionUrl = "${actionBaseUrl.trimEnd('/')}$path?token=${URLEncoder.encode(token, StandardCharsets.UTF_8)}"
-        val subject = if (purpose == "email_confirmation") "Confirme seu e-mail" else "Redefina sua senha"
-        sendMessage(eventId, recipient, subject, actionUrl)
+        val confirming = purpose == "email_confirmation"
+        val subject = if (confirming) "Confirme seu e-mail" else "Redefina sua senha"
+        val action = if (confirming) "Confirmar e-mail" else "Redefinir senha"
+        val intro = if (confirming) "Use o botão abaixo para confirmar seu endereço de e-mail." else "Use o botão abaixo para redefinir sua senha."
+        val fallback = "$action:\n$actionUrl\n\nSe você não solicitou esta ação, ignore esta mensagem."
+        sendMessage(eventId, recipient, subject, actionUrl, fallback, action, actionUrl, "$intro Se você não solicitou esta ação, ignore esta mensagem.")
     }
 
     override fun sendAnnouncement(eventId: String, recipient: String, title: String, body: String, announcementId: String) {
         val link = "${actionBaseUrl.trimEnd('/')}/avisos#aviso-${URLEncoder.encode(announcementId, StandardCharsets.UTF_8).replace("+", "%20")}"
-        sendMessage(eventId, recipient, title, "$body\n\n$link")
+        sendMessage(eventId, recipient, title, "$body\n\n$link", "$body\n\nLer aviso: $link", "Ler aviso", link, body)
     }
 
-    private fun sendMessage(eventId: String, recipient: String, subject: String, text: String) {
+    private fun sendMessage(eventId: String, recipient: String, subject: String, text: String, fallback: String, actionLabel: String, actionUrl: String, displayBody: String) {
+        val html = if (provider == "http") null else AjaEmailTemplate.render(subject, displayBody, actionLabel, actionUrl)
         val (target, payload) = when (provider) {
             "http" -> (endpoint.ifBlank { "http://127.0.0.1:9/email" }) to mapOf("to" to recipient, "subject" to subject, "text" to text)
-            "resend" -> (endpoint.ifBlank { "https://api.resend.com/emails" }) to mapOf("from" to from, "to" to listOf(recipient), "subject" to subject, "text" to text)
-            "mailpit" -> (endpoint.ifBlank { "http://localhost:8025/api/v1/send" }) to mapOf("From" to mapOf("Email" to from), "To" to listOf(mapOf("Email" to recipient)), "Subject" to subject, "Text" to text)
+            "resend" -> (endpoint.ifBlank { "https://api.resend.com/emails" }) to mapOf("from" to from, "to" to listOf(recipient), "subject" to subject, "text" to fallback, "html" to html, "attachments" to listOf(mapOf("filename" to "aja-symbol.png", "content" to logoContent, "content_type" to "image/png", "content_id" to "aja-symbol")))
+            "mailpit" -> (endpoint.ifBlank { "http://localhost:8025/api/v1/send" }) to mapOf("From" to mapOf("Email" to from), "To" to listOf(mapOf("Email" to recipient)), "Subject" to subject, "Text" to fallback, "HTML" to html, "Attachments" to listOf(mapOf("Filename" to "aja-symbol.png", "Content" to logoContent, "ContentType" to "image/png", "ContentID" to "aja-symbol")))
             else -> error("unsupported email provider mode")
         }
         val body = mapper.writeValueAsBytes(payload)
