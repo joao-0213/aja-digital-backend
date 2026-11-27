@@ -1,6 +1,7 @@
 package br.com.ajadigital.core.academic.application.ports.out
 
 import br.com.ajadigital.core.academic.application.models.*
+import br.com.ajadigital.core.academic.application.contracts.DashboardClassProjection
 
 interface AcademicStoreOutputPort {
     fun isCurrentAdminSession(request: AcademicStoreIsCurrentAdminSessionDto): Boolean
@@ -12,7 +13,7 @@ interface AcademicStoreOutputPort {
     fun deactivateUser(request: AcademicStoreDeactivateUserDto): Map<String, Any?>?
     fun withdrawUser(request: AcademicStoreWithdrawUserDto): Map<String, Any?>?
     fun listClasses(request: AcademicStoreListClassesDto): AcademicPage
-    fun dashboardClasses(request: AcademicStoreDashboardClassesDto): AcademicPage
+    fun dashboardClasses(request: AcademicStoreDashboardClassesDto): List<DashboardClassProjection>
     fun findClass(request: AcademicStoreFindClassDto): Map<String, Any?>?
     fun createClass(request: AcademicStoreCreateClassDto): Map<String, Any?>
     fun updateClass(request: AcademicStoreUpdateClassDto): Map<String, Any?>?

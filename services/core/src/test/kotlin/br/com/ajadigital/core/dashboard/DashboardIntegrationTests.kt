@@ -389,8 +389,8 @@ class DashboardIntegrationTests : CoreIntegrationTestBase() {
         repeat(3) { createB06Class(adminCookie) }
         capturedSql.clear()
         val classPage = JdbcAcademicStore(JdbcTemplate(countingDataSource), mutableClock).dashboardClasses(br.com.ajadigital.core.academic.application.models.AcademicStoreDashboardClassesDto(adminId, "admin", 100))
-        assertTrue(classPage.items.size >= 3)
-        assertTrue(classPage.items.all { it.containsKey("studentCount") })
+        assertTrue(classPage.size >= 3)
+        assertTrue(classPage.all { it.studentCount >= 0 })
         val classQueries = capturedSql.filter { it.contains("FROM core.classes", ignoreCase = true) }
         assertEquals(1, classQueries.size, classQueries.toString())
         assertTrue(Regex("\\bLIMIT\\s+\\?", RegexOption.IGNORE_CASE).containsMatchIn(classQueries.single()))

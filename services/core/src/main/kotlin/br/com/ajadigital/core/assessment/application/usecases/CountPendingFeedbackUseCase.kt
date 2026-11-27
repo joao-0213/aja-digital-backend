@@ -3,7 +3,7 @@ import br.com.ajadigital.core.assessment.application.models.*
 
 import br.com.ajadigital.core.assessment.application.models.PendingFeedbackCountQuery
 
-import br.com.ajadigital.core.assessment.application.models.CountPendingFeedbackQuery
+import br.com.ajadigital.core.assessment.application.contracts.CountPendingFeedbackQuery
 
 import br.com.ajadigital.core.assessment.domain.policies.SubmissionPolicy
 import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingFeedbackInputPort

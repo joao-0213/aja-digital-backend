@@ -181,7 +181,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         return page("SELECT c.* FROM core.classes c$w ORDER BY c.id${sortDirection(sort)}", "SELECT count(*) FROM core.classes c$w", args, page, size) { rs -> classMap(rs, role == "admin" || role == "teacher") }
     }
 
-    override fun dashboardClasses(request: AcademicStoreDashboardClassesDto): AcademicPage {
+    override fun dashboardClasses(request: AcademicStoreDashboardClassesDto): List<br.com.ajadigital.core.academic.application.contracts.DashboardClassProjection> {
         val (actorId, role, pageSize) = request
         require(pageSize in 1..100)
         val scope = when (role) {
@@ -190,12 +190,15 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
             else -> ""
         }
         val args = if (role == "student" || role == "teacher") arrayOf<Any>(actorId, pageSize) else arrayOf<Any>(pageSize)
-        val items = jdbc.query("""SELECT c.*,
+        return jdbc.query("""SELECT c.*,
             (SELECT count(*)::integer FROM core.enrollments e WHERE e.class_id=c.id AND e.status='active' AND e.student_id IS NOT NULL) student_count
             FROM core.classes c WHERE c.active=true$scope ORDER BY c.id LIMIT ?""", { rs, _ ->
-            classMap(rs, false) + ("studentCount" to rs.getInt("student_count"))
+            br.com.ajadigital.core.academic.application.contracts.DashboardClassProjection(
+                rs.getString("id"), rs.getInt("revision"), rs.getTimestamp("created_at").toInstant(),
+                rs.getTimestamp("updated_at").toInstant(), rs.getString("updated_by"), rs.getString("name"),
+                rs.getString("code"), rs.getInt("year"), rs.getString("shift"), rs.getBoolean("active"), rs.getInt("student_count"),
+            )
         }, *args)
-        return AcademicPage(items, 1, pageSize, items.size)
     }
 
     override fun findClass(request: AcademicStoreFindClassDto): Map<String, Any?>? {

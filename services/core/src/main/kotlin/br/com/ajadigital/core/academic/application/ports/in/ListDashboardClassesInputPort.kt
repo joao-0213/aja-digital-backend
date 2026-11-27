@@ -5,7 +5,8 @@ import br.com.ajadigital.core.academic.application.models.ListDashboardClassesDt
 
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.academic.application.models.AcademicPage
+import br.com.ajadigital.core.academic.application.contracts.DashboardClassProjection
 
 interface ListDashboardClassesInputPort {
-    fun dashboardClasses(request: ListDashboardClassesDto): AcademicPage
+    fun dashboardClasses(request: ListDashboardClassesDto): List<DashboardClassProjection>
 }

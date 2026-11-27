@@ -2,6 +2,7 @@ package br.com.ajadigital.core.academic.configuration
 
 import br.com.ajadigital.core.academic.application.ports.`in`.CloseClassInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.CountMyPendingEnrollmentsInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.GetDashboardAcademicInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.CreateClassInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.CreateEnrollmentInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.CreateUserInputPort
@@ -26,6 +27,7 @@ import br.com.ajadigital.core.academic.application.ports.`in`.WithdrawUserInputP
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
 import br.com.ajadigital.core.academic.application.usecases.CloseClassUseCase
 import br.com.ajadigital.core.academic.application.usecases.CountMyPendingEnrollmentsUseCase
+import br.com.ajadigital.core.academic.application.usecases.GetDashboardAcademicUseCase
 import br.com.ajadigital.core.academic.application.usecases.CreateClassUseCase
 import br.com.ajadigital.core.academic.application.usecases.CreateEnrollmentUseCase
 import br.com.ajadigital.core.academic.application.usecases.CreateUserUseCase
@@ -58,6 +60,13 @@ import java.time.Clock
 
 @Configuration
 class AcademicConfiguration {
+    @Bean
+    fun getDashboardAcademic(
+        classes: ListDashboardClassesInputPort,
+        enrollments: ListEnrollmentsInputPort,
+        students: ListStudentsInputPort,
+        myPendingEnrollments: CountMyPendingEnrollmentsInputPort,
+    ): GetDashboardAcademicInputPort = GetDashboardAcademicUseCase(classes, enrollments, students, myPendingEnrollments)
     @Bean
     fun listUsers(store: AcademicStoreOutputPort): ListUsersInputPort = ListUsersUseCase(store)
 

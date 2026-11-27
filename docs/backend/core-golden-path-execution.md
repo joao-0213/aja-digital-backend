@@ -171,3 +171,7 @@ The Ponytail follow-up removed the unused session reference from five store quer
 ## GP-04.8 — Attendance
 
 **Status: GP-04.8 complete.** [GP-04.8 evidence](core-golden-path-gp048-evidence.md) records the typed projections, PostgreSQL checks, full Core gate and independent reviews.
+
+## GP-04.9 — Dashboard
+
+**Status: GP-04.9 complete.** [GP-04.9 evidence](core-golden-path-gp049-evidence.md) records the typed read composition, source query inventory, full Core gate and independent reviews.

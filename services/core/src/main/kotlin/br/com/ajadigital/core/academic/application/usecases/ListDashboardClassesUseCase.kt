@@ -12,7 +12,7 @@ import br.com.ajadigital.core.academic.application.models.AcademicPage
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
 
 class ListDashboardClassesUseCase(private val store: AcademicStoreOutputPort) : ListDashboardClassesInputPort {
-    override fun dashboardClasses(request: ListDashboardClassesDto): AcademicPage {
+    override fun dashboardClasses(request: ListDashboardClassesDto): List<br.com.ajadigital.core.academic.application.contracts.DashboardClassProjection> {
                 val (actor, pageSize) = request
         AcademicPolicy.requireReader(actor.role, actor.active, actor.emailConfirmedAt != null)
         return store.dashboardClasses(AcademicStoreDashboardClassesDto(actor.id, actor.role, pageSize))

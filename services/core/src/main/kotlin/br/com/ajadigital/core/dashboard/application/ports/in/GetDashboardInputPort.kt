@@ -1,8 +1,8 @@
 package br.com.ajadigital.core.dashboard.application.ports.`in`
 import br.com.ajadigital.core.dashboard.application.models.*
 
-import br.com.ajadigital.core.dashboard.application.models.GetDashboardDto
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 interface GetDashboardInputPort {
-    fun dashboard(request: GetDashboardDto): Map<String, Any?>
+    fun dashboard(actor: AuthenticatedActor): br.com.ajadigital.core.dashboard.application.models.DashboardRead
 }
