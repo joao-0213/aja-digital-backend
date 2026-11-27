@@ -19,6 +19,12 @@ class PlatformIntegrationTests : CoreIntegrationTestBase() {
     }
 
     @Test
+    fun runtimeApiDocsAndSwaggerUiAreAbsentByDefault() {
+        listOf("/v3/api-docs", "/v3/api-docs.yaml", "/v3/api-docs/core-public", "/v3/api-docs.yaml/core-public", "/v3/api-docs/swagger-config", "/swagger-ui.html", "/swagger-ui/index.html", "/swagger-ui/swagger-initializer.js", "/swagger-ui/swagger-ui-bundle.js", "/webjars/swagger-ui/5.35.1/index.html", "/webjars/swagger-ui/5.35.1/swagger-initializer.js", "/docs/http/openapi.json", "/META-INF/aja/openapi.json")
+            .forEach { path -> mvc.get(path).andExpect { status { isNotFound() } } }
+    }
+
+    @Test
     fun everyCoreOpenApiOperationRejectsItsUnauthenticatedOrInvalidProbe() {
         val failures = mutableListOf<String>()
         openApiCoverage.expectedDenials().forEach { probe ->

@@ -179,3 +179,7 @@ The Ponytail follow-up removed the unused session reference from five store quer
 ## GP-05 — Health, web boundaries and outbox
 
 **Status: GP-05 complete.** [GP-05 evidence](core-golden-path-gp05-evidence.md) records the current health, Origin, error and outbox checks and independent reviews.
+
+## GP-06 — Opt-in runtime OpenAPI documentation
+
+**Status: GP-06 complete.** [GP-06 evidence](core-golden-path-gp06-evidence.md) records the compatible springdoc artifact, live profile checks, normative parity, browser rendering and independent review.

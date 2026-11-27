@@ -136,7 +136,7 @@ abstract class CoreIntegrationTestBase {
         }
     }
 
-    protected fun startCoreProcess(questionSnapshotsUrl: String? = null): CoreChild {
+    protected fun startCoreProcess(questionSnapshotsUrl: String? = null, profiles: String? = null): CoreChild {
         val jar = Path.of("build", "libs", "core-0.0.1-SNAPSHOT.jar").toAbsolutePath()
         assertTrue(Files.isRegularFile(jar), "Core boot jar missing at $jar")
         val javaExecutable = Path.of(System.getProperty("java.home"), "bin", if (System.getProperty("os.name").startsWith("Windows")) "java.exe" else "java")
@@ -144,7 +144,9 @@ abstract class CoreIntegrationTestBase {
         repeat(5) { attempt ->
             val port = ServerSocket(0).use { it.localPort }
             val processLog = Path.of("build", "core-process-$port-$attempt.log").toAbsolutePath()
-            val process = ProcessBuilder(javaExecutable.toString(), "-jar", jar.toString(), "--server.port=$port")
+            val command = mutableListOf(javaExecutable.toString(), "-jar", jar.toString(), "--server.port=$port")
+            profiles?.let { command.add("--spring.profiles.active=$it") }
+            val process = ProcessBuilder(command)
                 .directory(Path.of("").toAbsolutePath().toFile())
                 .redirectErrorStream(true)
                 .redirectOutput(processLog.toFile())

@@ -1,6 +1,6 @@
 # Core refactoring plan
 
-**Status (2026-11-17):** R-00 through R-07 are recorded as verified in their evidence documents. R-08 and R-09 remain pending. Phases 0 through 5 are therefore complete only to the extent covered by those recorded issues; phases 6 and 7 remain pending. These are historical issue records, not proof that the current worktree has no later drift. The user has authorized execution under [core-golden-path-orchestration-prompt.md](core-golden-path-orchestration-prompt.md); the resumable local issue order and current baseline are in [core-golden-path-issues.md](core-golden-path-issues.md) and [core-golden-path-execution.md](core-golden-path-execution.md). Core execution decisions D-01–D-12 in that prompt supersede only incompatible older Core package/DTO/helper conventions; public/private contracts and migration constraints remain binding. Current API and service contracts remain governed by [ARQUITETURA.md](../../ARQUITETURA.md), [docs/backend/operation-ownership.md](operation-ownership.md), issue acceptance criteria, and [docs/http/openapi.json](../http/openapi.json). Target package rules are in [ARCHITECTURE.md](../../ARCHITECTURE.md).
+**Status (2026-11-17):** R-00 through R-08 are recorded as verified in their evidence documents. R-09 remains pending. Phases 0 through 5 are therefore complete only to the extent covered by those recorded issues; phase 6 is verified and phase 7 remains pending. These are historical issue records, not proof that the current worktree has no later drift. The user has authorized execution under [core-golden-path-orchestration-prompt.md](core-golden-path-orchestration-prompt.md); the resumable local issue order and current baseline are in [core-golden-path-issues.md](core-golden-path-issues.md) and [core-golden-path-execution.md](core-golden-path-execution.md). Core execution decisions D-01–D-12 in that prompt supersede only incompatible older Core package/DTO/helper conventions; public/private contracts and migration constraints remain binding. Current API and service contracts remain governed by [ARQUITETURA.md](../../ARQUITETURA.md), [docs/backend/operation-ownership.md](operation-ownership.md), issue acceptance criteria, and [docs/http/openapi.json](../http/openapi.json). Target package rules are in [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
 ## Scope and constraints
 
@@ -326,7 +326,7 @@ Verify `health/` feature has its complete adapter structure (controller, use cas
 
 ### R-08 — Add springdoc-openapi
 
-**Implements:** phase 6. **Depends on:** R-07. **Status:** all criteria **pending**.
+**Implements:** phase 6. **Depends on:** R-07. **Status:** verified in [GP-06 evidence](core-golden-path-gp06-evidence.md).
 
 **Scope:** add `org.springdoc:springdoc-openapi-starter-webmvc-ui` to `services/core/build.gradle`. Select the exact version during authorized GP-06 execution by checking official compatibility and artifact availability; this historical plan does not pin a version range. See [D-12 execution requirements](core-golden-path-orchestration-prompt.md) and [official compatibility guidance](https://springdoc.org/#what-is-the-compatibility-matrix-of-springdoc-openapi-with-spring-boot-).
 
@@ -344,7 +344,7 @@ Configure in `application.properties`:
 
 **Acceptance criteria:**
 
-- **Pending:** with docs profile inactive: no docs JSON/YAML endpoint or Swagger UI is accessible (return 404 or equivalent). With docs profile active: `/v3/api-docs/core-public` returns OpenAPI 3.1 JSON; `/swagger-ui.html` renders the UI; compare generated public schema against normative `docs/http/openapi.json` for operation, schema, security, status, and nullability compatibility; verify every enabled docs endpoint (including ungrouped defaults if any) for private paths, schemas, operational APIs, and secret disclosure — none must appear; Swagger UI uses `aja_session` cookie authentication. `.\gradlew.bat test` passes; `.\gradlew.bat build` passes.
+- **Verified:** with docs profile inactive: no docs JSON/YAML endpoint or Swagger UI is accessible (return 404 or equivalent). With docs profile active: `/v3/api-docs/core-public` returns OpenAPI 3.1 JSON; `/swagger-ui.html` renders the UI; compare generated public schema against normative `docs/http/openapi.json` for operation, schema, security, status, and nullability compatibility; verify every enabled docs endpoint (including ungrouped defaults if any) for private paths, schemas, operational APIs, and secret disclosure — none must appear; Swagger UI uses `aja_session` cookie authentication. `.\gradlew.bat test` passes; `.\gradlew.bat build` passes.
 
 ---
 
