@@ -21,8 +21,8 @@ internal object AcademicPolicy {
         if (!active || !(role == "admin" || role == "teacher")) throw AcademicForbidden()
     }
 
-    fun conflict(current: Map<String, Any?>?): Nothing =
-        current?.let { throw AcademicConflict(it["revision"] as? Int) } ?: throw AcademicNotFound()
+    fun conflict(revision: Int?): Nothing =
+        revision?.let { throw AcademicConflict(it) } ?: throw AcademicNotFound()
 
     fun checkedPage(page: Int) = page.also { require(it > 0) }
     fun checkedSize(size: Int) = size.also { require(it in 1..100) }

@@ -68,7 +68,6 @@ import br.com.ajadigital.core.academic.application.ports.`in`.TransitionEnrollme
 import br.com.ajadigital.core.academic.application.ports.`in`.UpdateClassInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.UpdateUserInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.WithdrawUserInputPort
-import br.com.ajadigital.core.academic.application.models.AcademicPage
 import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
 import br.com.ajadigital.core.shared.adapters.`in`.web.requests.requestId
 import br.com.ajadigital.core.shared.adapters.`in`.web.requests.requestIdempotencyKey
@@ -85,6 +84,12 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import br.com.ajadigital.core.academic.application.models.AcademicClassView
+import br.com.ajadigital.core.academic.application.models.AcademicEnrollmentPreview
+import br.com.ajadigital.core.academic.application.models.AcademicEnrollmentView
+import br.com.ajadigital.core.academic.application.models.AcademicStudentView
+import br.com.ajadigital.core.academic.application.models.AcademicStudentSummaryView
+import br.com.ajadigital.core.shared.application.contracts.Page
 import tools.jackson.databind.JsonNode
 
 @RestController
@@ -128,40 +133,77 @@ class AcademicController(
     fun withdraw(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: RevisionRequest) = withdrawUser.withdraw(WithdrawUserDto(actor(cookie), requestId(id), requestRevision(body.expectedRevision)))
 
     @GetMapping("/api/v1/classes")
-    fun classes(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "id") sort: String, @RequestParam(required = false) active: Boolean?, @RequestParam(required = false) q: String?) = pagedBody(listClasses.classes(ListClassesDto(actor(cookie), page, pageSize, sort, active, q)))
+    fun classes(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "id") sort: String, @RequestParam(required = false) active: Boolean?, @RequestParam(required = false) q: String?) = pagedBody(listClasses.classes(ListClassesDto(actor(cookie), page, pageSize, sort, active, q)), ::classBody)
     @PostMapping("/api/v1/classes")
-    fun createClass(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: ClassCreateRequest) = ResponseEntity.status(HttpStatus.CREATED).body(createClass.createClass(CreateClassDto(actor(cookie), body.name, body.code, body.year, body.shift, requestIdempotencyKey(key))))
+    fun createClass(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: ClassCreateRequest) = ResponseEntity.status(HttpStatus.CREATED).body(classBody(createClass.createClass(CreateClassDto(actor(cookie), body.name, body.code, body.year, body.shift, requestIdempotencyKey(key)))))
     @GetMapping("/api/v1/classes/{id}")
-    fun classById(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = getClass.classById(GetClassDto(actor(cookie), requestId(id)))
+    fun classById(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = classBody(getClass.classById(GetClassDto(actor(cookie), requestId(id))))
     @PatchMapping("/api/v1/classes/{id}")
-    fun updateClass(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: ClassEditRequest) = updateClass.updateClass(UpdateClassDto(actor(cookie), requestId(id), requestRevision(body.expectedRevision), requestText(body.name), requestText(body.code), requestInteger(body.year), requestText(body.shift)))
+    fun updateClass(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: ClassEditRequest) = classBody(updateClass.updateClass(UpdateClassDto(actor(cookie), requestId(id), requestRevision(body.expectedRevision), requestText(body.name), requestText(body.code), requestInteger(body.year), requestText(body.shift))))
     @PostMapping("/api/v1/classes/{id}/close")
-    fun closeClass(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: RevisionRequest) = closeClass.closeClass(CloseClassDto(actor(cookie), requestId(id), requestRevision(body.expectedRevision), requestIdempotencyKey(key)))
+    fun closeClass(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: RevisionRequest) = classBody(closeClass.closeClass(CloseClassDto(actor(cookie), requestId(id), requestRevision(body.expectedRevision), requestIdempotencyKey(key))))
     @PostMapping("/api/v1/classes/{id}/reopen")
-    fun reopenClass(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: RevisionRequest) = reopenClass.reopenClass(ReopenClassDto(actor(cookie), requestId(id), requestRevision(body.expectedRevision), requestIdempotencyKey(key)))
+    fun reopenClass(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: RevisionRequest) = classBody(reopenClass.reopenClass(ReopenClassDto(actor(cookie), requestId(id), requestRevision(body.expectedRevision), requestIdempotencyKey(key))))
 
     @GetMapping("/api/v1/enrollments")
-    fun enrollments(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "id") sort: String, @RequestParam(required = false) classId: String?, @RequestParam(required = false) studentId: String?, @RequestParam(required = false) status: List<String>?, @RequestParam(required = false) q: String?) = pagedBody(listEnrollments.enrollments(ListEnrollmentsDto(actor(cookie), page, pageSize, sort, classId, studentId, status, q)))
+    fun enrollments(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "id") sort: String, @RequestParam(required = false) classId: String?, @RequestParam(required = false) studentId: String?, @RequestParam(required = false) status: List<String>?, @RequestParam(required = false) q: String?) = pagedBody(listEnrollments.enrollments(ListEnrollmentsDto(actor(cookie), page, pageSize, sort, classId, studentId, status, q)), ::enrollmentBody)
     @PostMapping("/api/v1/enrollments")
-    fun createEnrollment(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: EnrollmentCreateRequest) = ResponseEntity.status(HttpStatus.CREATED).body(createEnrollment.createEnrollment(CreateEnrollmentDto(actor(cookie), requestId(body.classId), body.email, requestIdempotencyKey(key))))
+    fun createEnrollment(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: EnrollmentCreateRequest) = ResponseEntity.status(HttpStatus.CREATED).body(enrollmentBody(createEnrollment.createEnrollment(CreateEnrollmentDto(actor(cookie), requestId(body.classId), body.email, requestIdempotencyKey(key)))))
     @GetMapping("/api/v1/enrollments/preview")
-    fun preview(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam classId: String, @RequestParam email: String) = previewEnrollment.preview(PreviewEnrollmentDto(actor(cookie), requestId(classId), email))
+    fun preview(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam classId: String, @RequestParam email: String) = previewBody(previewEnrollment.preview(PreviewEnrollmentDto(actor(cookie), requestId(classId), email)))
     @GetMapping("/api/v1/enrollments/{id}")
-    fun enrollment(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = getEnrollment.enrollment(GetEnrollmentDto(actor(cookie), requestId(id)))
+    fun enrollment(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = enrollmentBody(getEnrollment.enrollment(GetEnrollmentDto(actor(cookie), requestId(id))))
     @PostMapping("/api/v1/enrollments/{id}/activate")
-    fun activateEnrollment(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: RevisionRequest) = transitionEnrollment.transitionEnrollment(TransitionEnrollmentDto(actor(cookie), requestId(id), requestRevision(body.expectedRevision), "activate", requestIdempotencyKey(key)))
+    fun activateEnrollment(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: RevisionRequest) = enrollmentBody(transitionEnrollment.transitionEnrollment(TransitionEnrollmentDto(actor(cookie), requestId(id), requestRevision(body.expectedRevision), "activate", requestIdempotencyKey(key))))
     @PostMapping("/api/v1/enrollments/{id}/cancel")
-    fun cancelEnrollment(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: RevisionRequest) = transitionEnrollment.transitionEnrollment(TransitionEnrollmentDto(actor(cookie), requestId(id), requestRevision(body.expectedRevision), "cancel", requestIdempotencyKey(key)))
+    fun cancelEnrollment(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: RevisionRequest) = enrollmentBody(transitionEnrollment.transitionEnrollment(TransitionEnrollmentDto(actor(cookie), requestId(id), requestRevision(body.expectedRevision), "cancel", requestIdempotencyKey(key))))
     @PostMapping("/api/v1/enrollments/{id}/end")
-    fun endEnrollment(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: RevisionRequest) = transitionEnrollment.transitionEnrollment(TransitionEnrollmentDto(actor(cookie), requestId(id), requestRevision(body.expectedRevision), "end", requestIdempotencyKey(key)))
+    fun endEnrollment(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: RevisionRequest) = enrollmentBody(transitionEnrollment.transitionEnrollment(TransitionEnrollmentDto(actor(cookie), requestId(id), requestRevision(body.expectedRevision), "end", requestIdempotencyKey(key))))
     @GetMapping("/api/v1/me/enrollments")
-    fun myEnrollments(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "id") sort: String) = pagedBody(listMyEnrollments.myEnrollments(ListMyEnrollmentsDto(actor(cookie), page, pageSize, sort)))
+    fun myEnrollments(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "id") sort: String) = pagedBody(listMyEnrollments.myEnrollments(ListMyEnrollmentsDto(actor(cookie), page, pageSize, sort)), ::enrollmentBody)
     @GetMapping("/api/v1/students")
-    fun students(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "id") sort: String, @RequestParam(required = false) classId: String?, @RequestParam(required = false) q: String?, @RequestParam(defaultValue = "false") history: Boolean) = pagedBody(listStudents.students(ListStudentsDto(actor(cookie), page, pageSize, sort, classId, q, history)))
+    fun students(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "id") sort: String, @RequestParam(required = false) classId: String?, @RequestParam(required = false) q: String?, @RequestParam(defaultValue = "false") history: Boolean) = pagedBody(listStudents.students(ListStudentsDto(actor(cookie), page, pageSize, sort, classId, q, history)), ::studentSummaryBody)
     @GetMapping("/api/v1/students/{id}")
-    fun student(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = getStudent.student(GetStudentDto(actor(cookie), requestId(id)))
+    fun student(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = studentBody(getStudent.student(GetStudentDto(actor(cookie), requestId(id))))
 
     private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
-    private fun pagedBody(result: AcademicPage): Map<String, Any?> = mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
+    private fun <T> pagedBody(result: Page<T>, render: (T) -> Any? = { it }): Map<String, Any?> = mapOf("items" to result.items.map(render), "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
+    private fun classBody(value: AcademicClassView): Map<String, Any?> = buildMap {
+        put("id", value.id)
+        put("revision", value.revision)
+        put("createdAt", value.createdAt)
+        put("updatedAt", value.updatedAt)
+        put("updatedBy", value.updatedBy)
+        put("name", value.name)
+        put("code", value.code)
+        put("year", value.year)
+        put("shift", value.shift)
+        put("active", value.active)
+        value.studentIds?.let { put("studentIds", it) }
+    }
+    private fun enrollmentBody(value: AcademicEnrollmentView): Map<String, Any?> = linkedMapOf(
+        "id" to value.id, "revision" to value.revision, "createdAt" to value.createdAt, "updatedAt" to value.updatedAt,
+        "updatedBy" to value.updatedBy, "classId" to value.classId, "email" to value.email, "studentId" to value.studentId,
+        "status" to value.status, "createdBy" to value.createdBy, "enrolledAt" to value.enrolledAt, "endedAt" to value.endedAt,
+        "legacy" to value.legacy, "unassignedAssessmentIds" to value.unassignedAssessmentIds, "className" to value.className,
+    )
+    private fun studentBody(value: AcademicStudentView): Map<String, Any?> = linkedMapOf(
+        "student" to studentSummaryBody(value.student), "enrollments" to value.enrollments.map(::enrollmentBody),
+        // Legacy-only domains; the existing Academic endpoint has always returned empty arrays here.
+        "attendance" to emptyList<String>(), "attempts" to emptyList<String>(), "submissions" to emptyList<String>(),
+    )
+    private fun studentSummaryBody(value: AcademicStudentSummaryView): Map<String, Any?> = linkedMapOf(
+        "id" to value.id, "name" to value.name, "email" to value.email, "active" to value.active,
+        "enrollment" to value.enrollment?.let(::enrollmentBody),
+    )
+    private fun previewBody(value: AcademicEnrollmentPreview): Map<String, Any?> = linkedMapOf(
+        "email" to value.email,
+        "classId" to value.classId,
+        "account" to value.account,
+        "existingEnrollment" to value.existingEnrollment?.let(::enrollmentBody),
+        "otherClass" to value.otherClass,
+        "canEnroll" to value.canEnroll,
+        "message" to value.message,
+    )
     private fun requestInteger(value: JsonNode): Int? = if (value.isMissingNode) null else value.intValue().also { require(value.isIntegralNumber && value.canConvertToInt()) }
 }

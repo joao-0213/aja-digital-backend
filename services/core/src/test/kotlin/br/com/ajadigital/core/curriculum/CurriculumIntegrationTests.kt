@@ -964,16 +964,23 @@ class CurriculumIntegrationTests : CoreIntegrationTestBase() {
             content = body
         }.andExpect { status { isCreated() } }.andReturn()
         val classId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(first.response.contentAsString).get("id").asText()
+        assertEquals(first.response.contentAsString, jdbc.queryForObject("select response_body from core.command_idempotency where operation='createClass' and target='/classes' and idempotency_key=?", String::class.java, key))
+        assertEquals(listOf("id", "revision", "createdAt", "updatedAt", "updatedBy", "name", "code", "year", "shift", "active", "studentIds"), tools.jackson.databind.json.JsonMapper.builder().build().readTree(first.response.contentAsString).properties().map { it.key })
         assertEquals(before + 1, jdbc.queryForObject("select count(*) from core.audit_events", Int::class.java))
         assertEquals("academic.class_created", jdbc.queryForObject("select event_type from core.audit_events where subject_user_id=?", String::class.java, classId))
         assertEquals(adminId, jdbc.queryForObject("select actor_user_id from core.audit_events where subject_user_id=?", String::class.java, classId))
-        mvc.post("/api/v1/classes") {
+        val receiptFields = tools.jackson.databind.json.JsonMapper.builder().build().readTree(first.response.contentAsString)
+        val legacyReceipt = """{"id":"${receiptFields.get("id").asText()}","revision":${receiptFields.get("revision").asInt()},"createdAt":"${receiptFields.get("createdAt").asText()}","updatedAt":"${receiptFields.get("updatedAt").asText()}","updatedBy":"${receiptFields.get("updatedBy").asText()}","name":"${receiptFields.get("name").asText()}","code":"${receiptFields.get("code").asText()}","year":${receiptFields.get("year").asInt()},"shift":"${receiptFields.get("shift").asText()}","active":${receiptFields.get("active").asBoolean()},"studentIds":[]}"""
+        assertEquals(first.response.contentAsString, legacyReceipt)
+        jdbc.update("update core.command_idempotency set response_body=? where operation='createClass' and target='/classes' and idempotency_key=?", legacyReceipt, key)
+        val replay = mvc.post("/api/v1/classes") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
             header("Idempotency-Key", key)
             cookie(Cookie("aja_session", adminCookie))
             content = body
-        }.andExpect { status { isCreated() } }
+        }.andExpect { status { isCreated() } }.andReturn()
+        assertEquals(legacyReceipt, replay.response.contentAsString)
         assertEquals(before + 1, jdbc.queryForObject("select count(*) from core.audit_events", Int::class.java))
         mvc.post("/api/v1/classes") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON

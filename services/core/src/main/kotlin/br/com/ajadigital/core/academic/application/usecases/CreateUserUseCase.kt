@@ -21,7 +21,8 @@ import br.com.ajadigital.core.outbox.domain.models.OutboxPayloadKeyDto
 import br.com.ajadigital.core.identity.domain.policies.EmailAddress
 import br.com.ajadigital.core.identity.application.ports.out.PasswordHasherOutputPort
 import br.com.ajadigital.core.identity.application.models.HashPasswordDto
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
+import br.com.ajadigital.core.academic.application.ports.out.AcademicReceiptCodecOutputPort
 import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
 import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 import br.com.ajadigital.core.shared.domain.models.SerializeJsonDto
@@ -35,17 +36,21 @@ class CreateUserUseCase(
     private val clock: Clock,
     private val encryption: OutboxPayloadProtectorOutputPort,
     private val passwordHasher: PasswordHasherOutputPort,
-    private val idempotency: IdempotencyStoreOutputPort,
+    private val idempotency: EncodedIdempotencyStoreOutputPort,
+    private val receiptCodec: AcademicReceiptCodecOutputPort,
     private val transactionRunner: TransactionRunnerOutputPort,
 ) : CreateUserInputPort {
-    override fun createUser(request: CreateUserDto): Map<String, Any?> {
+    override fun createUser(request: CreateUserDto): AcademicUserView {
                 val (actor, name, emailInput, role, key) = request
         return         transactionRunner.run(TransactionRunDto {
             AcademicAuthorization.requireAdmin(store, actor, true)
             val trimmedName = name.trim()
             val email = emailInput.trim()
             require(trimmedName.isNotEmpty() && trimmedName.length <= 200 && EmailAddress.isValid(email) && role in setOf("teacher", "admin"))
-            AcademicIdempotency.execute(idempotency, objectMapper, actor, "createUser", "/users", key, mapOf("name" to trimmedName, "email" to email, "role" to role)) {
+            AcademicIdempotency.execute(idempotency, objectMapper, actor, "createUser", "/users", key, mapOf("name" to trimmedName, "email" to email, "role" to role),
+                encode = { receiptCodec.encode(it) },
+                decode = receiptCodec::decodeUser,
+            ) {
                 val now = Instant.now(clock)
                 val id = UUID.randomUUID().toString()
                 val passwordToken = AcademicTokens.generate()

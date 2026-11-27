@@ -8,11 +8,12 @@ import br.com.ajadigital.core.academic.application.models.ListEnrollmentsDto
 import br.com.ajadigital.core.academic.domain.policies.AcademicPolicy
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.academic.application.ports.`in`.ListEnrollmentsInputPort
-import br.com.ajadigital.core.academic.application.models.AcademicPage
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
 
+import br.com.ajadigital.core.shared.application.contracts.Page
+
 class ListEnrollmentsUseCase(private val store: AcademicStoreOutputPort) : ListEnrollmentsInputPort {
-    override fun enrollments(request: ListEnrollmentsDto): AcademicPage {
+    override fun enrollments(request: ListEnrollmentsDto): Page<AcademicEnrollmentView> {
         val (actor, page, size, sort, classId, studentId, status, q) = request
                 AcademicPolicy.requireReader(actor.role, actor.active, actor.emailConfirmedAt != null)
         return store.listEnrollments(AcademicStoreListEnrollmentsDto(

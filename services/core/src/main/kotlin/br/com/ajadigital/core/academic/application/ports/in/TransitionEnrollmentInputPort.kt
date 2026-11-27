@@ -6,5 +6,5 @@ import br.com.ajadigital.core.academic.application.models.TransitionEnrollmentDt
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 interface TransitionEnrollmentInputPort {
-    fun transitionEnrollment(request: TransitionEnrollmentDto): Map<String, Any?>
+    fun transitionEnrollment(request: TransitionEnrollmentDto): AcademicEnrollmentView
 }

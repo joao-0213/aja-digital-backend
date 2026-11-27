@@ -44,7 +44,6 @@ import br.com.ajadigital.core.academic.application.models.AcademicStoreFindStude
 
 import br.com.ajadigital.core.academic.application.models.AcademicStoreIsCurrentAdminSessionDto
 
-import br.com.ajadigital.core.academic.application.models.AcademicPage
 import br.com.ajadigital.core.academic.application.models.CountPendingEnrollmentsForStudentDto
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
 import br.com.ajadigital.core.academic.application.models.FindUserDto
@@ -56,6 +55,7 @@ import java.sql.ResultSet
 import java.sql.Timestamp
 import java.time.Clock
 import java.util.UUID
+import br.com.ajadigital.core.shared.application.contracts.Page
 
 @Repository
 class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock) : AcademicStoreOutputPort {
@@ -74,7 +74,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         if (!account) return false
         return jdbc.query("SELECT id FROM core.sessions WHERE token_hash=? AND user_id=? AND revoked_at IS NULL AND expires_at>? FOR UPDATE", { rs, _ -> rs.getString(1) }, sessionTokenHash, actorId, Timestamp.from(clock.instant())).isNotEmpty()
     }
-    override fun listUsers(request: AcademicStoreListUsersDto): AcademicPage {
+    override fun listUsers(request: AcademicStoreListUsersDto): Page<AcademicUserView> {
         val (page, size, sort, role, active, query) = request
         val sqlWhere = when {
             role == null && active == null && query.isNullOrBlank() -> ""
@@ -90,13 +90,13 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         return page("SELECT * FROM core.users$sqlWhere ORDER BY id${sortDirection(sort)}", "SELECT count(*) FROM core.users$sqlWhere", parameters, page, size, ::userMap)
     }
 
-    override fun findUser(request: FindUserDto): Map<String, Any?>? {
+    override fun findUser(request: FindUserDto): AcademicUserView? {
         val id = request.id
         return jdbc.query("SELECT * FROM core.users WHERE id=?", { rs, _ -> userMap(rs) }, id).firstOrNull()
     }
 
     @Transactional
-    override fun createUser(request: AcademicStoreCreateUserDto): Map<String, Any?> {
+    override fun createUser(request: AcademicStoreCreateUserDto): AcademicUserView {
         val (identity) = request
         val email = identity.email.trim()
         jdbc.update("""INSERT INTO core.users(id,revision,created_at,updated_at,updated_by,name,email,normalized_email,password_hash,role,active,email_confirmed_at)
@@ -112,14 +112,14 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
     }
 
     @Transactional
-    override fun updateUser(request: AcademicStoreUpdateUserDto): Map<String, Any?>? {
+    override fun updateUser(request: AcademicStoreUpdateUserDto): AcademicUserView? {
         val (id, actorId, expectedRevision, name, email) = request
         jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java)
         val current = findUser(FindUserDto(id)) ?: return null
-        val newName = name ?: current["name"] as String
-        val newEmail = email ?: current["email"] as String
+        val newName = name ?: current.name
+        val newEmail = email ?: current.email
         require(newName.isNotBlank() && newName.length <= 200 && br.com.ajadigital.core.identity.domain.policies.EmailAddress.isValid(newEmail))
-        val emailChanged = newEmail.lowercase() != (current["email"] as String).lowercase()
+        val emailChanged = newEmail.lowercase() != (current.email).lowercase()
         val now = Timestamp.from(clock.instant())
         val changed = jdbc.update("""UPDATE core.users SET name=?,email=?,normalized_email=?,email_confirmed_at=CASE WHEN ? THEN NULL ELSE email_confirmed_at END,
             revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=?""",
@@ -134,7 +134,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
     }
 
     @Transactional
-    override fun changeRole(request: AcademicStoreChangeRoleDto): Map<String, Any?>? {
+    override fun changeRole(request: AcademicStoreChangeRoleDto): AcademicUserView? {
         val (id, actorId, expectedRevision, role) = request
         require(role in setOf("student", "teacher", "admin"))
         jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java)
@@ -153,7 +153,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
     @Transactional
     override fun withdrawUser(request: AcademicStoreWithdrawUserDto) = run { val (id, actorId, expectedRevision) = request; deactivate(id, actorId, expectedRevision, "academic.user_withdrawn") }
 
-    private fun deactivate(id: String, actorId: String, expectedRevision: Int, eventType: String): Map<String, Any?>? {
+    private fun deactivate(id: String, actorId: String, expectedRevision: Int, eventType: String): AcademicUserView? {
         jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java)
         val target = jdbc.query("SELECT role,active,revision FROM core.users WHERE id=? FOR UPDATE", { rs, _ -> Triple(rs.getString(1), rs.getBoolean(2), rs.getInt(3)) }, id).firstOrNull() ?: return null
         if (target.third != expectedRevision) return null
@@ -168,7 +168,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         if ((jdbc.queryForObject("SELECT count(*) FROM core.users WHERE role='admin' AND active", Int::class.java) ?: 0) <= 1) throw AcademicConflict()
     }
 
-    override fun listClasses(request: AcademicStoreListClassesDto): AcademicPage {
+    override fun listClasses(request: AcademicStoreListClassesDto): Page<AcademicClassView> {
         val (actorId, role, page, size, sort, active, query) = request
         val predicates = mutableListOf<String>(); val args = mutableListOf<Any>()
         when (role) {
@@ -201,7 +201,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         }, *args)
     }
 
-    override fun findClass(request: AcademicStoreFindClassDto): Map<String, Any?>? {
+    override fun findClass(request: AcademicStoreFindClassDto): AcademicClassView? {
         val (id, actorId, role) = request
         val scope = when (role) {
             "student" -> " AND c.active AND EXISTS(SELECT 1 FROM core.enrollments e WHERE e.class_id=c.id AND e.student_id=? AND e.status='active')"
@@ -213,7 +213,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
     }
 
     @Transactional
-    override fun createClass(request: AcademicStoreCreateClassDto): Map<String, Any?> {
+    override fun createClass(request: AcademicStoreCreateClassDto): AcademicClassView {
         val (actorId, name, code, year, shift) = request
         require(name.isNotBlank() && code.isNotBlank() && year in 1900..2200 && shift in setOf("Manhã", "Tarde", "Noite"))
         val id = UUID.randomUUID().toString(); val now = Timestamp.from(clock.instant())
@@ -223,10 +223,10 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
     }
 
     @Transactional
-    override fun updateClass(request: AcademicStoreUpdateClassDto): Map<String, Any?>? {
+    override fun updateClass(request: AcademicStoreUpdateClassDto): AcademicClassView? {
         val (id, actorId, expectedRevision, name, code, year, shift) = request
         val current = jdbc.query("SELECT * FROM core.classes WHERE id=?", { rs, _ -> classMap(rs) }, id).firstOrNull() ?: return null
-        val n = name ?: current["name"] as String; val c = code ?: current["code"] as String; val y = year ?: current["year"] as Int; val s = shift ?: current["shift"] as String
+        val n = name ?: current.name; val c = code ?: current.code; val y = year ?: current.year; val s = shift ?: current.shift
         require(n.isNotBlank() && c.isNotBlank() && y in 1900..2200 && s in setOf("Manhã", "Tarde", "Noite"))
         if (jdbc.update("UPDATE core.classes SET name=?,code=?,normalized_code=?,year=?,shift=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=?", n, c, c.lowercase(), y, s, Timestamp.from(clock.instant()), actorId, id, expectedRevision) != 1) return null
         audit(actorId, "academic.class_updated", id)
@@ -234,7 +234,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
     }
 
     @Transactional
-    override fun setClassActive(request: AcademicStoreSetClassActiveDto): Map<String, Any?>? {
+    override fun setClassActive(request: AcademicStoreSetClassActiveDto): AcademicClassView? {
         val (id, actorId, expectedRevision, active) = request
         val now = Timestamp.from(clock.instant())
         if (jdbc.update("UPDATE core.classes SET active=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=?", active, now, actorId, id, expectedRevision) != 1) return null
@@ -246,7 +246,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         return findClass(br.com.ajadigital.core.academic.application.models.AcademicStoreFindClassDto(id, actorId, "admin"))
     }
 
-    override fun listEnrollments(request: AcademicStoreListEnrollmentsDto): AcademicPage {
+    override fun listEnrollments(request: AcademicStoreListEnrollmentsDto): Page<AcademicEnrollmentView> {
         val (actorId, role, page, size, sort, classId, studentId, status, query) = request
         if (role == "teacher") requireAssignedTeacherClass(classId, actorId)
         val p = mutableListOf<String>(); val a = mutableListOf<Any>()
@@ -267,10 +267,10 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         return page("SELECT e.*,c.name class_name$from$where ORDER BY e.id${sortDirection(sort)}", "SELECT count(*)$from$where", a, page, size, ::enrollmentMap)
     }
 
-    override fun findEnrollment(request: AcademicStoreFindEnrollmentDto) = run { val (id) = request; jdbc.query("SELECT e.*,c.name class_name FROM core.enrollments e JOIN core.classes c ON c.id=e.class_id WHERE e.id=?", { rs, _ -> enrollmentMap(rs) }, id).firstOrNull() }
+    override fun findEnrollment(request: AcademicStoreFindEnrollmentDto): AcademicEnrollmentView? = run { val (id) = request; jdbc.query("SELECT e.*,c.name class_name FROM core.enrollments e JOIN core.classes c ON c.id=e.class_id WHERE e.id=?", { rs, _ -> enrollmentMap(rs) }, id).firstOrNull() }
 
     @Transactional
-    override fun createEnrollment(request: AcademicStoreCreateEnrollmentDto): Map<String, Any?> {
+    override fun createEnrollment(request: AcademicStoreCreateEnrollmentDto): AcademicEnrollmentView {
         val (actorId, classId, email) = request
         val normalized = email.lowercase()
         val existing = jdbc.query("SELECT e.*,c.name class_name FROM core.enrollments e JOIN core.classes c ON c.id=e.class_id WHERE class_id=? AND normalized_email=? AND status IN ('pending','active')", { rs, _ -> enrollmentMap(rs) }, classId, normalized).firstOrNull()
@@ -290,20 +290,20 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         return findEnrollment(br.com.ajadigital.core.academic.application.models.AcademicStoreFindEnrollmentDto(id))!!
     }
 
-    override fun enrollmentPreview(request: AcademicStoreEnrollmentPreviewDto): Map<String, Any?>? {
+    override fun enrollmentPreview(request: AcademicStoreEnrollmentPreviewDto): AcademicEnrollmentPreview? {
         val (classId, email) = request
         val clazz = jdbc.query("SELECT id FROM core.classes WHERE id=? AND active", { rs, _ -> rs.getString(1) }, classId).firstOrNull() ?: return null
         val normalized = email.lowercase()
         val accountId = jdbc.query("SELECT id FROM core.users WHERE normalized_email=?", { rs, _ -> rs.getString(1) }, normalized).firstOrNull()
         val account = accountId?.let { findUser(FindUserDto(it)) }
         val enrollment = jdbc.query("SELECT e.*,c.name class_name FROM core.enrollments e JOIN core.classes c ON c.id=e.class_id WHERE e.class_id=? AND e.normalized_email=? AND e.status IN ('pending','active')", { rs, _ -> enrollmentMap(rs) }, classId, normalized).firstOrNull()
-        val other = jdbc.query("SELECT c.id,c.name FROM core.enrollments e JOIN core.classes c ON c.id=e.class_id WHERE e.normalized_email=? AND e.status='active' AND e.class_id<>?", { rs, _ -> mapOf("id" to rs.getString(1), "name" to rs.getString(2)) }, normalized, classId).firstOrNull()
-        val can = enrollment == null && other == null && account?.get("active") != false
-        return mapOf("email" to email, "classId" to clazz, "account" to account, "existingEnrollment" to enrollment, "otherClass" to other, "canEnroll" to can, "message" to if (can) null else "Enrollment is unavailable")
+        val other = jdbc.query("SELECT c.id,c.name FROM core.enrollments e JOIN core.classes c ON c.id=e.class_id WHERE e.normalized_email=? AND e.status='active' AND e.class_id<>?", { rs, _ -> AcademicClassReference(rs.getString(1), rs.getString(2)) }, normalized, classId).firstOrNull()
+        val can = enrollment == null && other == null && account?.active != false
+        return AcademicEnrollmentPreview(email, clazz, account, enrollment, other, can, if (can) null else "Enrollment is unavailable")
     }
 
     @Transactional
-    override fun transitionEnrollment(request: AcademicStoreTransitionEnrollmentDto): Map<String, Any?>? {
+    override fun transitionEnrollment(request: AcademicStoreTransitionEnrollmentDto): AcademicEnrollmentView? {
         val (id, actorId, expectedRevision, command) = request
         val pointer = jdbc.query("SELECT class_id,student_id,normalized_email FROM core.enrollments WHERE id=?", { rs, _ -> Triple(rs.getString("class_id"), rs.getString("student_id"), rs.getString("normalized_email")) }, id).firstOrNull() ?: return null
         val activationAccount = if (command == "activate") {
@@ -341,7 +341,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
 
     private data class EnrollmentTransition(val status: String, val revision: Int, val studentId: String?, val classActive: Boolean)
 
-    override fun myEnrollments(request: AcademicStoreMyEnrollmentsDto) = run { val (studentId, page, size, sort) = request; listEnrollmentsForStudent(studentId, page, size, false, sort) }
+    override fun myEnrollments(request: AcademicStoreMyEnrollmentsDto): Page<AcademicEnrollmentView> = run { val (studentId, page, size, sort) = request; listEnrollmentsForStudent(studentId, page, size, false, sort) }
 
     override fun myPendingEnrollmentCount(request: CountPendingEnrollmentsForStudentDto): Int {
         val studentId = request.studentId
@@ -349,7 +349,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         WHERE e.status='pending' AND (e.student_id=? OR (e.student_id IS NULL AND e.normalized_email=(SELECT normalized_email FROM core.users WHERE id=?)))""", Int::class.java, studentId, studentId) ?: 0
     }
 
-    override fun listStudents(request: AcademicStoreListStudentsDto): AcademicPage {
+    override fun listStudents(request: AcademicStoreListStudentsDto): Page<AcademicStudentSummaryView> {
         val (actorId, role, page, size, sort, classId, query, history) = request
         if (role == "teacher") requireAssignedTeacherClass(classId, actorId)
         val predicates = mutableListOf<String>("u.role='student'", "(e.status='active'${if (history) " OR e.status='ended'" else ""})")
@@ -365,7 +365,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         return page(sql, count, args, page, size) { rs -> summaryMap(rs, classId) }
     }
 
-    override fun findStudent(request: AcademicStoreFindStudentDto): Map<String, Any?>? {
+    override fun findStudent(request: AcademicStoreFindStudentDto): AcademicStudentView? {
         val (id, actorId, role) = request
         if (role !in setOf("admin", "teacher")) return null
         val student = jdbc.query("SELECT * FROM core.users WHERE id=? AND role='student'", { rs, _ -> userMap(rs) }, id).firstOrNull() ?: return null
@@ -373,10 +373,10 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         val args = if (role == "teacher") listOf(id, actorId) else listOf(id)
         val enrollments = jdbc.query("SELECT e.*,c.name class_name FROM core.enrollments e JOIN core.classes c ON c.id=e.class_id WHERE e.student_id=?$enrollmentScope ORDER BY e.created_at", { rs, _ -> enrollmentMap(rs) }, *args.toTypedArray())
         if (role == "teacher" && enrollments.isEmpty()) return null
-        return mapOf("student" to summaryMap(student, null), "enrollments" to enrollments, "attendance" to emptyList<Any>(), "attempts" to emptyList<Any>(), "submissions" to emptyList<Any>())
+        return AcademicStudentView(summaryMap(student, null), enrollments)
     }
 
-    private fun listEnrollmentsForStudent(studentId: String, page: Int, size: Int, includeEnded: Boolean, sort: String = "id"): AcademicPage {
+    private fun listEnrollmentsForStudent(studentId: String, page: Int, size: Int, includeEnded: Boolean, sort: String = "id"): Page<AcademicEnrollmentView> {
         val status = if (includeEnded) "('active','ended')" else "('active','pending','ended','cancelled')"
         val from = " FROM core.enrollments e JOIN core.classes c ON c.id=e.class_id WHERE (e.student_id=? OR (e.student_id IS NULL AND e.normalized_email=(SELECT normalized_email FROM core.users WHERE id=?))) AND e.status IN $status"
         return page("SELECT e.*,c.name class_name$from ORDER BY e.id${sortDirection(sort)}", "SELECT count(*)$from", listOf(studentId, studentId), page, size, ::enrollmentMap)
@@ -390,24 +390,31 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
     }
     private fun sortDirection(sort: String) = if (sort == "-id") " DESC" else " ASC"
 
-    private fun <T> page(sql: String, countSql: String, args: List<Any>, page: Int, size: Int, mapper: (ResultSet) -> T): AcademicPage {
+    private fun <T> page(sql: String, countSql: String, args: List<Any>, page: Int, size: Int, mapper: (ResultSet) -> T): Page<T> {
         val total = jdbc.queryForObject(countSql, Int::class.java, *args.toTypedArray()) ?: 0
         val items = jdbc.query("$sql LIMIT ? OFFSET ?", { rs, _ -> mapper(rs) }, *(args + listOf(size, (page - 1) * size)).toTypedArray())
-        return AcademicPage(items as List<Map<String, Any?>>, page, size, total)
+        return Page(items, page, size, total)
     }
 
-    private fun userMap(rs: ResultSet) = mapOf("id" to rs.getString("id"), "revision" to rs.getInt("revision"), "createdAt" to rs.getTimestamp("created_at").toInstant(), "updatedAt" to rs.getTimestamp("updated_at").toInstant(), "updatedBy" to rs.getString("updated_by"), "name" to rs.getString("name"), "email" to rs.getString("email"), "role" to rs.getString("role"), "active" to rs.getBoolean("active"), "emailConfirmedAt" to rs.getTimestamp("email_confirmed_at")?.toInstant())
-    private fun summaryMap(rs: ResultSet, classId: String?): Map<String, Any?> = summaryMap(userMap(rs), classId)
-    private fun summaryMap(user: Map<String, Any?>, classId: String?): Map<String, Any?> {
-        val id = user["id"] as String
-        val enrollment = classId?.let { contextClassId -> jdbc.query("SELECT e.*,c.name class_name FROM core.enrollments e JOIN core.classes c ON c.id=e.class_id WHERE e.student_id=? AND e.status IN ('active','ended') AND e.class_id=? ORDER BY e.updated_at DESC LIMIT 1", { r, _ -> enrollmentMap(r) }, id, contextClassId).firstOrNull() }
-        return mapOf("id" to id, "name" to user["name"], "email" to user["email"], "active" to user["active"], "enrollment" to enrollment)
+    private fun userMap(rs: ResultSet) = AcademicUserView(rs.getString("id"), rs.getInt("revision"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(), rs.getString("updated_by"), rs.getString("name"), rs.getString("email"), rs.getString("role"), rs.getBoolean("active"), rs.getTimestamp("email_confirmed_at")?.toInstant())
+    private fun summaryMap(rs: ResultSet, classId: String?): AcademicStudentSummaryView = summaryMap(userMap(rs), classId)
+    private fun summaryMap(user: AcademicUserView, classId: String?): AcademicStudentSummaryView {
+        val enrollment = classId?.let { contextClassId -> jdbc.query("SELECT e.*,c.name class_name FROM core.enrollments e JOIN core.classes c ON c.id=e.class_id WHERE e.student_id=? AND e.status IN ('active','ended') AND e.class_id=? ORDER BY e.updated_at DESC LIMIT 1", { r, _ -> enrollmentMap(r) }, user.id, contextClassId).firstOrNull() }
+        return AcademicStudentSummaryView(user.id, user.name, user.email, user.active, enrollment)
     }
-    private fun classMap(rs: ResultSet, includeStudents: Boolean = true): Map<String, Any?> {
+    private fun classMap(rs: ResultSet, includeStudents: Boolean = true): AcademicClassView {
         val id = rs.getString("id")
-        val result = mutableMapOf<String, Any?>("id" to id, "revision" to rs.getInt("revision"), "createdAt" to rs.getTimestamp("created_at").toInstant(), "updatedAt" to rs.getTimestamp("updated_at").toInstant(), "updatedBy" to rs.getString("updated_by"), "name" to rs.getString("name"), "code" to rs.getString("code"), "year" to rs.getInt("year"), "shift" to rs.getString("shift"), "active" to rs.getBoolean("active"))
-        if (includeStudents) result["studentIds"] = jdbc.query("SELECT student_id FROM core.enrollments WHERE class_id=? AND status='active' AND student_id IS NOT NULL ORDER BY student_id", { r, _ -> r.getString(1) }, id)
-        return result
+        val revision = rs.getInt("revision")
+        val createdAt = rs.getTimestamp("created_at").toInstant()
+        val updatedAt = rs.getTimestamp("updated_at").toInstant()
+        val updatedBy = rs.getString("updated_by")
+        val name = rs.getString("name")
+        val code = rs.getString("code")
+        val year = rs.getInt("year")
+        val shift = rs.getString("shift")
+        val active = rs.getBoolean("active")
+        val studentIds = if (includeStudents) jdbc.query("SELECT student_id FROM core.enrollments WHERE class_id=? AND status='active' AND student_id IS NOT NULL ORDER BY student_id", { r, _ -> r.getString(1) }, id) else null
+        return AcademicClassView(id, revision, createdAt, updatedAt, updatedBy, name, code, year, shift, active, studentIds)
     }
-    private fun enrollmentMap(rs: ResultSet): Map<String, Any?> = mapOf("id" to rs.getString("id"), "revision" to rs.getInt("revision"), "createdAt" to rs.getTimestamp("created_at").toInstant(), "updatedAt" to rs.getTimestamp("updated_at").toInstant(), "updatedBy" to rs.getString("updated_by"), "classId" to rs.getString("class_id"), "email" to rs.getString("email"), "studentId" to rs.getString("student_id"), "status" to rs.getString("status"), "createdBy" to rs.getString("created_by"), "enrolledAt" to rs.getTimestamp("enrolled_at")?.toInstant(), "endedAt" to rs.getTimestamp("ended_at")?.toInstant(), "legacy" to rs.getBoolean("legacy"), "unassignedAssessmentIds" to emptyList<String>(), "className" to rs.getString("class_name"))
+    private fun enrollmentMap(rs: ResultSet): AcademicEnrollmentView = AcademicEnrollmentView(rs.getString("id"), rs.getInt("revision"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(), rs.getString("updated_by"), rs.getString("class_id"), rs.getString("email"), rs.getString("student_id"), rs.getString("status"), rs.getString("created_by"), rs.getTimestamp("enrolled_at")?.toInstant(), rs.getTimestamp("ended_at")?.toInstant(), rs.getBoolean("legacy"), emptyList(), rs.getString("class_name"))
 }

@@ -20,11 +20,11 @@ class DeactivateUserUseCase(
     private val store: AcademicStoreOutputPort,
     private val transactionRunner: TransactionRunnerOutputPort,
 ) : DeactivateUserInputPort {
-    override fun deactivate(request: DeactivateUserDto): Map<String, Any?> {
+    override fun deactivate(request: DeactivateUserDto): AcademicUserView {
         val (actor, id, revision) = request
                 return         transactionRunner.run(TransactionRunDto {
             store.deactivateUser(AcademicStoreDeactivateUserDto(id, AcademicAuthorization.requireAdmin(store, actor, true).id, revision.also { require(it > 0) }))
-                ?: AcademicPolicy.conflict(store.findUser(FindUserDto(id)))
+                ?: AcademicPolicy.conflict(store.findUser(FindUserDto(id))?.revision)
         })
     }
 }

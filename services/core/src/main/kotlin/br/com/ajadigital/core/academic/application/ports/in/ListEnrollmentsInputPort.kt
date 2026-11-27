@@ -4,8 +4,9 @@ import br.com.ajadigital.core.academic.application.models.*
 import br.com.ajadigital.core.academic.application.models.ListEnrollmentsDto
 
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
-import br.com.ajadigital.core.academic.application.models.AcademicPage
+
+import br.com.ajadigital.core.shared.application.contracts.Page
 
 interface ListEnrollmentsInputPort {
-    fun enrollments(request: ListEnrollmentsDto): AcademicPage
+    fun enrollments(request: ListEnrollmentsDto): Page<AcademicEnrollmentView>
 }

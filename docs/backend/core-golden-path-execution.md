@@ -183,3 +183,7 @@ The Ponytail follow-up removed the unused session reference from five store quer
 ## GP-06 — Opt-in runtime OpenAPI documentation
 
 **Status: GP-06 complete.** [GP-06 evidence](core-golden-path-gp06-evidence.md) records the compatible springdoc artifact, live profile checks, normative parity, browser rendering and independent review.
+
+## GP-07.1 — Academic typed contracts
+
+**Status: GP-07.1 complete.** [GP-07.1 evidence](core-golden-path-gp071-evidence.md) records the typed views, SQL comparison, historical receipt replay, full Core gate and independent reviews.

@@ -8,7 +8,6 @@ import br.com.ajadigital.core.academic.application.models.ListDashboardClassesDt
 import br.com.ajadigital.core.academic.domain.policies.AcademicPolicy
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.academic.application.ports.`in`.ListDashboardClassesInputPort
-import br.com.ajadigital.core.academic.application.models.AcademicPage
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
 
 class ListDashboardClassesUseCase(private val store: AcademicStoreOutputPort) : ListDashboardClassesInputPort {

@@ -11,7 +11,7 @@ import br.com.ajadigital.core.academic.application.ports.`in`.GetClassInputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
 
 class GetClassUseCase(private val store: AcademicStoreOutputPort) : GetClassInputPort {
-    override fun classById(request: GetClassDto): Map<String, Any?> {
+    override fun classById(request: GetClassDto): AcademicClassView {
         val (actor, id) = request
                 AcademicPolicy.requireReader(actor.role, actor.active, actor.emailConfirmedAt != null)
         return store.findClass(AcademicStoreFindClassDto(id, actor.id, actor.role)) ?: throw AcademicNotFound()

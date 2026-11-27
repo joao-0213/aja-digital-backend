@@ -14,7 +14,7 @@ import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutput
 import br.com.ajadigital.core.identity.domain.policies.EmailAddress
 
 class PreviewEnrollmentUseCase(private val store: AcademicStoreOutputPort) : PreviewEnrollmentInputPort {
-    override fun preview(request: PreviewEnrollmentDto): Map<String, Any?> {
+    override fun preview(request: PreviewEnrollmentDto): AcademicEnrollmentPreview {
         val (actor, classId, email) = request
                 AcademicAuthorization.requireAdmin(store, actor)
         val value = email.trim()

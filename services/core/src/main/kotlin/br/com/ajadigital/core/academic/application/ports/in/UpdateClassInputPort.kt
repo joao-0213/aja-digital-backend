@@ -6,5 +6,5 @@ import br.com.ajadigital.core.academic.application.models.UpdateClassDto
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 interface UpdateClassInputPort {
-    fun updateClass(request: UpdateClassDto): Map<String, Any?>
+    fun updateClass(request: UpdateClassDto): AcademicClassView
 }

@@ -12,7 +12,7 @@ import br.com.ajadigital.core.academic.application.ports.`in`.GetUserInputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
 
 class GetUserUseCase(private val store: AcademicStoreOutputPort) : GetUserInputPort {
-    override fun user(request: GetUserDto): Map<String, Any?> {
+    override fun user(request: GetUserDto): AcademicUserView {
         val (actor, id) = request
                 AcademicAuthorization.requireAdmin(store, actor)
         return store.findUser(FindUserDto(id)) ?: throw AcademicNotFound()

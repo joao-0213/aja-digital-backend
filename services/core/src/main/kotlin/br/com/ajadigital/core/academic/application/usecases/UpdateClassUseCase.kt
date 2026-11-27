@@ -20,11 +20,11 @@ class UpdateClassUseCase(
     private val store: AcademicStoreOutputPort,
     private val transactionRunner: TransactionRunnerOutputPort,
 ) : UpdateClassInputPort {
-    override fun updateClass(request: UpdateClassDto): Map<String, Any?> {
+    override fun updateClass(request: UpdateClassDto): AcademicClassView {
                 val (actor, id, revision, name, code, year, shift) = request
         return         transactionRunner.run(TransactionRunDto {
             store.updateClass(AcademicStoreUpdateClassDto(id, AcademicAuthorization.requireAdmin(store, actor, true).id, revision.also { require(it > 0) }, name?.trim(), code?.trim(), year, shift))
-                ?: AcademicPolicy.conflict(store.findClass(AcademicStoreFindClassDto(id, actor.id, "admin")))
+                ?: AcademicPolicy.conflict(store.findClass(AcademicStoreFindClassDto(id, actor.id, "admin"))?.revision)
         })
     }
 }

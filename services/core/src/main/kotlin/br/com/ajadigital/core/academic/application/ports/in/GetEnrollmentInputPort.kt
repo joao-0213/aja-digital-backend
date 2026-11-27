@@ -4,5 +4,5 @@ import br.com.ajadigital.core.academic.application.models.*
 import br.com.ajadigital.core.academic.application.models.GetEnrollmentDto
 
 interface GetEnrollmentInputPort {
-    fun enrollment(request: GetEnrollmentDto): Map<String, Any?>
+    fun enrollment(request: GetEnrollmentDto): AcademicEnrollmentView
 }

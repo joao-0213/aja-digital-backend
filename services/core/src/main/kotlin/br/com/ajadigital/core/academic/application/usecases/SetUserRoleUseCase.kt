@@ -20,11 +20,11 @@ class SetUserRoleUseCase(
     private val store: AcademicStoreOutputPort,
     private val transactionRunner: TransactionRunnerOutputPort,
 ) : SetUserRoleInputPort {
-    override fun setRole(request: SetUserRoleDto): Map<String, Any?> {
+    override fun setRole(request: SetUserRoleDto): AcademicUserView {
         val (actor, id, revision, role) = request
                 return         transactionRunner.run(TransactionRunDto {
             store.changeRole(AcademicStoreChangeRoleDto(id, AcademicAuthorization.requireAdmin(store, actor, true).id, revision.also { require(it > 0) }, role.also { require(it in AcademicPolicy.roles) }))
-                ?: AcademicPolicy.conflict(store.findUser(FindUserDto(id)))
+                ?: AcademicPolicy.conflict(store.findUser(FindUserDto(id))?.revision)
         })
     }
 }

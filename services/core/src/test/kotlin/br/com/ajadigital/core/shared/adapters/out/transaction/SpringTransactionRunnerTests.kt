@@ -33,7 +33,6 @@ import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotP
 import br.com.ajadigital.core.assessment.application.usecases.CreateAssessmentUseCase
 import br.com.ajadigital.core.assessment.application.usecases.UpdateAssessmentUseCase
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
-import br.com.ajadigital.core.academic.application.models.AcademicPage
 import br.com.ajadigital.core.forum.domain.models.TopicDraft
 import br.com.ajadigital.core.forum.application.ports.out.TopicStoreOutputPort
 import br.com.ajadigital.core.forum.application.ports.out.ForumQuestionSnapshotProviderOutputPort

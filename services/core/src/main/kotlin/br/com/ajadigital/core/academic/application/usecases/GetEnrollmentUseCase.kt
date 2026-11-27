@@ -12,7 +12,7 @@ import br.com.ajadigital.core.academic.application.ports.`in`.GetEnrollmentInput
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
 
 class GetEnrollmentUseCase(private val store: AcademicStoreOutputPort) : GetEnrollmentInputPort {
-    override fun enrollment(request: GetEnrollmentDto): Map<String, Any?> {
+    override fun enrollment(request: GetEnrollmentDto): AcademicEnrollmentView {
         val (actor, id) = request
                 AcademicAuthorization.requireAdmin(store, actor)
         return store.findEnrollment(AcademicStoreFindEnrollmentDto(id)) ?: throw AcademicNotFound()

@@ -6,5 +6,5 @@ import br.com.ajadigital.core.academic.application.models.DeactivateUserDto
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 interface DeactivateUserInputPort {
-    fun deactivate(request: DeactivateUserDto): Map<String, Any?>
+    fun deactivate(request: DeactivateUserDto): AcademicUserView
 }

@@ -2,7 +2,9 @@ package br.com.ajadigital.core.academic
 
 import br.com.ajadigital.core.academic.application.contracts.DashboardClassProjection
 import br.com.ajadigital.core.academic.application.contracts.DashboardAcademicQuery
-import br.com.ajadigital.core.academic.application.models.AcademicPage
+import br.com.ajadigital.core.academic.application.models.AcademicEnrollmentView
+import br.com.ajadigital.core.academic.application.models.AcademicStudentSummaryView
+import br.com.ajadigital.core.shared.application.contracts.Page
 import br.com.ajadigital.core.academic.application.ports.`in`.CountMyPendingEnrollmentsInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.ListDashboardClassesInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.ListEnrollmentsInputPort
@@ -22,8 +24,8 @@ class GetDashboardAcademicUseCaseTests {
         val projection = DashboardClassProjection("class-1", 2, Instant.EPOCH, Instant.EPOCH, "admin-1", "Class", "C1", 2026, "Manhã", true, 3)
         val useCase = GetDashboardAcademicUseCase(
             proxy<ListDashboardClassesInputPort> { name, args -> calls += name; assertEquals(100, (args[0] as br.com.ajadigital.core.academic.application.models.ListDashboardClassesDto).pageSize); listOf(projection) },
-            proxy<ListEnrollmentsInputPort> { name, _ -> calls += name; AcademicPage(emptyList(), 1, 1, 4) },
-            proxy<ListStudentsInputPort> { name, _ -> calls += name; AcademicPage(emptyList(), 1, 1, 8) },
+            proxy<ListEnrollmentsInputPort> { name, _ -> calls += name; Page<AcademicEnrollmentView>(emptyList(), 1, 1, 4) },
+            proxy<ListStudentsInputPort> { name, _ -> calls += name; Page<AcademicStudentSummaryView>(emptyList(), 1, 1, 8) },
             proxy<CountMyPendingEnrollmentsInputPort> { name, _ -> error("Unexpected $name") },
         )
 

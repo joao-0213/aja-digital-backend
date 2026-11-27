@@ -20,11 +20,11 @@ class WithdrawUserUseCase(
     private val store: AcademicStoreOutputPort,
     private val transactionRunner: TransactionRunnerOutputPort,
 ) : WithdrawUserInputPort {
-    override fun withdraw(request: WithdrawUserDto): Map<String, Any?> {
+    override fun withdraw(request: WithdrawUserDto): AcademicUserView {
         val (actor, id, revision) = request
                 return         transactionRunner.run(TransactionRunDto {
             store.withdrawUser(AcademicStoreWithdrawUserDto(id, AcademicAuthorization.requireAdmin(store, actor, true).id, revision.also { require(it > 0) }))
-                ?: AcademicPolicy.conflict(store.findUser(FindUserDto(id)))
+                ?: AcademicPolicy.conflict(store.findUser(FindUserDto(id))?.revision)
         })
     }
 }

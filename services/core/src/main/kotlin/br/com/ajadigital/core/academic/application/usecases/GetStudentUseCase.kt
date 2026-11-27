@@ -11,7 +11,7 @@ import br.com.ajadigital.core.academic.application.ports.`in`.GetStudentInputPor
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
 
 class GetStudentUseCase(private val store: AcademicStoreOutputPort) : GetStudentInputPort {
-    override fun student(request: GetStudentDto): Map<String, Any?> {
+    override fun student(request: GetStudentDto): AcademicStudentView {
         val (actor, id) = request
                 AcademicPolicy.requireStaffReader(actor.role, actor.active)
         return store.findStudent(AcademicStoreFindStudentDto(id, actor.id, actor.role)) ?: throw AcademicNotFound()

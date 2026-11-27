@@ -6,5 +6,5 @@ import br.com.ajadigital.core.academic.application.models.UpdateUserDto
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 interface UpdateUserInputPort {
-    fun updateUser(request: UpdateUserDto): Map<String, Any?>
+    fun updateUser(request: UpdateUserDto): AcademicUserView
 }
