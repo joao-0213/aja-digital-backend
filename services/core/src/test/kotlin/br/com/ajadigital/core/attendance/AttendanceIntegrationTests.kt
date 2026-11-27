@@ -16,9 +16,17 @@ import java.util.concurrent.Executors
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.security.MessageDigest
 import br.com.ajadigital.core.attendance.adapters.out.persistence.JdbcAttendanceStore
+import br.com.ajadigital.core.shared.domain.models.SerializeJsonDto
+import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 
 class AttendanceIntegrationTests : CoreIntegrationTestBase() {
+    @org.springframework.beans.factory.annotation.Autowired
+    private lateinit var attendanceSerializer: JsonSerializerOutputPort
+
     @Test
     fun attendanceCanBeCreatedAndReplayedWithoutDuplicatingTheClassSession() {
         val (adminCookie, _) = adminSession()
@@ -30,13 +38,16 @@ class AttendanceIntegrationTests : CoreIntegrationTestBase() {
         createB07Enrollment(classId, studentId, teacherId, enrolledAt = Instant.parse("2026-11-12T00:00:00Z"))
         val (peerCookie, peerId) = userSession("student")
         createB07Enrollment(classId, peerId, teacherId, enrolledAt = Instant.parse("2026-11-12T00:00:00Z"))
-        val body = """{"subjectId":"$subjectId","date":"2026-11-12","time":"14:00","records":{"$studentId":true}}"""
+        val (unmarkedCookie, unmarkedId) = userSession("student")
+        createB07Enrollment(classId, unmarkedId, teacherId, enrolledAt = Instant.parse("2026-11-12T00:00:00Z"))
+        val body = """{"subjectId":"$subjectId","date":"2026-11-12","time":"14:00","records":{"$studentId":true,"$peerId":false}}"""
         val key = "attendance-${UUID.randomUUID()}"
 
         val created = liveHttp("POST", "/attendance", teacherCookie, body, key)
         assertEquals(201, created.statusCode(), created.body())
         val replay = liveHttp("POST", "/attendance", teacherCookie, body, key)
         assertEquals(201, replay.statusCode(), replay.body())
+        assertEquals(created.body(), replay.body())
         assertEquals(409, liveHttp("POST", "/attendance", teacherCookie, body.replace(":true", ":false"), key).statusCode())
         assertEquals(409, liveHttp("POST", "/attendance", teacherCookie, body, "attendance-new-${UUID.randomUUID()}").statusCode())
         assertEquals(422, liveHttp("POST", "/attendance", teacherCookie, body).statusCode())
@@ -44,6 +55,12 @@ class AttendanceIntegrationTests : CoreIntegrationTestBase() {
         val json = tools.jackson.databind.json.JsonMapper.builder().build()
         val id = json.readTree(created.body()).get("id").asText()
         assertEquals(id, json.readTree(replay.body()).get("id").asText())
+        val storedReceipt = jdbc.queryForObject("SELECT response_body FROM core.command_idempotency WHERE actor_id=? AND operation='createAttendance' AND target='/attendance' AND idempotency_key=?", String::class.java, teacherId, key)
+        assertEquals(created.body(), storedReceipt)
+        data class BaselineAttendanceDraft(val subjectId: String, val date: LocalDate, val time: LocalTime, val records: Map<String, Boolean>)
+        val baselineDraft = BaselineAttendanceDraft(subjectId, LocalDate.parse("2026-11-12"), LocalTime.parse("14:00"), sortedMapOf(studentId to true, peerId to false))
+        val baselineHash = MessageDigest.getInstance("SHA-256").digest(attendanceSerializer.serialize(SerializeJsonDto(baselineDraft))).joinToString("") { "%02x".format(it) }
+        assertEquals(baselineHash, jdbc.queryForObject("SELECT request_hash FROM core.command_idempotency WHERE actor_id=? AND operation='createAttendance' AND target='/attendance' AND idempotency_key=?", String::class.java, teacherId, key))
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.attendance WHERE subject_id=? AND class_date='2026-11-12' AND class_time='14:00'", Int::class.java, subjectId))
         val recordIds = listOf(studentId, peerId)
         val mapOrderOne = """{"subjectId":"$subjectId","date":"2026-11-13","time":"14:00","records":{"${recordIds[0]}":true,"${recordIds[1]}":false}}"""
@@ -75,7 +92,9 @@ class AttendanceIntegrationTests : CoreIntegrationTestBase() {
         assertTrue(studentDetail.get("present").asBoolean())
         assertEquals(null, studentDetail.get("records"))
         val peerDetail = json.readTree(liveHttp("GET", "/attendance/$id", peerCookie).body())
-        assertTrue(peerDetail.get("present").isNull)
+        assertFalse(peerDetail.get("present").asBoolean())
+        val unmarkedDetail = json.readTree(liveHttp("GET", "/attendance/$id", unmarkedCookie).body())
+        assertTrue(unmarkedDetail.get("present").isNull)
 
         val updated = liveHttp("PATCH", "/attendance/$id", teacherCookie, """{"expectedRevision":1,"records":{"$studentId":false}}""")
         assertEquals(200, updated.statusCode(), updated.body())
@@ -200,7 +219,7 @@ class AttendanceIntegrationTests : CoreIntegrationTestBase() {
             override fun getConnection(username: String, password: String): Connection = getConnection()
         }
         val store = JdbcAttendanceStore(JdbcTemplate(countingDataSource), tools.jackson.databind.json.JsonMapper.builder().build(), mutableClock)
-        val page = store.list(br.com.ajadigital.core.attendance.domain.models.ListAttendanceDto(teacherId, "teacher", sha256(teacherCookie), 1, 10, "date", subjectId, null, null, null))
+        val page = store.list(br.com.ajadigital.core.attendance.application.models.ListAttendanceSessionsRecordQuery(teacherId, "teacher", sha256(teacherCookie), 1, 10, "date", subjectId, null, null, null))
         assertEquals(10, page.items.size)
         assertEquals(12, page.total)
         assertTrue(queryCount.get() <= 5, "Expected at most five SQL statements for a page, observed ${queryCount.get()}")

@@ -1,8 +1,6 @@
 package br.com.ajadigital.core.attendance.application.ports.`in`
-import br.com.ajadigital.core.attendance.application.models.*
 
-import br.com.ajadigital.core.attendance.application.models.RecordAttendanceDto
+import br.com.ajadigital.core.attendance.application.models.AttendanceRead
+import br.com.ajadigital.core.attendance.application.models.RecordAttendanceCommand
 
-interface RecordAttendanceInputPort {
-    fun create(request: RecordAttendanceDto): Map<String, Any?>
-}
+interface RecordAttendanceInputPort { fun create(command: RecordAttendanceCommand): AttendanceRead }

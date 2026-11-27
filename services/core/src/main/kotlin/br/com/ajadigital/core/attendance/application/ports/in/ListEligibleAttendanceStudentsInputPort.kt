@@ -1,9 +1,6 @@
 package br.com.ajadigital.core.attendance.application.ports.`in`
-import br.com.ajadigital.core.attendance.application.models.*
 
-import br.com.ajadigital.core.attendance.application.models.ListEligibleAttendanceStudentsDto
-import br.com.ajadigital.core.academic.domain.contracts.AcademicPage
+import br.com.ajadigital.core.attendance.application.models.AttendanceEligibleStudentPage
+import br.com.ajadigital.core.attendance.application.models.ListEligibleAttendanceStudentsQuery
 
-interface ListEligibleAttendanceStudentsInputPort {
-    fun eligible(request: ListEligibleAttendanceStudentsDto): AcademicPage
-}
+interface ListEligibleAttendanceStudentsInputPort { fun eligible(query: ListEligibleAttendanceStudentsQuery): AttendanceEligibleStudentPage }

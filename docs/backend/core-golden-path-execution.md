@@ -167,3 +167,7 @@ The Ponytail follow-up removed the unused session reference from five store quer
 ## GP-04.7 — Forum
 
 **Status: GP-04.7 complete.** [GP-04.7 evidence](core-golden-path-gp047-evidence.md) records the typed contracts, authenticated snapshot call, full Core gate and independent reviews.
+
+## GP-04.8 — Attendance
+
+**Status: GP-04.8 complete.** [GP-04.8 evidence](core-golden-path-gp048-evidence.md) records the typed projections, PostgreSQL checks, full Core gate and independent reviews.

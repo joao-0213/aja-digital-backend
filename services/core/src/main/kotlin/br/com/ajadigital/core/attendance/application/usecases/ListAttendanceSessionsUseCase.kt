@@ -1,26 +1,22 @@
 package br.com.ajadigital.core.attendance.application.usecases
-import br.com.ajadigital.core.attendance.application.models.*
 
-import br.com.ajadigital.core.attendance.domain.policies.AttendancePolicy
+import br.com.ajadigital.core.attendance.application.models.AttendanceSessionPage
+import br.com.ajadigital.core.attendance.application.models.ListAttendanceSessionsQuery
 import br.com.ajadigital.core.attendance.application.ports.`in`.ListAttendanceSessionsInputPort
-import br.com.ajadigital.core.attendance.domain.ports.out.AttendanceStoreOutputPort
-import br.com.ajadigital.core.attendance.application.models.ListAttendanceSessionsDto
-import br.com.ajadigital.core.attendance.domain.models.ListAttendanceDto
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
-import br.com.ajadigital.core.academic.domain.contracts.AcademicPage
+import br.com.ajadigital.core.attendance.application.models.ListAttendanceSessionsRecordQuery
+import br.com.ajadigital.core.attendance.domain.policies.AttendancePolicy
+import br.com.ajadigital.core.attendance.application.ports.out.AttendanceStoreOutputPort
 
-class ListAttendanceSessionsUseCase(
-    private val store: AttendanceStoreOutputPort,
-) : ListAttendanceSessionsInputPort {
-    override fun list(request: ListAttendanceSessionsDto): AcademicPage {
-        val (actor, page, size, sort, subjectId, studentId, from, to) = request
-                AttendancePolicy.readable(actor)
-        require(page > 0 && size in 1..100 && sort in setOf("date", "-date"))
-        require(subjectId == null || AttendancePolicy.validId(subjectId))
-        require(studentId == null || AttendancePolicy.validId(studentId))
-        val start = from?.let(AttendancePolicy::date)
-        val end = to?.let(AttendancePolicy::date)
+class ListAttendanceSessionsUseCase(private val store: AttendanceStoreOutputPort) : ListAttendanceSessionsInputPort {
+    override fun list(query: ListAttendanceSessionsQuery): AttendanceSessionPage {
+        AttendancePolicy.readable(query.actor)
+        require(query.page > 0 && query.size in 1..100 && query.sort in setOf("date", "-date"))
+        require(query.subjectId == null || AttendancePolicy.validId(query.subjectId))
+        require(query.studentId == null || AttendancePolicy.validId(query.studentId))
+        val start = query.from?.let(AttendancePolicy::date)
+        val end = query.to?.let(AttendancePolicy::date)
         require(start == null || end == null || !start.isAfter(end))
-        return store.list(ListAttendanceDto(actor.id, actor.role, actor.sessionValidationReference, page, size, sort, subjectId, studentId, start, end))
+        val page = store.list(ListAttendanceSessionsRecordQuery(query.actor.id, query.actor.role, query.actor.sessionValidationReference, query.page, query.size, query.sort, query.subjectId, query.studentId, start, end))
+        return AttendanceSessionPage(page.items.map { it.toAttendanceRead() }, page.page, page.pageSize, page.total)
     }
 }

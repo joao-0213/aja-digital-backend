@@ -1,22 +1,19 @@
 package br.com.ajadigital.core.attendance.application.usecases
-import br.com.ajadigital.core.attendance.application.models.*
 
-import br.com.ajadigital.core.attendance.domain.policies.AttendancePolicy
+import br.com.ajadigital.core.attendance.application.models.AttendanceEligibleStudent
+import br.com.ajadigital.core.attendance.application.models.AttendanceEligibleStudentPage
+import br.com.ajadigital.core.attendance.application.models.ListEligibleAttendanceStudentsQuery
 import br.com.ajadigital.core.attendance.application.ports.`in`.ListEligibleAttendanceStudentsInputPort
-import br.com.ajadigital.core.attendance.domain.ports.out.AttendanceStoreOutputPort
-import br.com.ajadigital.core.attendance.application.models.ListEligibleAttendanceStudentsDto
-import br.com.ajadigital.core.attendance.domain.models.ListEligibleAttendanceDto
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
-import br.com.ajadigital.core.academic.domain.contracts.AcademicPage
+import br.com.ajadigital.core.attendance.application.models.ListEligibleAttendanceStudentsRecordQuery
+import br.com.ajadigital.core.attendance.domain.policies.AttendancePolicy
+import br.com.ajadigital.core.attendance.application.ports.out.AttendanceStoreOutputPort
 import java.time.LocalTime
 
-class ListEligibleAttendanceStudentsUseCase(
-    private val store: AttendanceStoreOutputPort,
-) : ListEligibleAttendanceStudentsInputPort {
-    override fun eligible(request: ListEligibleAttendanceStudentsDto): AcademicPage {
-        val (actor, subjectId, date, time, page, size) = request
-                AttendancePolicy.writable(actor)
-        require(AttendancePolicy.validId(subjectId) && page > 0 && size in 1..100 && time.matches(Regex("^([01][0-9]|2[0-3]):[0-5][0-9]$")))
-        return store.eligible(ListEligibleAttendanceDto(actor.id, actor.role, actor.sessionValidationReference, subjectId, AttendancePolicy.date(date), LocalTime.parse(time), page, size))
+class ListEligibleAttendanceStudentsUseCase(private val store: AttendanceStoreOutputPort) : ListEligibleAttendanceStudentsInputPort {
+    override fun eligible(query: ListEligibleAttendanceStudentsQuery): AttendanceEligibleStudentPage {
+        AttendancePolicy.writable(query.actor)
+        require(AttendancePolicy.validId(query.subjectId) && query.page > 0 && query.size in 1..100 && query.time.matches(Regex("^([01][0-9]|2[0-3]):[0-5][0-9]$")))
+        val page = store.eligible(ListEligibleAttendanceStudentsRecordQuery(query.actor.id, query.actor.role, query.actor.sessionValidationReference, query.subjectId, AttendancePolicy.date(query.date), LocalTime.parse(query.time), query.page, query.size))
+        return AttendanceEligibleStudentPage(page.items.map { AttendanceEligibleStudent(it.id, it.name, it.eligible, it.reason) }, page.page, page.pageSize, page.total)
     }
 }
