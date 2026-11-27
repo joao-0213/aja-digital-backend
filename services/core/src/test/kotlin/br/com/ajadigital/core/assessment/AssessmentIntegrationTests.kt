@@ -1158,8 +1158,13 @@ class AssessmentIntegrationTests : CoreIntegrationTestBase() {
         val submissionId = parsed.get("id").asString()
         assertEquals(assessmentId, parsed.get("assessmentId").asString())
         assertTrue(parsed.get("submittedAt").isNull)
+        val nullAttachments = liveHttp("PATCH", "/submissions/$submissionId", studentCookie, """{"expectedRevision":1,"attachments":null}""")
+        assertEquals(422, nullAttachments.statusCode(), nullAttachments.body())
+        assertEquals(1, jdbc.queryForObject("SELECT revision FROM core.submissions WHERE id=?", Int::class.java, submissionId))
         val replayedCreate = post(studentCookie, createKey)
         assertEquals(201, replayedCreate.statusCode(), replayedCreate.body())
+        assertEquals(created.body(), replayedCreate.body())
+        assertEquals(created.body(), jdbc.queryForObject("SELECT response_body FROM core.command_idempotency WHERE actor_id=? AND operation='createSubmission' AND target='/submissions' AND idempotency_key=?", String::class.java, studentId, createKey))
         assertEquals(submissionId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(replayedCreate.body()).get("id").asString())
 
         val submitKey = "submit-${UUID.randomUUID()}"
@@ -1172,6 +1177,8 @@ class AssessmentIntegrationTests : CoreIntegrationTestBase() {
         assertTrue(receiptId.isNotBlank())
         val submitReplay = submit(submitKey)
         assertEquals(200, submitReplay.statusCode(), submitReplay.body())
+        assertEquals(submitResponse.body(), submitReplay.body())
+        assertEquals(submitResponse.body(), jdbc.queryForObject("SELECT response_body FROM core.command_idempotency WHERE actor_id=? AND operation='submitSubmission' AND target=? AND idempotency_key=?", String::class.java, studentId, "/submissions/$submissionId/submit", submitKey))
         assertEquals(receiptId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(submitReplay.body()).get("receipt").get("id").asString())
         assertEquals("attached", jdbc.queryForObject("SELECT status FROM core.files WHERE id=?", String::class.java, fileId))
         mvc.get("/api/v1/files/$fileId/content") {
@@ -1195,6 +1202,10 @@ class AssessmentIntegrationTests : CoreIntegrationTestBase() {
             header("Origin", "https://aja.example.test")
             cookie(Cookie("aja_session", teacherCookie))
         }.andExpect { status { isOk() }; jsonPath("$.total") { value(1) }; jsonPath("$.items[0].feedbackDraft") { doesNotExist() } }
+        val liveSubmissionList = liveHttp("GET", "/submissions?page=1&pageSize=20&sort=id", teacherCookie)
+        assertEquals(200, liveSubmissionList.statusCode())
+        assertEquals(1, tools.jackson.databind.json.JsonMapper.builder().build().readTree(liveSubmissionList.body()).get("total").asInt())
+        assertTrue(tools.jackson.databind.json.JsonMapper.builder().build().readTree(liveSubmissionList.body()).get("items")[0].get("feedbackDraft").isNull)
 
         mvc.patch("/api/v1/submissions/$submissionId/feedback") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
@@ -1204,11 +1215,11 @@ class AssessmentIntegrationTests : CoreIntegrationTestBase() {
         }.andExpect { status { isUnprocessableEntity() } }
         val savedFeedback = liveHttp(
             "PATCH", "/submissions/$submissionId/feedback", teacherCookie,
-            """{"expectedRevision":2,"comment":"Good evidence","grade":9}""",
+            """{"expectedRevision":2,"comment":"Good evidence","grade":0.000000125}""",
         )
         assertEquals(200, savedFeedback.statusCode(), savedFeedback.body())
         val savedFeedbackBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(savedFeedback.body())
-        assertEquals(9, savedFeedbackBody.at("/feedbackDraft/grade").asInt())
+        assertEquals(java.math.BigDecimal("0.000000125"), savedFeedbackBody.at("/feedbackDraft/grade").decimalValue())
         assertEquals(0, savedFeedbackBody.get("feedbackHistory").size())
         val studentRead = liveHttp("GET", "/submissions/$submissionId", studentCookie)
         assertEquals(200, studentRead.statusCode(), studentRead.body())
@@ -1216,22 +1227,26 @@ class AssessmentIntegrationTests : CoreIntegrationTestBase() {
         assertFalse(studentReadBody.has("feedbackDraft"))
         assertTrue(studentReadBody.get("feedbackPublished").isNull)
 
+        val publishKey = "publish-${UUID.randomUUID()}"
         val publishedFeedback = liveHttp(
             "POST", "/submissions/$submissionId/publish-feedback", teacherCookie,
-            """{"expectedRevision":3}""", "publish-${UUID.randomUUID()}",
+            """{"expectedRevision":3}""", publishKey,
         )
         assertEquals(200, publishedFeedback.statusCode(), publishedFeedback.body())
         assertEquals(1, tools.jackson.databind.json.JsonMapper.builder().build().readTree(publishedFeedback.body()).get("feedbackHistory").size())
-        mvc.patch("/api/v1/submissions/$submissionId/feedback") {
-            contentType = org.springframework.http.MediaType.APPLICATION_JSON
-            header("Origin", "https://aja.example.test")
-            cookie(Cookie("aja_session", teacherCookie))
-            content = """{"expectedRevision":4,"comment":"Revised note","grade":null}"""
-        }.andExpect { status { isOk() }; jsonPath("$.feedbackUpdated") { value(true) } }
+        val publishedReplay = liveHttp("POST", "/submissions/$submissionId/publish-feedback", teacherCookie, """{"expectedRevision":3}""", publishKey)
+        assertEquals(publishedFeedback.body(), publishedReplay.body())
+        assertEquals(publishedFeedback.body(), jdbc.queryForObject("SELECT response_body FROM core.command_idempotency WHERE actor_id=? AND operation='publishSubmissionFeedback' AND target=? AND idempotency_key=?", String::class.java, teacherId, "/submissions/$submissionId/publish-feedback", publishKey))
+        val revisedDraft = liveHttp("PATCH", "/submissions/$submissionId/feedback", teacherCookie, """{"expectedRevision":4,"comment":"Revised note","grade":null}""")
+        assertEquals(200, revisedDraft.statusCode(), revisedDraft.body())
+        val revisedDraftBody = tools.jackson.databind.json.JsonMapper.builder().build().readTree(revisedDraft.body())
+        assertTrue(revisedDraftBody.at("/feedbackPublished/grade").decimalValue() == java.math.BigDecimal("0.000000125"))
+        assertEquals("Revised note", revisedDraftBody.at("/feedbackDraft/comment").asString())
+        assertTrue(revisedDraftBody.get("feedbackUpdated").asBoolean())
         mvc.get("/api/v1/submissions/$submissionId") {
             header("Origin", "https://aja.example.test")
             cookie(Cookie("aja_session", studentCookie))
-        }.andExpect { status { isOk() }; jsonPath("$.feedbackPublished.grade") { value(9) }; jsonPath("$.feedbackUpdated") { value(true) } }
+        }.andExpect { status { isOk() }; jsonPath("$.feedbackPublished.grade") { value(0.000000125) }; jsonPath("$.feedbackUpdated") { value(true) } }
         mvc.post("/api/v1/submissions/$submissionId/publish-feedback") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
@@ -1259,6 +1274,35 @@ class AssessmentIntegrationTests : CoreIntegrationTestBase() {
             cookie(Cookie("aja_session", otherTeacherCookie))
             content = """{"expectedRevision":6,"comment":"stale","grade":null}"""
         }.andExpect { status { isConflict() } }
+    }
+
+    @Test
+    fun submissionUpdateAllowsOmittedAttachmentsAndRejectsNullOrCoercedRevisions() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val (classId, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val assessmentId = createB07Assessment(moduleId)
+        val created = liveHttp(
+            "POST", "/submissions", studentCookie,
+            """{"assessmentId":"$assessmentId","attachments":[{"kind":"link","name":"Essay","url":"https://example.test/essay"}]}""",
+            "optional-attachments-${UUID.randomUUID()}",
+        )
+        assertEquals(201, created.statusCode(), created.body())
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.body()).get("id").asString()
+
+        val omitted = liveHttp("PATCH", "/submissions/$id", studentCookie, """{"expectedRevision":1}""")
+        assertEquals(200, omitted.statusCode(), omitted.body())
+        val afterOmitted = tools.jackson.databind.json.JsonMapper.builder().build().readTree(omitted.body())
+        assertEquals(2, afterOmitted.get("revision").asInt())
+        assertEquals("https://example.test/essay", afterOmitted.at("/attachments/0/url").asString())
+
+        val explicitNull = liveHttp("PATCH", "/submissions/$id", studentCookie, """{"expectedRevision":2,"attachments":null}""")
+        assertEquals(422, explicitNull.statusCode(), explicitNull.body())
+        val stringRevision = liveHttp("PATCH", "/submissions/$id", studentCookie, """{"expectedRevision":"2"}""")
+        assertEquals(422, stringRevision.statusCode(), stringRevision.body())
+        assertEquals(2, jdbc.queryForObject("SELECT revision FROM core.submissions WHERE id=?", Int::class.java, id))
     }
 
     @Test

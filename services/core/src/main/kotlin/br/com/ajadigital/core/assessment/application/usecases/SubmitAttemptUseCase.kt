@@ -1,8 +1,6 @@
 package br.com.ajadigital.core.assessment.application.usecases
 import br.com.ajadigital.core.assessment.application.models.*
 
-import br.com.ajadigital.core.assessment.domain.models.SubmissionStoreSubmitDto
-
 import br.com.ajadigital.core.assessment.application.models.AttemptSubmitCommand
 import br.com.ajadigital.core.assessment.domain.models.AttemptResult
 

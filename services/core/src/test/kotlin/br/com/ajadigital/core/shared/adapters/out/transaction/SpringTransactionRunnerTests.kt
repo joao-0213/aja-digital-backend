@@ -28,7 +28,6 @@ import br.com.ajadigital.core.assessment.application.ports.out.AssessmentWriteOu
 import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestion
 import br.com.ajadigital.core.assessment.domain.models.BankQuestionSnapshot
 import br.com.ajadigital.core.assessment.domain.models.*
-import br.com.ajadigital.core.assessment.domain.ports.out.*
 import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
 import br.com.ajadigital.core.assessment.application.usecases.CreateAssessmentUseCase
 import br.com.ajadigital.core.assessment.application.usecases.UpdateAssessmentUseCase

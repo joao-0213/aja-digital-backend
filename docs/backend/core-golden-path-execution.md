@@ -155,3 +155,7 @@ The Ponytail follow-up removed the unused session reference from five store quer
 ## GP-04.4 — Attempts
 
 **Status: GP-04.4 complete.** [GP-04.4 evidence](core-golden-path-gp044-evidence.md) records the contract validation, full test and build gate, and independent reviews.
+
+## GP-04.5 — Submissions and feedback
+
+**Status: GP-04.5 complete.** [GP-04.5 evidence](core-golden-path-gp045-evidence.md) records typed contracts, real HTTP and PostgreSQL checks, and the independent reviews.

@@ -84,7 +84,7 @@ class GetDashboardUseCase(
             "classes" to classesPage.items.map { it.project(CLASS_FIELDS) },
             "pendingEnrollmentCount" to enrollmentPage.total,
             "studentCount" to studentPage.total,
-            "pendingFeedbackCount" to pendingFeedback.pendingFeedbackCount(br.com.ajadigital.core.assessment.application.models.CountPendingFeedbackDto(actor)),
+            "pendingFeedbackCount" to pendingFeedback.pendingFeedbackCount(br.com.ajadigital.core.assessment.application.models.CountPendingFeedbackQuery(actor)),
         )
     }
 

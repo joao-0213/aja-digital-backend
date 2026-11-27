@@ -1,7 +1,6 @@
 package br.com.ajadigital.core.assessment.adapters.`in`.controllers
 import br.com.ajadigital.core.assessment.application.models.*
 import br.com.ajadigital.core.assessment.adapters.serialization.AttemptRepresentation
-import br.com.ajadigital.core.assessment.domain.policies.AttemptPolicy
 import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 
 import br.com.ajadigital.core.assessment.application.models.SubmitAttemptCommand
@@ -38,6 +37,8 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.JsonNode
 import br.com.ajadigital.core.shared.adapters.`in`.web.requests.toRequestValue
+import br.com.ajadigital.core.shared.domain.models.SerializeJsonDto
+import java.security.MessageDigest
 
 @RestController
 class AttemptController(
@@ -73,7 +74,7 @@ class AttemptController(
         val value = body.toRequestValue()
         val parsed = value as? Map<*, *>
         val commandBody = parsed?.let { StartAttemptBody(it["assessmentId"] as? String, fieldsMatch(it, setOf("assessmentId"))) }
-        val hash = AttemptPolicy.hash(serializer, value)
+        val hash = requestHash(value)
         return ResponseEntity.status(HttpStatus.CREATED).body(AttemptRepresentation.attempt(startAttempt.start(StartAttemptCommand(actor, idempotencyKey, commandBody, hash))))
     }
 
@@ -95,12 +96,12 @@ class AttemptController(
             val answers = LinkedHashMap<String, Int?>()
             rawAnswers?.forEach { (rawId, rawAnswer) ->
                 val questionId = rawId as? String
-                val answer = if (rawAnswer == null) null else AttemptPolicy.integerValue(rawAnswer)?.takeIf { index -> index >= 0 }
+                val answer = if (rawAnswer == null) null else integerValue(rawAnswer)?.takeIf { index -> index >= 0 }
                 if (questionId == null || rawAnswer != null && answer == null) answersValid = false
                 else answers[questionId] = answer
             }
             SaveAttemptAnswersBody(
-                expectedRevision = AttemptPolicy.integerValue(it["expectedRevision"]),
+                expectedRevision = integerValue(it["expectedRevision"]),
                 answers = answers.takeIf { answersValid },
                 fieldsValid = fieldsMatch(it, setOf("expectedRevision", "answers")),
                 answersValid = answersValid,
@@ -116,8 +117,8 @@ class AttemptController(
         val idempotencyKey = key ?: throw IllegalArgumentException()
         val value = body.toRequestValue()
         val parsed = value as? Map<*, *>
-        val commandBody = parsed?.let { SubmitAttemptBody(AttemptPolicy.integerValue(it["expectedRevision"]), fieldsMatch(it, setOf("expectedRevision"))) }
-        val hash = AttemptPolicy.hash(serializer, value)
+        val commandBody = parsed?.let { SubmitAttemptBody(integerValue(it["expectedRevision"]), fieldsMatch(it, setOf("expectedRevision"))) }
+        val hash = requestHash(value)
         return AttemptRepresentation.result(submitAttempt.submit(SubmitAttemptCommand(actor, id, idempotencyKey, commandBody, hash)))
     }
 
@@ -128,6 +129,13 @@ class AttemptController(
     }
 
     private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
+
+    private fun requestHash(value: Any?) = MessageDigest.getInstance("SHA-256").digest(serializer.serialize(SerializeJsonDto(value))).joinToString("") { "%02x".format(it) }
+    private fun integerValue(value: Any?): Int? = when (value) {
+        is Int -> value
+        is Long -> value.takeIf { it in Int.MIN_VALUE..Int.MAX_VALUE }?.toInt()
+        else -> null
+    }
 
     private fun fieldsMatch(fields: Map<*, *>, expected: Set<String>) = fields.keys.filterIsInstance<String>().toSet() == expected
 

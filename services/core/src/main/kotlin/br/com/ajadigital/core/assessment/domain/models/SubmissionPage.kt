@@ -1,5 +1,11 @@
 package br.com.ajadigital.core.assessment.domain.models
 
+import java.util.Collections
 
+class SubmissionPage(items: List<SubmissionView>, val page: Int, val pageSize: Int, val total: Long) {
+    val items: List<SubmissionView> = Collections.unmodifiableList(items.toList())
 
-data class SubmissionPage(val items: List<Map<String, Any?>>, val page: Int, val pageSize: Int, val total: Long)
+    init {
+        require(page > 0 && pageSize in 1..100 && items.size <= pageSize && total >= 0)
+    }
+}

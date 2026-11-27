@@ -26,7 +26,7 @@ import br.com.ajadigital.core.assessment.application.ports.out.AssessmentReadOut
 import br.com.ajadigital.core.assessment.application.ports.out.AssessmentWriteOutputPort
 import br.com.ajadigital.core.assessment.application.ports.out.AttemptStoreOutputPort
 import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
-import br.com.ajadigital.core.assessment.domain.ports.out.SubmissionStoreOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.SubmissionStoreOutputPort
 import br.com.ajadigital.core.assessment.application.usecases.CheckPracticeBlockedUseCase
 import br.com.ajadigital.core.assessment.application.usecases.CountPendingFeedbackUseCase
 import br.com.ajadigital.core.assessment.application.usecases.CountPendingStudentAssessmentsUseCase
@@ -103,7 +103,7 @@ class AssessmentConfiguration {
     fun getAttemptResult(store: AttemptStoreOutputPort): GetAttemptResultInputPort = GetAttemptResultUseCase(store)
 
     @Bean
-    fun createSubmission(store: SubmissionStoreOutputPort, mapper: JsonSerializerOutputPort): CreateSubmissionInputPort = CreateSubmissionUseCase(store, mapper)
+    fun createSubmission(store: SubmissionStoreOutputPort): CreateSubmissionInputPort = CreateSubmissionUseCase(store)
 
     @Bean
     fun listSubmissions(store: SubmissionStoreOutputPort): ListSubmissionsInputPort = ListSubmissionsUseCase(store)
@@ -118,11 +118,11 @@ class AssessmentConfiguration {
     fun updateSubmission(store: SubmissionStoreOutputPort): UpdateSubmissionInputPort = UpdateSubmissionUseCase(store)
 
     @Bean
-    fun submitSubmission(store: SubmissionStoreOutputPort, mapper: JsonSerializerOutputPort): SubmitSubmissionInputPort = SubmitSubmissionUseCase(store, mapper)
+    fun submitSubmission(store: SubmissionStoreOutputPort): SubmitSubmissionInputPort = SubmitSubmissionUseCase(store)
 
     @Bean
     fun saveSubmissionFeedback(store: SubmissionStoreOutputPort): SaveSubmissionFeedbackInputPort = SaveSubmissionFeedbackUseCase(store)
 
     @Bean
-    fun publishSubmissionFeedback(store: SubmissionStoreOutputPort, mapper: JsonSerializerOutputPort): PublishSubmissionFeedbackInputPort = PublishSubmissionFeedbackUseCase(store, mapper)
+    fun publishSubmissionFeedback(store: SubmissionStoreOutputPort): PublishSubmissionFeedbackInputPort = PublishSubmissionFeedbackUseCase(store)
 }

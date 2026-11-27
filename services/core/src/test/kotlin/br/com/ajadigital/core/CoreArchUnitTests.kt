@@ -204,6 +204,22 @@ class CoreArchUnitTests {
     }
 
     @Test
+    fun `submission ports use typed application contracts`() {
+        val names = setOf(
+            "SubmissionStoreOutputPort", "CountPendingFeedbackInputPort", "CreateSubmissionInputPort",
+            "GetSubmissionInputPort", "ListSubmissionsInputPort", "PublishSubmissionFeedbackInputPort",
+            "SaveSubmissionFeedbackInputPort", "SubmitSubmissionInputPort", "UpdateSubmissionInputPort",
+        )
+        val ports = CoreContractTypeAnalyzer.selectRoots(production.toList()).filter {
+            it.packageName.startsWith("br.com.ajadigital.core.assessment.") && it.simpleName in names
+        }
+        assertEquals(names, ports.map { it.simpleName }.toSet())
+        assertTrue(ports.all { it.packageName.contains(".application.ports.") || it.simpleName == "SubmissionStoreOutputPort" })
+        val findings = CoreContractTypeAnalyzer.analyze(production.toList(), ports)
+        assertTrue(findings.isEmpty(), findings.joinToString("\n"))
+    }
+
+    @Test
     fun `contract walker preserves project generic bindings and only allows exact transaction callback`() {
         val fixtures = ClassFileImporter().importClasses(
             br.com.ajadigital.core.architecture.contractfixtures.application.contracts.Page::class.java,
