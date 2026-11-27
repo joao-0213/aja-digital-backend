@@ -224,7 +224,7 @@ class DashboardIntegrationTests : CoreIntegrationTestBase() {
             override fun getConnection(username: String, password: String): Connection = getConnection()
         }
         val store = JdbcTopicStore(JdbcTemplate(countingDataSource), tools.jackson.databind.json.JsonMapper.builder().build(), mutableClock, idempotencyStore)
-        assertEquals(1, store.dashboardTopics(br.com.ajadigital.core.forum.domain.models.ListDashboardStoredTopicsDto(teacherId, "teacher", sha256(teacherCookie), 5)).size)
+        assertEquals(1, store.dashboardTopics(br.com.ajadigital.core.forum.application.models.ListDashboardStoredTopicsQuery(teacherId, "teacher", sha256(teacherCookie), 5)).size)
         assertTrue(queryCount.get() <= 2, "Expected at most two SQL statements for the scoped topic summary, observed ${queryCount.get()}")
     }
 

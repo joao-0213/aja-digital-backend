@@ -1,7 +1,8 @@
 package br.com.ajadigital.core.shared.adapters.out.transaction
+import br.com.ajadigital.core.forum.application.models.*
+import br.com.ajadigital.core.forum.application.contracts.ForumDashboardTopic
 
 import br.com.ajadigital.core.assessment.domain.models.AssessmentKind
-import br.com.ajadigital.core.forum.domain.models.*
 import br.com.ajadigital.core.forum.application.models.*
 import br.com.ajadigital.core.shared.application.contracts.FieldChange
 import br.com.ajadigital.core.shared.domain.models.SaveIdempotencyDto
@@ -34,7 +35,8 @@ import br.com.ajadigital.core.assessment.application.usecases.UpdateAssessmentUs
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.academic.application.models.AcademicPage
 import br.com.ajadigital.core.forum.domain.models.TopicDraft
-import br.com.ajadigital.core.forum.domain.ports.out.TopicStoreOutputPort
+import br.com.ajadigital.core.forum.application.ports.out.TopicStoreOutputPort
+import br.com.ajadigital.core.forum.application.ports.out.ForumQuestionSnapshotProviderOutputPort
 import br.com.ajadigital.core.forum.application.usecases.CreateTopicUseCase
 import br.com.ajadigital.core.forum.application.usecases.ReplyToTopicUseCase
 import br.com.ajadigital.core.materials.adapters.out.serialization.JacksonMaterialPublicationReceipt
@@ -60,6 +62,7 @@ class SpringTransactionRunnerTests {
     private val mapper = JsonMapper.builder().build()
     private val serializer = JacksonJsonSerializer(mapper)
     private val teacher = AuthenticatedActor("teacher-1", "teacher", true, Instant.parse("2026-01-01T00:00:00Z"), "hash-1")
+    private fun forumTopic(id: String) = ForumTopicView(id, 1, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z", null, "class-1", "sub-1", "Title", "Body", emptyList(), null, null, ForumAuthorView("teacher-1", "Teacher"), emptyList(), true, null, null, null)
 
     @Test
     fun `ManageTopics create calls question snapshots outside TransactionRunnerOutputPort`() {
@@ -73,22 +76,25 @@ class SpringTransactionRunnerTests {
                 return try { request.block() } finally { inTx = false }
             }
         }
-        val snapshots = object : QuestionSnapshotProviderOutputPort {
-            override fun snapshots(request: br.com.ajadigital.core.assessment.application.models.QuestionSnapshotQuery): List<BankQuestionSnapshot> { val ids = request.ids; snapshotInTx = inTx; return ids.map { id -> BankQuestionSnapshot(id, 1, "hash-$id", "Math", "Algebra", "easy", "ENEM", 2025, "Q?", listOf("A", "B"), 0, "Exp", null) } }
+        val snapshots = object : ForumQuestionSnapshotProviderOutputPort {
+            override fun snapshots(request: ForumQuestionSnapshotQuery): List<ForumQuestionSnapshot> { snapshotInTx = inTx; return request.ids.map(::ForumQuestionSnapshot) }
         }
+        val topic = ForumTopicView("topic-1", 1, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z", null, "class-1", "sub-1", "Title", "Body", emptyList(), null, null, ForumAuthorView("teacher-1", "Teacher"), emptyList(), true, null, null, null)
         val store = object : TopicStoreOutputPort {
-            override fun authorizeAndFindReplay(request: AuthorizeAndFindTopicReplayDto): Map<String, Any?>? = null
-            override fun authorizeReply(request: AuthorizeTopicReplyDto) {}
-            override fun create(request: CreateTopicRecordDto) = mapOf("id" to "topic-1")
-            override fun topics(request: ListStoredTopicsDto) = AcademicPage(emptyList(), 1, 20, 0)
-            override fun dashboardTopics(request: ListDashboardStoredTopicsDto) = emptyList<Map<String, Any?>>()
-            override fun topic(request: GetStoredTopicDto): Map<String, Any?>? = null
-            override fun reply(request: CreateTopicReplyRecordDto): Map<String, Any?>? = null
-            override fun read(request: MarkTopicReadRecordDto): Map<String, Any?>? = null
-            override fun solution(request: MarkTopicSolutionRecordDto): Map<String, Any?>? = null
-            override fun withdraw(request: WithdrawTopicRecordDto): Map<String, Any?>? = null
-            override fun vote(request: VoteTopicReplyRecordDto): Map<String, Any?>? = null
-            override fun withdrawReply(request: WithdrawTopicReplyRecordDto): Map<String, Any?>? = null
+            override fun authorizeAndFindReplay(request: FindTopicReplayQuery): ForumTopicView? = null
+            override fun authorizeReply(request: AuthorizeTopicReplyCommand) {}
+            override fun findReplyReceipt(request: FindForumReplyReceiptQuery): ForumTopicView? = null
+            override fun saveReplyReceipt(request: SaveForumReplyReceiptCommand) = Unit
+            override fun create(request: CreateTopicRecord) = topic
+            override fun topics(request: ListStoredTopicsQuery) = ForumTopicPage(emptyList(), 1, 20, 0)
+            override fun dashboardTopics(request: ListDashboardStoredTopicsQuery) = emptyList<ForumDashboardTopic>()
+            override fun topic(request: GetStoredTopicQuery): ForumTopicView? = null
+            override fun reply(request: CreateTopicReplyRecord): ForumTopicView? = null
+            override fun read(request: MarkTopicReadRecord): ForumTopicView? = null
+            override fun solution(request: MarkTopicSolutionRecord): ForumTopicView? = null
+            override fun withdraw(request: WithdrawTopicRecord): ForumTopicView? = null
+            override fun vote(request: VoteTopicReplyRecord): ForumTopicView? = null
+            override fun withdrawReply(request: WithdrawTopicReplyRecord): ForumTopicView? = null
         }
         val idempotency = object : IdempotencyStoreOutputPort {
             override fun find(request: FindIdempotencyDto): Map<String, Any?>? = null
@@ -96,9 +102,9 @@ class SpringTransactionRunnerTests {
         }
 
         val useCase = CreateTopicUseCase(store, snapshots, serializer)
-        val result = useCase.create(CreateTopicDto(teacher, TopicDraft("class-1", "sub-1", "Title", "Body", emptyList(), "question", "q-1", null), "idem-key-1234"))
+        val result = useCase.create(CreateTopicCommand(teacher, TopicDraft("class-1", "sub-1", "Title", "Body", emptyList(), "question", "q-1", null), "idem-key-1234"))
 
-        assertEquals("topic-1", result["id"])
+        assertEquals("topic-1", result.id)
         assertEquals(false, snapshotInTx)
         assertEquals(0, txEntries)
     }
@@ -221,39 +227,30 @@ class SpringTransactionRunnerTests {
         var replyInTx = false
         var idempotencySaveInTx = false
         val topicStore = object : TopicStoreOutputPort {
-            override fun authorizeAndFindReplay(request: AuthorizeAndFindTopicReplayDto): Map<String, Any?>? = null
-            override fun authorizeReply(request: AuthorizeTopicReplyDto) { authorizeReplyInTx = inTx }
-            override fun create(request: CreateTopicRecordDto) = emptyMap<String, Any?>()
-            override fun topics(request: ListStoredTopicsDto) = AcademicPage(emptyList(), 1, 20, 0)
-            override fun dashboardTopics(request: ListDashboardStoredTopicsDto) = emptyList<Map<String, Any?>>()
-            override fun topic(request: GetStoredTopicDto): Map<String, Any?>? = null
-            override fun reply(request: CreateTopicReplyRecordDto): Map<String, Any?>? {
+            override fun authorizeAndFindReplay(request: FindTopicReplayQuery): ForumTopicView? = null
+            override fun authorizeReply(request: AuthorizeTopicReplyCommand) { authorizeReplyInTx = inTx }
+            override fun findReplyReceipt(request: FindForumReplyReceiptQuery): ForumTopicView? { idempotencyFindInTx = inTx; return null }
+            override fun saveReplyReceipt(request: SaveForumReplyReceiptCommand) { idempotencySaveInTx = inTx; throw IllegalStateException("idempotency save failed") }
+            override fun create(request: CreateTopicRecord) = forumTopic("topic-1")
+            override fun topics(request: ListStoredTopicsQuery) = ForumTopicPage(emptyList(), 1, 20, 0)
+            override fun dashboardTopics(request: ListDashboardStoredTopicsQuery) = emptyList<ForumDashboardTopic>()
+            override fun topic(request: GetStoredTopicQuery): ForumTopicView? = null
+            override fun reply(request: CreateTopicReplyRecord): ForumTopicView? {
                 replyInTx = inTx
-                return mapOf("id" to "reply-1")
+                return forumTopic("topic-1")
             }
-            override fun read(request: MarkTopicReadRecordDto): Map<String, Any?>? = null
-            override fun solution(request: MarkTopicSolutionRecordDto): Map<String, Any?>? = null
-            override fun withdraw(request: WithdrawTopicRecordDto): Map<String, Any?>? = null
-            override fun vote(request: VoteTopicReplyRecordDto): Map<String, Any?>? = null
-            override fun withdrawReply(request: WithdrawTopicReplyRecordDto): Map<String, Any?>? = null
+            override fun read(request: MarkTopicReadRecord): ForumTopicView? = null
+            override fun solution(request: MarkTopicSolutionRecord): ForumTopicView? = null
+            override fun withdraw(request: WithdrawTopicRecord): ForumTopicView? = null
+            override fun vote(request: VoteTopicReplyRecord): ForumTopicView? = null
+            override fun withdrawReply(request: WithdrawTopicReplyRecord): ForumTopicView? = null
         }
         val snapshots = object : QuestionSnapshotProviderOutputPort {
             override fun snapshots(request: br.com.ajadigital.core.assessment.application.models.QuestionSnapshotQuery): List<BankQuestionSnapshot> = emptyList()
         }
-        val failingIdempotency = object : IdempotencyStoreOutputPort {
-            override fun find(request: FindIdempotencyDto): Map<String, Any?>? {
-                idempotencyFindInTx = inTx
-                return null
-            }
-            override fun save(request: SaveIdempotencyDto) {
-                idempotencySaveInTx = inTx
-                throw IllegalStateException("idempotency save failed")
-            }
-        }
-
-        val topicsUseCase = ReplyToTopicUseCase(topicStore, failingIdempotency, serializer, runner)
+        val topicsUseCase = ReplyToTopicUseCase(topicStore, serializer, runner)
         assertThrows(IllegalStateException::class.java) {
-            topicsUseCase.reply(ReplyToTopicDto(teacher, "topic-1", "Helpful reply", "idem-reply-1234"))
+            topicsUseCase.reply(ReplyToTopicCommand(teacher, "topic-1", "Helpful reply", "idem-reply-1234"))
         }
         assertTrue(authorizeReplyInTx)
         assertTrue(idempotencyFindInTx)

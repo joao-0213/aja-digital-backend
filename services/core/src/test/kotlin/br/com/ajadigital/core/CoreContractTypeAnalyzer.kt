@@ -14,6 +14,8 @@ internal object CoreContractTypeAnalyzer {
         "br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor",
         "br.com.ajadigital.core.assessment.application.contracts.DashboardAssessment",
         "br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery",
+        "br.com.ajadigital.core.forum.application.contracts.ListDashboardTopicsQuery",
+        "br.com.ajadigital.core.forum.application.contracts.ForumDashboardTopic",
         "br.com.ajadigital.core.curriculum.application.contracts.ListSubjectsQuery",
         "br.com.ajadigital.core.curriculum.application.contracts.SubjectSummary",
         "br.com.ajadigital.core.curriculum.application.contracts.Subject",

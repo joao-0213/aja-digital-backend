@@ -22,7 +22,7 @@ import br.com.ajadigital.core.curriculum.application.ports.`in`.ListSubjectsInpu
 import br.com.ajadigital.core.dashboard.application.ports.`in`.GetDashboardInputPort
 import br.com.ajadigital.core.dashboard.application.models.GetDashboardDto
 import br.com.ajadigital.core.forum.application.ports.`in`.ListDashboardTopicsInputPort
-import br.com.ajadigital.core.forum.application.models.ListDashboardTopicsDto
+import br.com.ajadigital.core.forum.application.contracts.ListDashboardTopicsQuery
 import br.com.ajadigital.core.materials.application.ports.`in`.GetDashboardContentInputPort
 import java.time.Clock
 import java.time.LocalDate
@@ -51,7 +51,7 @@ class GetDashboardUseCase(
         val announcementItems = dashboardAnnouncements.dashboardAnnouncements(ListDashboardAnnouncementsQuery(actor, 5))
         val today = LocalDate.ofInstant(clock.instant(), BRASILIA)
         val upcomingItems = dashboardUpcoming.dashboardUpcoming(ListDashboardUpcomingEventsQuery(actor, today, today.plusDays(30), 5))
-        val topicItems = dashboardTopics.dashboardTopics(ListDashboardTopicsDto(actor))
+        val topicItems = dashboardTopics.dashboardTopics(ListDashboardTopicsQuery(actor))
         val summary = mapOf(
             "subjects" to subjectsPage.items.map(::subjectProjection),
             "assessments" to assessmentItems.map(::assessmentProjection),

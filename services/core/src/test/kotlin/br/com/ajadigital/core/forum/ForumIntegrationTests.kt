@@ -103,9 +103,15 @@ class ForumIntegrationTests : CoreIntegrationTestBase() {
         val classId = createB06Class(adminCookie)
         val subjectId = createB06Subject(adminCookie, classId, teacherId)
         createB07Enrollment(classId, studentId, teacherId)
-        val created = liveHttp("POST", "/topics", studentCookie,
-            """{"classId":"$classId","subjectId":"$subjectId","title":"Reply key","body":"Question","tags":[],"target":null,"attachmentId":null}""",
-            "topic-${UUID.randomUUID()}")
+        val topicBody = """{"classId":"$classId","subjectId":"$subjectId","title":"Reply key","body":"Question","tags":["help"],"target":{"type":"question","id":"forum-receipt-question"},"attachmentId":null}"""
+        val topicKey = "topic-${UUID.randomUUID()}"
+        val created = liveHttp("POST", "/topics", studentCookie, topicBody, topicKey)
+        val json = tools.jackson.databind.json.JsonMapper.builder().build()
+        val createReceipt = jdbc.queryForObject("SELECT response_body::text FROM core.command_idempotency WHERE actor_id=? AND operation='createTopic' AND target='/topics' AND idempotency_key=?", String::class.java, studentId, topicKey)
+        assertEquals(json.readTree(createReceipt), json.readTree(created.body()))
+        assertForumTopicJsonPropertyOrder(created.body())
+        val createReplay = liveHttp("POST", "/topics", studentCookie, topicBody, topicKey)
+        assertEquals(created.body(), createReplay.body())
         val topicId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.body()).get("id").asText()
         val body = """{"body":"One answer"}"""
         assertEquals(422, liveHttp("POST", "/topics/$topicId/replies", teacherCookie, body).statusCode())
@@ -118,12 +124,25 @@ class ForumIntegrationTests : CoreIntegrationTestBase() {
         pool.shutdownNow()
         assertEquals(201, first.statusCode(), first.body())
         assertEquals(first.body(), replay.body())
+        val replyReceipt = jdbc.queryForObject("SELECT response_body::text FROM core.command_idempotency WHERE actor_id=? AND operation='replyToTopic' AND target=? AND idempotency_key=?", String::class.java, teacherId, "/topics/$topicId", key)
+        assertEquals(json.readTree(replyReceipt), json.readTree(first.body()))
+        assertForumTopicJsonPropertyOrder(first.body())
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.topic_replies WHERE topic_id=?", Int::class.java, topicId))
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.audit_events WHERE event_type='academic.topic_reply_created' AND subject_user_id=(SELECT id FROM core.topic_replies WHERE topic_id=?)", Int::class.java, topicId))
         assertEquals(409, liveHttp("POST", "/topics/$topicId/replies", teacherCookie, """{"body":"Different answer"}""", key).statusCode())
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.topic_replies WHERE topic_id=?", Int::class.java, topicId))
         jdbc.update("UPDATE core.sessions SET revoked_at=? WHERE token_hash=?", java.sql.Timestamp.from(mutableClock.instant()), sha256(teacherCookie))
         assertEquals(401, liveHttp("POST", "/topics/$topicId/replies", teacherCookie, body, key).statusCode())
+    }
+
+    private fun assertForumTopicJsonPropertyOrder(body: String) {
+        val properties = listOf(
+            "\"id\"", "\"revision\"", "\"createdAt\"", "\"updatedAt\"", "\"updatedBy\"", "\"classId\"",
+            "\"subjectId\"", "\"title\"", "\"body\"", "\"tags\"", "\"target\"", "\"attachmentId\"",
+            "\"author\"", "\"replies\"", "\"read\"", "\"attachment\"", "\"legacyReference\"", "\"legacyAttachmentName\"",
+        )
+        val positions = properties.map(body::indexOf)
+        assertTrue(positions.all { it >= 0 } && positions.zipWithNext().all { (left, right) -> left < right }, body)
     }
 
     @Test

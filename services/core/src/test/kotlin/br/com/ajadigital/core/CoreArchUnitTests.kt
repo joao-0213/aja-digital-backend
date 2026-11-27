@@ -266,6 +266,24 @@ class CoreArchUnitTests {
         assertTrue(findings.any { it.contains("transactioninvalid") && it.contains("only <T> run(block: () -> T): T is permitted") }, findings.toString())
     }
 
+    @Test
+    fun `forum ports use typed application contracts`() {
+        val names = setOf(
+            "TopicStoreOutputPort", "ForumQuestionSnapshotProviderOutputPort", "CreateTopicInputPort",
+            "GetTopicInputPort", "ListTopicsInputPort", "ListDashboardTopicsInputPort", "ReplyToTopicInputPort",
+            "MarkTopicReadInputPort", "MarkTopicSolutionInputPort", "WithdrawTopicInputPort",
+            "VoteTopicReplyInputPort", "WithdrawTopicReplyInputPort",
+        )
+        val classes = production.toList()
+        val ports = CoreContractTypeAnalyzer.selectRoots(classes).filter {
+            it.packageName.startsWith("br.com.ajadigital.core.forum.") && it.simpleName in names
+        }
+        assertEquals(names, ports.map { it.simpleName }.toSet())
+        assertTrue(ports.all { it.packageName.contains(".application.ports.") })
+        val findings = CoreContractTypeAnalyzer.analyze(classes, ports)
+        assertTrue(findings.isEmpty(), findings.joinToString("\n"))
+    }
+
     private fun domainIsolation(): ArchRule = noClasses()
         .that().resideInAPackage("..domain..")
         .should().dependOnClassesThat().resideInAnyPackage(

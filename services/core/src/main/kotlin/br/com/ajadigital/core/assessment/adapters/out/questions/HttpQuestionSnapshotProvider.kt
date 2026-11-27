@@ -6,13 +6,11 @@ import br.com.ajadigital.core.assessment.domain.exceptions.QuestionSnapshotNotFo
 import br.com.ajadigital.core.assessment.domain.exceptions.QuestionsUnavailable
 import br.com.ajadigital.core.assessment.domain.models.BankQuestionSnapshot
 import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
+import br.com.ajadigital.core.shared.adapters.out.questions.QuestionsSnapshotHttpClient
+import br.com.ajadigital.core.shared.adapters.out.questions.QuestionSnapshotWire
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.stereotype.Component
-import org.springframework.web.client.RestClient
 import org.springframework.web.client.RestClientResponseException
-import java.nio.charset.StandardCharsets
-import java.time.Duration
 
 
 @Component
@@ -20,22 +18,10 @@ class HttpQuestionSnapshotProvider(
     @Value("\${core.questions.snapshots-url}") url: String,
     @Value("\${core.internal.questions-token}") token: String,
 ) : QuestionSnapshotProviderOutputPort {
-    private val client = RestClient.builder().baseUrl(url).requestFactory(
-        SimpleClientHttpRequestFactory().apply {
-            setConnectTimeout(Duration.ofSeconds(2))
-            setReadTimeout(Duration.ofSeconds(2))
-        },
-    ).build()
-    private val expectedToken = token.toByteArray(StandardCharsets.UTF_8)
+    private val client = QuestionsSnapshotHttpClient(url, token)
 
-    init { require(expectedToken.size >= 32) }
-
-    override fun snapshots(request: QuestionSnapshotQuery): List<BankQuestionSnapshot> = run { val ids = request.ids; try {
-        val response = client.post().uri("")
-            .header("X-AJA-Service-Token", String(expectedToken, StandardCharsets.UTF_8))
-            .body(SnapshotRequest(ids))
-            .retrieve().body(SnapshotResponse::class.java) ?: throw QuestionsUnavailable()
-        response.snapshots.map(SnapshotDto::toSnapshot)
+    override fun snapshots(request: QuestionSnapshotQuery): List<BankQuestionSnapshot> = try {
+        client.fetch(request.ids).map(QuestionSnapshotWire::toSnapshot)
     } catch (error: RestClientResponseException) {
         when (error.statusCode.value()) {
             404 -> throw QuestionSnapshotNotFound()
@@ -44,5 +30,10 @@ class HttpQuestionSnapshotProvider(
         }
     } catch (_: Exception) {
         throw QuestionsUnavailable()
-    } }
+    }
 }
+
+private fun QuestionSnapshotWire.toSnapshot() = BankQuestionSnapshot(
+    questionId, revision, contentHash, subject, topic, difficulty, institution, year, statement, options,
+    correctOption, explanation, image?.let { br.com.ajadigital.core.assessment.domain.models.BankQuestionImage(it.fileId, it.alt) },
+)

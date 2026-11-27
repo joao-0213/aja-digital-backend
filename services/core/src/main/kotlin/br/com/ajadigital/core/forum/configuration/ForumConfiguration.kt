@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.forum.configuration
 
-import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
+import br.com.ajadigital.core.forum.application.ports.out.ForumQuestionSnapshotProviderOutputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.CreateTopicInputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.GetTopicInputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.ListDashboardTopicsInputPort
@@ -11,7 +11,7 @@ import br.com.ajadigital.core.forum.application.ports.`in`.ReplyToTopicInputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.VoteTopicReplyInputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.WithdrawTopicReplyInputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.WithdrawTopicInputPort
-import br.com.ajadigital.core.forum.domain.ports.out.TopicStoreOutputPort
+import br.com.ajadigital.core.forum.application.ports.out.TopicStoreOutputPort
 import br.com.ajadigital.core.forum.application.usecases.CreateTopicUseCase
 import br.com.ajadigital.core.forum.application.usecases.GetTopicUseCase
 import br.com.ajadigital.core.forum.application.usecases.ListDashboardTopicsUseCase
@@ -33,7 +33,7 @@ class ForumConfiguration {
     @Bean
     fun createTopic(
         store: TopicStoreOutputPort,
-        questions: QuestionSnapshotProviderOutputPort,
+        questions: ForumQuestionSnapshotProviderOutputPort,
         mapper: JsonSerializerOutputPort,
     ): CreateTopicInputPort = CreateTopicUseCase(store, questions, mapper)
 
@@ -49,10 +49,9 @@ class ForumConfiguration {
     @Bean
     fun replyToTopic(
         store: TopicStoreOutputPort,
-        idempotency: IdempotencyStoreOutputPort,
         mapper: JsonSerializerOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): ReplyToTopicInputPort = ReplyToTopicUseCase(store, idempotency, mapper, transactionRunner)
+    ): ReplyToTopicInputPort = ReplyToTopicUseCase(store, mapper, transactionRunner)
 
     @Bean
     fun markTopicRead(

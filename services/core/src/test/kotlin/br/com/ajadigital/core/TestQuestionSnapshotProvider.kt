@@ -7,9 +7,12 @@ import br.com.ajadigital.core.assessment.domain.models.BankQuestionSnapshot
 import br.com.ajadigital.core.assessment.application.models.QuestionSnapshotQuery
 import br.com.ajadigital.core.assessment.domain.models.BankQuestionImage
 import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
+import br.com.ajadigital.core.forum.application.models.ForumQuestionSnapshot
+import br.com.ajadigital.core.forum.application.models.ForumQuestionSnapshotQuery
+import br.com.ajadigital.core.forum.application.ports.out.ForumQuestionSnapshotProviderOutputPort
 
 
-class TestQuestionSnapshotProvider : QuestionSnapshotProviderOutputPort {
+class TestQuestionSnapshotProvider : QuestionSnapshotProviderOutputPort, ForumQuestionSnapshotProviderOutputPort {
     val requested = mutableListOf<List<String>>()
     var imageFileId = "question-image-1"
     private val nextGate = AtomicReference<Pair<CountDownLatch, CountDownLatch>?>(null)
@@ -23,5 +26,14 @@ class TestQuestionSnapshotProvider : QuestionSnapshotProviderOutputPort {
         }
         if ("offline" in ids) throw br.com.ajadigital.core.assessment.domain.exceptions.QuestionsUnavailable()
         return ids.map { id -> BankQuestionSnapshot(id, 3, "a".repeat(64), "Math", "Algebra", "easy", "AJA", 2026, "Original $id", listOf("one", "two"), 1, "Because", if (id == "bank-1") BankQuestionImage(imageFileId, "Figure") else null) }
+    }
+    override fun snapshots(request: ForumQuestionSnapshotQuery): List<ForumQuestionSnapshot> {
+        requested += request.ids
+        nextGate.getAndSet(null)?.let { (started, release) ->
+            started.countDown()
+            check(release.await(20, TimeUnit.SECONDS)) { "Snapshot test gate was not released" }
+        }
+        if ("offline" in request.ids) throw br.com.ajadigital.core.forum.domain.exceptions.ForumQuestionsUnavailable()
+        return request.ids.map(::ForumQuestionSnapshot)
     }
 }
