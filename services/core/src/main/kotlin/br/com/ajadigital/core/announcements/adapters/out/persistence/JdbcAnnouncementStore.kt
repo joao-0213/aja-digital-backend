@@ -2,21 +2,29 @@ package br.com.ajadigital.core.announcements.adapters.out.persistence
 
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
-import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
-import br.com.ajadigital.core.outbox.domain.models.EncryptOutboxPayloadDto
-import br.com.ajadigital.core.academic.application.models.AcademicPage
+import br.com.ajadigital.core.outbox.application.ports.`in`.OutboxEventProducerInputPort
+import br.com.ajadigital.core.outbox.application.contracts.PrepareOutboxEventCommand
+import br.com.ajadigital.core.outbox.application.contracts.AppendPreparedOutboxEventCommand
+import br.com.ajadigital.core.shared.application.contracts.Page
+import br.com.ajadigital.core.announcements.application.contracts.Announcement
+import br.com.ajadigital.core.announcements.application.contracts.AnnouncementAuthor
+import br.com.ajadigital.core.announcements.application.contracts.AnnouncementCalendarEvent
+import br.com.ajadigital.core.announcements.application.contracts.AnnouncementOccurrenceProjection
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementDraft
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementOccurrence
-import br.com.ajadigital.core.announcements.domain.models.AuthorizeAnnouncementCreateDto
-import br.com.ajadigital.core.announcements.domain.models.CreateAnnouncementRecordDto
-import br.com.ajadigital.core.announcements.domain.models.UpdateAnnouncementRecordDto
-import br.com.ajadigital.core.announcements.domain.models.WithdrawAnnouncementRecordDto
-import br.com.ajadigital.core.announcements.domain.models.GetStoredAnnouncementDto
-import br.com.ajadigital.core.announcements.domain.models.ListAnnouncementsRecordDto
-import br.com.ajadigital.core.announcements.domain.models.ListAnnouncementCalendarDto
-import br.com.ajadigital.core.announcements.domain.models.ListDashboardAnnouncementRecordsDto
-import br.com.ajadigital.core.announcements.domain.models.ListDashboardUpcomingRecordsDto
-import br.com.ajadigital.core.announcements.domain.ports.out.AnnouncementStoreOutputPort
+import br.com.ajadigital.core.announcements.application.models.AuthorizeAnnouncementCreate
+import br.com.ajadigital.core.announcements.application.models.CreateAnnouncementRecord
+import br.com.ajadigital.core.announcements.application.models.UpdateAnnouncementRecord
+import br.com.ajadigital.core.announcements.application.models.WithdrawAnnouncementRecord
+import br.com.ajadigital.core.announcements.application.models.GetStoredAnnouncementQuery
+import br.com.ajadigital.core.announcements.application.models.ListAnnouncementsStoreQuery
+import br.com.ajadigital.core.announcements.application.models.ListAnnouncementCalendarQuery
+import br.com.ajadigital.core.announcements.application.models.ListDashboardAnnouncementStoreQuery
+import br.com.ajadigital.core.announcements.application.models.ListDashboardUpcomingStoreQuery
+import br.com.ajadigital.core.announcements.domain.models.AnnouncementRecipientScope
+import br.com.ajadigital.core.announcements.domain.models.AnnouncementRecipient
+import br.com.ajadigital.core.announcements.domain.models.AnnouncementNotificationRequested
+import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementStoreOutputPort
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
@@ -33,10 +41,10 @@ class JdbcAnnouncementStore(
     private val jdbc: JdbcTemplate,
     private val mapper: ObjectMapper,
     private val clock: Clock,
-    private val encryption: OutboxPayloadProtectorOutputPort,
+    private val outboxEvents: OutboxEventProducerInputPort,
 ) : AnnouncementStoreOutputPort {
     @Transactional
-    override fun authorizeCreate(request: AuthorizeAnnouncementCreateDto) {
+    override fun authorizeCreate(request: AuthorizeAnnouncementCreate) {
         val (actorId, role, sessionHash, draft) = request
         lockAuthInvariant()
         requireWriterSession(actorId, role, sessionHash)
@@ -44,7 +52,7 @@ class JdbcAnnouncementStore(
     }
 
     @Transactional
-    override fun create(request: CreateAnnouncementRecordDto): Map<String, Any?> {
+    override fun create(request: CreateAnnouncementRecord): Announcement {
         val (actorId, role, sessionHash, draft, key, requestHash) = request
         lockAuthInvariant()
         requireWriterSession(actorId, role, sessionHash)
@@ -53,53 +61,53 @@ class JdbcAnnouncementStore(
         val now = Timestamp.from(clock.instant())
         jdbc.update("""INSERT INTO core.announcements(id,revision,created_at,updated_at,updated_by,created_by,class_id,subject_id,title,body,notify,occurrence)
             VALUES(?,1,?,?,?,?,?,?,?,?,?,?::jsonb)""", id, now, now, actorId, actorId, draft.classId, draft.subjectId, draft.title.trim(), draft.body, draft.notify, draft.occurrence?.let(mapper::writeValueAsString))
-        if (draft.notify) notify(id, 1, actorId, draft)
+        if (draft.notify) notify(id, 1, draft)
         audit(actorId, "academic.announcement_created", id)
-        return announcement(GetStoredAnnouncementDto(actorId, role, sessionHash, id)) ?: throw AcademicNotFound()
+        return announcement(GetStoredAnnouncementQuery(actorId, role, sessionHash, id)) ?: throw AcademicNotFound()
     }
 
     @Transactional
-    override fun update(request: UpdateAnnouncementRecordDto): Map<String, Any?>? {
+    override fun update(request: UpdateAnnouncementRecord): Announcement? {
         val (actorId, role, sessionHash, id, revision, draft) = request
         lockAuthInvariant()
         requireWriterSession(actorId, role, sessionHash)
         val current = jdbc.query("SELECT * FROM core.announcements WHERE id=? AND withdrawn_at IS NULL FOR UPDATE", { rs, _ -> row(rs) }, id).firstOrNull() ?: return null
-        if (current["revision"] != revision) return null
-        lockAudience(current["classId"] as String, current["subjectId"] as String?, actorId, role)
+        if (current.revision != revision) return null
+        lockAudience(current.classId, current.subjectId, actorId, role)
         lockAudience(draft.classId, draft.subjectId, actorId, role)
-        if (draft.copy(title = draft.title.trim()) == currentDraft(current)) return announcement(GetStoredAnnouncementDto(actorId, role, sessionHash, id))
+        if (draft.copy(title = draft.title.trim()) == currentDraft(current)) return announcement(GetStoredAnnouncementQuery(actorId, role, sessionHash, id))
         val now = Timestamp.from(clock.instant())
         val nextRevision = revision + 1
         if (jdbc.update("""UPDATE core.announcements SET revision=?,updated_at=?,updated_by=?,class_id=?,subject_id=?,title=?,body=?,notify=?,occurrence=?::jsonb
             WHERE id=? AND revision=? AND withdrawn_at IS NULL""", nextRevision, now, actorId, draft.classId, draft.subjectId, draft.title.trim(), draft.body, draft.notify, draft.occurrence?.let(mapper::writeValueAsString), id, revision) != 1) return null
-        if (draft.notify) notify(id, nextRevision, actorId, draft)
+        if (draft.notify) notify(id, nextRevision, draft)
         audit(actorId, "academic.announcement_updated", id)
-        return announcement(GetStoredAnnouncementDto(actorId, role, sessionHash, id))
+        return announcement(GetStoredAnnouncementQuery(actorId, role, sessionHash, id))
     }
 
     @Transactional
-    override fun withdraw(request: WithdrawAnnouncementRecordDto): Map<String, Any?>? {
+    override fun withdraw(request: WithdrawAnnouncementRecord): Announcement? {
         val (actorId, role, sessionHash, id, revision) = request
         lockAuthInvariant()
         requireWriterSession(actorId, role, sessionHash)
         val current = jdbc.query("SELECT * FROM core.announcements WHERE id=? AND withdrawn_at IS NULL FOR UPDATE", { rs, _ -> row(rs) }, id).firstOrNull() ?: return null
-        if (current["revision"] != revision) return null
-        lockAudience(current["classId"] as String, current["subjectId"] as String?, actorId, role)
+        if (current.revision != revision) return null
+        lockAudience(current.classId, current.subjectId, actorId, role)
         val now = Timestamp.from(clock.instant())
         if (jdbc.update("UPDATE core.announcements SET revision=revision+1,updated_at=?,updated_by=?,withdrawn_at=? WHERE id=? AND revision=? AND withdrawn_at IS NULL", now, actorId, now, id, revision) != 1) return null
         audit(actorId, "academic.announcement_withdrawn", id)
-        return dto(current + mapOf("revision" to revision + 1, "updatedAt" to now.toInstant().toString(), "updatedBy" to actorId, "authorName" to jdbc.queryForObject("SELECT name FROM core.users WHERE id=?", String::class.java, current["createdBy"] as String)))
+        return current.toAnnouncement(jdbc.queryForObject("SELECT name FROM core.users WHERE id=?", String::class.java, current.createdBy)!!, revision + 1, now.toInstant().toString(), actorId)
     }
 
-    override fun announcement(request: GetStoredAnnouncementDto): Map<String, Any?>? {
+    override fun announcement(request: GetStoredAnnouncementQuery): Announcement? {
         val (actorId, role, sessionHash, id) = request
         requireReaderSession(actorId, role, sessionHash)
         val row = jdbc.query("""SELECT a.*,u.name author_name FROM core.announcements a JOIN core.users u ON u.id=a.created_by
-            WHERE a.id=? AND a.withdrawn_at IS NULL AND ${access("a", role)}""", { rs, _ -> row(rs) + mapOf("authorName" to rs.getString("author_name")) }, *(listOf(id) + accessArgs(actorId, role)).toTypedArray()).firstOrNull() ?: return null
-        return dto(row)
+            WHERE a.id=? AND a.withdrawn_at IS NULL AND ${access("a", role)}""", { rs, _ -> row(rs) to rs.getString("author_name") }, *(listOf(id) + accessArgs(actorId, role)).toTypedArray()).firstOrNull() ?: return null
+        return row.first.toAnnouncement(row.second)
     }
 
-    override fun announcements(request: ListAnnouncementsRecordDto): AcademicPage {
+    override fun announcements(request: ListAnnouncementsStoreQuery): Page<Announcement> {
         val (actorId, role, sessionHash, page, size, sort, classId, subjectId, query) = request
         requireReaderSession(actorId, role, sessionHash)
         val clauses = mutableListOf("a.withdrawn_at IS NULL", access("a", role))
@@ -109,27 +117,27 @@ class JdbcAnnouncementStore(
         val where = clauses.joinToString(" AND ")
         val direction = if (sort == "-createdAt") "DESC" else "ASC"
         val matches = jdbc.query("""SELECT a.*,u.name author_name FROM core.announcements a JOIN core.users u ON u.id=a.created_by
-            WHERE $where ORDER BY a.created_at $direction,a.id""", { rs, _ -> dto(row(rs) + mapOf("authorName" to rs.getString("author_name"))) }, *args.toTypedArray())
-            .filter { query.isNullOrBlank() || normalize("${it["title"]} ${it["body"]}").contains(normalize(query)) }
+            WHERE $where ORDER BY a.created_at $direction,a.id""", { rs, _ -> row(rs).toAnnouncement(rs.getString("author_name")) }, *args.toTypedArray())
+            .filter { query.isNullOrBlank() || normalize("${it.title} ${it.body}").contains(normalize(query)) }
         val items = matches.drop((page - 1) * size).take(size)
-        return AcademicPage(items, page, size, matches.size)
+        return Page(items, page, size, matches.size)
     }
 
-    override fun calendar(request: ListAnnouncementCalendarDto): AcademicPage {
+    override fun calendar(request: ListAnnouncementCalendarQuery): Page<AnnouncementCalendarEvent> {
         val (actorId, role, sessionHash, page, size, sort, from, to, subjectId) = request
         requireReaderSession(actorId, role, sessionHash)
-        val items = mutableListOf<Map<String, Any?>>()
+        val items = mutableListOf<AnnouncementCalendarEvent>()
         val announcementArgs = accessArgs(actorId, role).toMutableList<Any>()
         val announcementFilters = mutableListOf("a.withdrawn_at IS NULL", "a.occurrence IS NOT NULL", access("a", role))
         if (subjectId != null) { announcementFilters += "a.subject_id=?"; announcementArgs += subjectId }
         val occurrenceRows = jdbc.query("""SELECT a.*,u.name author_name FROM core.announcements a JOIN core.users u ON u.id=a.created_by
-            WHERE ${announcementFilters.joinToString(" AND ")}""", { rs, _ -> row(rs) + mapOf("authorName" to rs.getString("author_name")) }, *announcementArgs.toTypedArray())
-        occurrenceRows.map(::dto).forEach { announcement ->
-            val occurrence = announcement["occurrence"] as? Map<*, *> ?: return@forEach
-            val date = occurrence["date"] as String
+            WHERE ${announcementFilters.joinToString(" AND ")}""", { rs, _ -> row(rs).toAnnouncement(rs.getString("author_name")) }, *announcementArgs.toTypedArray())
+        occurrenceRows.forEach { announcement ->
+            val occurrence = announcement.occurrence ?: return@forEach
+            val date = occurrence.date
             if ((from == null || date >= from) && (to == null || date <= to)) items += calendarItem(
-                announcement["id"] as String, announcement["title"] as String, occurrence, announcement["body"] as String,
-                announcement["subjectId"] as String?, "announcement", "/avisos?id=${announcement["id"]}",
+                announcement.id, announcement.title, occurrence.value(), announcement.body,
+                announcement.subjectId, "announcement", "/avisos?id=${announcement.id}",
             )
         }
         val assessmentArgs = mutableListOf<Any>()
@@ -144,45 +152,44 @@ class JdbcAnnouncementStore(
             JOIN core.modules m ON m.id=a.module_id JOIN core.subjects s ON s.id=m.subject_id JOIN core.classes c ON c.id=s.class_id
             WHERE ${assessmentFilters.joinToString(" AND ")}""", { rs, _ ->
             val local = rs.getTimestamp("deadline").toInstant().atZone(brasilia)
-            mapOf("id" to rs.getString("id"), "title" to rs.getString("title"), "description" to rs.getString("description"), "kind" to rs.getString("kind"), "date" to local.toLocalDate().toString(), "time" to local.toLocalTime().withSecond(0).withNano(0).toString().substring(0, 5), "subjectId" to rs.getString("subject_id"))
+            val id = rs.getString("id")
+            calendarItem(id, rs.getString("title"), AnnouncementOccurrence(local.toLocalDate().toString(), local.toLocalTime().withSecond(0).withNano(0).toString().substring(0, 5), false), rs.getString("description"), rs.getString("subject_id"), "assessment", "/questionarios?id=$id", rs.getString("kind"))
         }, *assessmentArgs.toTypedArray())
-        deadlines.filter { (from == null || it.getValue("date") as String >= from) && (to == null || it.getValue("date") as String <= to) }.forEach { deadline ->
-            val occurrence = mapOf("date" to deadline.getValue("date"), "time" to deadline.getValue("time"), "allDay" to false)
-            items += calendarItem(deadline.getValue("id") as String, deadline.getValue("title") as String, occurrence, deadline.getValue("description") as String, deadline.getValue("subjectId") as String?, "assessment", "/questionarios?id=${deadline.getValue("id")}", deadline.getValue("kind") as String)
-        }
+        deadlines.filter { (from == null || it.date >= from) && (to == null || it.date <= to) }.forEach(items::add)
         val direction = if (sort == "-date") -1 else 1
-        val tieBreak = compareBy<Map<String, Any?>> { it["allDay"] != true }.thenBy { it["time"] as? String ?: "" }.thenBy { it["id"] as String }
+        val tieBreak = compareBy<AnnouncementCalendarEvent> { !it.allDay }.thenBy { it.time ?: "" }.thenBy { it.id }
         val ordered = items.sortedWith(Comparator { left, right ->
-            val dateOrder = (left["date"] as String).compareTo(right["date"] as String) * direction
+            val dateOrder = left.date.compareTo(right.date) * direction
             if (dateOrder != 0) dateOrder else tieBreak.compare(left, right)
         })
-        return AcademicPage(ordered.drop((page - 1) * size).take(size), page, size, ordered.size)
+        return Page(ordered.drop((page - 1) * size).take(size), page, size, ordered.size)
     }
 
-    override fun dashboardAnnouncements(request: ListDashboardAnnouncementRecordsDto): List<Map<String, Any?>> {
+    override fun dashboardAnnouncements(request: ListDashboardAnnouncementStoreQuery): List<Announcement> {
         val (actorId, role, sessionHash, size) = request
         require(size in 1..10)
         requireReaderSession(actorId, role, sessionHash)
         val args = (accessArgs(actorId, role) + listOf<Any>(size)).toTypedArray()
         return jdbc.query("""SELECT a.*,u.name author_name FROM core.announcements a JOIN core.users u ON u.id=a.created_by
             WHERE a.withdrawn_at IS NULL AND ${access("a", role)}
-            ORDER BY a.created_at DESC,a.id LIMIT ?""", { rs, _ -> dto(row(rs) + mapOf("authorName" to rs.getString("author_name"))) }, *args)
+            ORDER BY a.created_at DESC,a.id LIMIT ?""", { rs, _ -> row(rs).toAnnouncement(rs.getString("author_name")) }, *args)
     }
 
-    override fun dashboardUpcoming(request: ListDashboardUpcomingRecordsDto): List<Map<String, Any?>> {
+    override fun dashboardUpcoming(request: ListDashboardUpcomingStoreQuery): List<AnnouncementCalendarEvent> {
         val (actorId, role, sessionHash, from, to, size) = request
         require(size in 1..10)
         requireReaderSession(actorId, role, sessionHash)
         val announcementArgs = (accessArgs(actorId, role) + listOf<Any>(from, to, size)).toTypedArray()
-        val announcements = jdbc.query("""SELECT a.* FROM core.announcements a
+        val announcementRows = jdbc.query("""SELECT a.* FROM core.announcements a
             WHERE a.withdrawn_at IS NULL AND a.occurrence IS NOT NULL AND ${access("a", role)}
               AND a.occurrence->>'date' BETWEEN ? AND ?
             ORDER BY a.occurrence->>'date', (a.occurrence->>'allDay')::boolean DESC, a.occurrence->>'time', a.id LIMIT ?""", { rs, _ ->
-            val announcement = row(rs)
-            val occurrence = announcement["occurrence"] as? Map<*, *> ?: emptyMap<String, Any?>()
-            calendarItem(announcement["id"] as String, announcement["title"] as String, occurrence, announcement["body"] as String,
-                announcement["subjectId"] as String?, "announcement", "/avisos?id=${announcement["id"]}")
+            row(rs)
         }, *announcementArgs)
+        val announcements = announcementRows.mapNotNull { announcement -> announcement.occurrence?.let { occurrence ->
+            calendarItem(announcement.id, announcement.title, occurrence.value(), announcement.body,
+                announcement.subjectId, "announcement", "/avisos?id=${announcement.id}")
+        } }
 
         val assessmentArgs = mutableListOf<Any>()
         val assessmentAccess = when (role) {
@@ -201,31 +208,38 @@ class JdbcAnnouncementStore(
               AND (a.deadline AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN ?::date AND ?::date
             ORDER BY local_date,local_time,a.id LIMIT ?""", { rs, _ ->
             val id = rs.getString("id")
-            val occurrence = mapOf("date" to rs.getDate("local_date").toLocalDate().toString(), "time" to rs.getString("local_time"), "allDay" to false)
+            val occurrence = AnnouncementOccurrence(rs.getDate("local_date").toLocalDate().toString(), rs.getString("local_time"), false)
             calendarItem(id, rs.getString("title"), occurrence, rs.getString("description"), rs.getString("subject_id"), "assessment", "/questionarios?id=$id", rs.getString("kind"))
         }, *assessmentArgs.toTypedArray())
 
-        val order = compareBy<Map<String, Any?>> { it["date"] as String }
-            .thenBy { it["allDay"] != true }
-            .thenBy { it["time"] as? String ?: "" }
-            .thenBy { it["id"] as String }
+        val order = compareBy<AnnouncementCalendarEvent> { it.date }
+            .thenBy { !it.allDay }
+            .thenBy { it.time ?: "" }
+            .thenBy { it.id }
         return (announcements + deadlines).sortedWith(order).take(size)
     }
 
-    private fun notify(id: String, revision: Int, actorId: String, draft: AnnouncementDraft) {
-        val recipients = if (draft.subjectId == null) jdbc.query("""SELECT DISTINCT u.id,u.email FROM core.enrollments e JOIN core.users u ON u.id=e.student_id
-            JOIN core.classes c ON c.id=e.class_id WHERE e.class_id=? AND e.status='active' AND u.active AND u.role='student' AND u.email_confirmed_at IS NOT NULL AND c.active ORDER BY u.id""", { rs, _ -> rs.getString(1) to rs.getString(2) }, draft.classId)
-        else jdbc.query("""SELECT DISTINCT u.id,u.email FROM core.enrollments e JOIN core.users u ON u.id=e.student_id JOIN core.classes c ON c.id=e.class_id
-            WHERE e.class_id=? AND e.status='active' AND u.active AND u.role='student' AND u.email_confirmed_at IS NOT NULL AND c.active
-            AND EXISTS(SELECT 1 FROM core.subjects s WHERE s.id=? AND s.class_id=e.class_id) ORDER BY u.id""", { rs, _ -> rs.getString(1) to rs.getString(2) }, draft.classId, draft.subjectId)
-        recipients.forEach { (recipientId, email) ->
+    private fun notify(id: String, revision: Int, draft: AnnouncementDraft) {
+        val recipients = recipients(AnnouncementRecipientScope(draft.classId, draft.subjectId))
+        recipients.forEach { recipient ->
             val eventId = UUID.randomUUID().toString()
             val eventType = "academic.announcement-notification-requested"
-            val payload = mapper.writeValueAsBytes(mapOf("recipient" to email, "announcementId" to id, "recipientId" to recipientId, "revision" to revision, "title" to draft.title.trim(), "body" to draft.body))
-            val encrypted = encryption.encrypt(EncryptOutboxPayloadDto(eventId, eventType, 1, payload))
-            val inserted = jdbc.update("INSERT INTO core.announcement_notification_recipients(announcement_id,revision,recipient_id,event_id) VALUES(?,?,?,?) ON CONFLICT DO NOTHING", id, revision, recipientId, eventId)
-            if (inserted == 1) jdbc.update("INSERT INTO core.outbox_events(id,event_type,event_version,created_at,key_id,nonce,encrypted_payload) VALUES(?,?,1,?,?,?,?)", eventId, eventType, Timestamp.from(clock.instant()), encrypted.keyId, encrypted.nonce, encrypted.ciphertext)
+            val payload = mapper.writeValueAsBytes(AnnouncementNotificationRequested(recipient.email, id, recipient.id, revision, draft.title.trim(), draft.body))
+            val event = outboxEvents.prepare(PrepareOutboxEventCommand(eventId, eventType, 1, payload))
+            val inserted = jdbc.update("INSERT INTO core.announcement_notification_recipients(announcement_id,revision,recipient_id,event_id) VALUES(?,?,?,?) ON CONFLICT DO NOTHING", id, revision, recipient.id, eventId)
+            if (inserted == 1) outboxEvents.append(AppendPreparedOutboxEventCommand(event, clock.instant()))
         }
+    }
+
+    private fun recipients(scope: AnnouncementRecipientScope): List<AnnouncementRecipient> = if (scope.subjectId == null) {
+        jdbc.query("""SELECT DISTINCT u.id,u.email FROM core.enrollments e JOIN core.users u ON u.id=e.student_id
+            JOIN core.classes c ON c.id=e.class_id WHERE e.class_id=? AND e.status='active' AND u.active AND u.role='student' AND u.email_confirmed_at IS NOT NULL AND c.active ORDER BY u.id""",
+            { rs, _ -> AnnouncementRecipient(rs.getString(1), rs.getString(2)) }, scope.classId)
+    } else {
+        jdbc.query("""SELECT DISTINCT u.id,u.email FROM core.enrollments e JOIN core.users u ON u.id=e.student_id JOIN core.classes c ON c.id=e.class_id
+            WHERE e.class_id=? AND e.status='active' AND u.active AND u.role='student' AND u.email_confirmed_at IS NOT NULL AND c.active
+            AND EXISTS(SELECT 1 FROM core.subjects s WHERE s.id=? AND s.class_id=e.class_id) ORDER BY u.id""",
+            { rs, _ -> AnnouncementRecipient(rs.getString(1), rs.getString(2)) }, scope.classId, scope.subjectId)
     }
 
     private fun lockAudience(classId: String, subjectId: String?, actorId: String, role: String) {
@@ -258,38 +272,51 @@ class JdbcAnnouncementStore(
     }
 
     private fun accessArgs(actorId: String, role: String) = if (role == "admin") emptyList() else listOf(actorId)
-    private fun dto(row: Map<String, Any?>) = mapOf(
-        "id" to row.getValue("id"), "revision" to row.getValue("revision"), "createdAt" to row.getValue("createdAt"), "updatedAt" to row.getValue("updatedAt"),
-        "updatedBy" to row.getValue("updatedBy"), "classId" to row.getValue("classId"), "subjectId" to row.getValue("subjectId"), "title" to row.getValue("title"),
-        "body" to row.getValue("body"), "notify" to row.getValue("notify"), "occurrence" to row.getValue("occurrence"),
-        "author" to mapOf("id" to row.getValue("createdBy"), "name" to row.getValue("authorName")),
+    private fun StoredAnnouncement.toAnnouncement(authorName: String, revision: Int = this.revision, updatedAt: String = this.updatedAt, updatedBy: String = this.updatedBy) = Announcement(
+        id, revision, createdAt, updatedAt, updatedBy, classId, subjectId, title, body, notify, occurrence, AnnouncementAuthor(createdBy, authorName),
     )
 
-    private fun currentDraft(row: Map<String, Any?>) = AnnouncementDraft(
-        row.getValue("classId") as String,
-        row["subjectId"] as String?,
-        row.getValue("title") as String,
-        row.getValue("body") as String,
-        row.getValue("notify") as Boolean,
-        (row["occurrence"] as? Map<*, *>)?.let { AnnouncementOccurrence(it["date"] as String, it["time"] as String?, it["allDay"] as Boolean) },
+    private fun currentDraft(row: StoredAnnouncement) = AnnouncementDraft(row.classId, row.subjectId, row.title, row.body, row.notify, row.occurrence?.value())
+
+    private fun row(rs: ResultSet) = StoredAnnouncement(
+        rs.getString("id"), rs.getInt("revision"), rs.getTimestamp("created_at").toInstant().toString(),
+        rs.getTimestamp("updated_at").toInstant().toString(), rs.getString("updated_by"), rs.getString("created_by"),
+        rs.getString("class_id"), rs.getString("subject_id"), rs.getString("title"), rs.getString("body"),
+        rs.getBoolean("notify"), readOccurrence(rs.getString("occurrence")),
     )
 
-    private fun row(rs: ResultSet): Map<String, Any?> = mapOf(
-        "id" to rs.getString("id"), "revision" to rs.getInt("revision"), "createdAt" to rs.getTimestamp("created_at").toInstant().toString(),
-        "updatedAt" to rs.getTimestamp("updated_at").toInstant().toString(), "updatedBy" to rs.getString("updated_by"), "createdBy" to rs.getString("created_by"),
-        "classId" to rs.getString("class_id"), "subjectId" to rs.getString("subject_id"), "title" to rs.getString("title"), "body" to rs.getString("body"),
-        "notify" to rs.getBoolean("notify"), "occurrence" to rs.getString("occurrence")?.let { mapper.readValue(it, Map::class.java) },
-        "withdrawnAt" to rs.getTimestamp("withdrawn_at")?.toInstant(),
-    )
+    private fun readOccurrence(value: String?): AnnouncementOccurrenceProjection? = value?.let {
+        val node = mapper.readTree(it)
+        if (node.has("time")) AnnouncementOccurrenceProjection.WithTime(
+            node.get("date").asString(),
+            node.get("time")?.takeUnless { time -> time.isNull }?.asString(),
+            node.get("allDay").booleanValue(),
+        ) else AnnouncementOccurrenceProjection.WithoutTime(node.get("date").asString(), node.get("allDay").booleanValue())
+    }
 
-    private fun calendarItem(id: String, title: String, occurrence: Map<*, *>, description: String, subjectId: String?, source: String, href: String, kind: String = "event") = mapOf(
-        "id" to id, "title" to title, "kind" to if (source == "announcement") "event" else if (kind == "quiz") "exam" else "class",
-        "date" to occurrence["date"], "time" to occurrence["time"], "allDay" to occurrence["allDay"], "description" to description,
-        "subjectId" to subjectId, "source" to source, "sourceId" to id, "href" to href,
+    private fun calendarItem(id: String, title: String, occurrence: AnnouncementOccurrence, description: String, subjectId: String?, source: String, href: String, kind: String = "event") = AnnouncementCalendarEvent(
+        id, title, if (source == "announcement") "event" else if (kind == "quiz") "exam" else "class",
+        occurrence.date, occurrence.time, occurrence.allDay, description,
+        subjectId, source, id, href,
     )
 
     private fun audit(actorId: String, eventType: String, id: String) = jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), eventType, id, actorId)
     private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }
     private fun normalize(value: String) = Normalizer.normalize(value, Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase()
     private val brasilia = ZoneId.of("America/Sao_Paulo")
+
+    private data class StoredAnnouncement(
+        val id: String,
+        val revision: Int,
+        val createdAt: String,
+        val updatedAt: String,
+        val updatedBy: String,
+        val createdBy: String,
+        val classId: String,
+        val subjectId: String?,
+        val title: String,
+        val body: String,
+        val notify: Boolean,
+        val occurrence: AnnouncementOccurrenceProjection?,
+    )
 }

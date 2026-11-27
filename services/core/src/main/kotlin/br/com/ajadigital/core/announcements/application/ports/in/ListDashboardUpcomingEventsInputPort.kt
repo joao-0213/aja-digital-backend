@@ -1,8 +1,10 @@
 package br.com.ajadigital.core.announcements.application.ports.`in`
 import br.com.ajadigital.core.announcements.application.models.*
+import br.com.ajadigital.core.announcements.application.contracts.Announcement
+import br.com.ajadigital.core.announcements.application.contracts.AnnouncementCalendarEvent
 
-import br.com.ajadigital.core.announcements.application.models.ListDashboardUpcomingEventsDto
+import br.com.ajadigital.core.announcements.application.contracts.ListDashboardUpcomingEventsQuery
 
 interface ListDashboardUpcomingEventsInputPort {
-    fun dashboardUpcoming(request: ListDashboardUpcomingEventsDto): List<Map<String, Any?>>
+    fun dashboardUpcoming(request: ListDashboardUpcomingEventsQuery): List<AnnouncementCalendarEvent>
 }

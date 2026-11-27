@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.outbox.adapters.out.security
 
-import br.com.ajadigital.core.identity.application.models.EncryptedOutboxPayload
+import br.com.ajadigital.core.outbox.application.contracts.EncryptedOutboxPayload
 import br.com.ajadigital.core.outbox.domain.models.EncryptOutboxPayloadDto
 import br.com.ajadigital.core.outbox.domain.models.OutboxPayloadKeyDto
 import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort

@@ -8,7 +8,7 @@ import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboard
 import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardUpcomingEventsInputPort
 import br.com.ajadigital.core.announcements.application.ports.`in`.UpdateAnnouncementInputPort
 import br.com.ajadigital.core.announcements.application.ports.`in`.WithdrawAnnouncementInputPort
-import br.com.ajadigital.core.announcements.domain.ports.out.AnnouncementStoreOutputPort
+import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementStoreOutputPort
 import br.com.ajadigital.core.announcements.application.usecases.CreateAnnouncementUseCase
 import br.com.ajadigital.core.announcements.application.usecases.GetAnnouncementUseCase
 import br.com.ajadigital.core.announcements.application.usecases.ListAnnouncementsUseCase
@@ -17,7 +17,8 @@ import br.com.ajadigital.core.announcements.application.usecases.ListDashboardAn
 import br.com.ajadigital.core.announcements.application.usecases.ListDashboardUpcomingEventsUseCase
 import br.com.ajadigital.core.announcements.application.usecases.UpdateAnnouncementUseCase
 import br.com.ajadigital.core.announcements.application.usecases.WithdrawAnnouncementUseCase
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
+import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementReceiptCodecOutputPort
 import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -29,9 +30,10 @@ class AnnouncementsConfiguration {
     fun createAnnouncement(
         store: AnnouncementStoreOutputPort,
         mapper: JsonSerializerOutputPort,
-        idempotency: IdempotencyStoreOutputPort,
+        idempotency: EncodedIdempotencyStoreOutputPort,
+        receiptCodec: AnnouncementReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): CreateAnnouncementInputPort = CreateAnnouncementUseCase(store, mapper, idempotency, transactionRunner)
+    ): CreateAnnouncementInputPort = CreateAnnouncementUseCase(store, mapper, idempotency, receiptCodec, transactionRunner)
 
     @Bean
     fun updateAnnouncement(

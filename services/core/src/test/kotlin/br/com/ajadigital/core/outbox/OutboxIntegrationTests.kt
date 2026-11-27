@@ -91,6 +91,11 @@ class OutboxIntegrationTests : CoreIntegrationTestBase() {
 
             assertEquals(2, publishedBodies.size, "Expected redelivery after confirmed publish could not be marked in PostgreSQL")
             assertEquals(publishedBodies.first(), publishedBodies.last(), "At-least-once retry must preserve the same event id and encrypted payload")
+            var publishedAt: Boolean? = null
+            while (publishedAt != true && System.nanoTime() < deadline) {
+                publishedAt = jdbc.queryForObject("select published_at is not null from core.outbox_events where id=?", Boolean::class.java, id)
+                if (publishedAt != true) Thread.sleep(25)
+            }
             assertEquals(true, jdbc.queryForObject("select published_at is not null from core.outbox_events where id=?", Boolean::class.java, id))
             assertEquals(1, jdbc.queryForObject("select attempt_count from core.outbox_events where id=?", Int::class.java, id))
         } finally {

@@ -3,8 +3,8 @@ import br.com.ajadigital.core.dashboard.application.models.*
 
 import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardAnnouncementsInputPort
 import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardUpcomingEventsInputPort
-import br.com.ajadigital.core.announcements.application.models.ListDashboardAnnouncementsDto
-import br.com.ajadigital.core.announcements.application.models.ListDashboardUpcomingEventsDto
+import br.com.ajadigital.core.announcements.application.contracts.ListDashboardAnnouncementsQuery
+import br.com.ajadigital.core.announcements.application.contracts.ListDashboardUpcomingEventsQuery
 import br.com.ajadigital.core.assessment.application.contracts.DashboardAssessment
 import br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery
 import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingFeedbackInputPort
@@ -48,9 +48,9 @@ class GetDashboardUseCase(
         require(actor.active && actor.role in setOf("student", "teacher", "admin") && (actor.role != "student" || actor.emailConfirmedAt != null)) { throw AcademicForbidden() }
         val subjectsPage = subjects.subjects(ListSubjectsQuery(actor, 1, LIMIT, "id", null, null))
         val assessmentItems = dashboardAssessments.dashboardAssessments(ListDashboardAssessmentsQuery(actor, LIMIT))
-        val announcementItems = dashboardAnnouncements.dashboardAnnouncements(ListDashboardAnnouncementsDto(actor, 5))
+        val announcementItems = dashboardAnnouncements.dashboardAnnouncements(ListDashboardAnnouncementsQuery(actor, 5))
         val today = LocalDate.ofInstant(clock.instant(), BRASILIA)
-        val upcomingItems = dashboardUpcoming.dashboardUpcoming(ListDashboardUpcomingEventsDto(actor, today, today.plusDays(30), 5))
+        val upcomingItems = dashboardUpcoming.dashboardUpcoming(ListDashboardUpcomingEventsQuery(actor, today, today.plusDays(30), 5))
         val topicItems = dashboardTopics.dashboardTopics(ListDashboardTopicsDto(actor))
         val summary = mapOf(
             "subjects" to subjectsPage.items.map(::subjectProjection),

@@ -380,7 +380,10 @@ class DashboardIntegrationTests : CoreIntegrationTestBase() {
         }
         val store = JdbcAnnouncementStore(
             JdbcTemplate(countingDataSource), tools.jackson.databind.json.JsonMapper.builder().build(), mutableClock,
-            AesGcmOutboxPayloadProtector(java.util.Base64.getEncoder().encodeToString(ByteArray(32))),
+            br.com.ajadigital.core.outbox.application.usecases.OutboxEventProducerUseCase(
+                AesGcmOutboxPayloadProtector(java.util.Base64.getEncoder().encodeToString(ByteArray(32))),
+                br.com.ajadigital.core.outbox.adapters.out.persistence.JdbcOutboxEventWriter(JdbcTemplate(countingDataSource)),
+            ),
         )
         val sessionHash = sha256(studentCookie)
         repeat(3) { createB06Class(adminCookie) }
@@ -392,8 +395,8 @@ class DashboardIntegrationTests : CoreIntegrationTestBase() {
         assertEquals(1, classQueries.size, classQueries.toString())
         assertTrue(Regex("\\bLIMIT\\s+\\?", RegexOption.IGNORE_CASE).containsMatchIn(classQueries.single()))
         capturedSql.clear()
-        val notices = store.dashboardAnnouncements(br.com.ajadigital.core.announcements.domain.models.ListDashboardAnnouncementRecordsDto(studentId, "student", sessionHash, 5))
-        val upcoming = store.dashboardUpcoming(br.com.ajadigital.core.announcements.domain.models.ListDashboardUpcomingRecordsDto(studentId, "student", sessionHash, "2026-11-12", "2026-12-12", 5))
+        val notices = store.dashboardAnnouncements(br.com.ajadigital.core.announcements.application.models.ListDashboardAnnouncementStoreQuery(studentId, "student", sessionHash, 5))
+        val upcoming = store.dashboardUpcoming(br.com.ajadigital.core.announcements.application.models.ListDashboardUpcomingStoreQuery(studentId, "student", sessionHash, "2026-11-12", "2026-12-12", 5))
         assertEquals(5, notices.size)
         assertEquals(5, upcoming.size)
         val announcementQueries = capturedSql.filter { it.contains("FROM core.announcements", ignoreCase = true) }

@@ -2,6 +2,7 @@ package br.com.ajadigital.core.announcements
 import br.com.ajadigital.core.CoreIntegrationTestBase
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 import org.springframework.test.web.servlet.get
 import java.sql.DriverManager
@@ -9,6 +10,30 @@ import java.time.ZoneId
 import java.util.UUID
 
 class AnnouncementsIntegrationTests : CoreIntegrationTestBase() {
+    @Test
+    fun announcementWithoutStoredTimeKeepsOmissionAndPatchValidation() {
+        val (adminCookie, adminId) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (studentCookie, studentId) = userSession("student")
+        val classId = createB06Class(adminCookie)
+        createB06Subject(adminCookie, classId, teacherId)
+        createB07Enrollment(classId, studentId, teacherId)
+        val id = "announcement-${UUID.randomUUID()}"
+        val now = java.sql.Timestamp.from(mutableClock.instant())
+        jdbc.update("""INSERT INTO core.announcements(id,revision,created_at,updated_at,updated_by,created_by,class_id,subject_id,title,body,notify,occurrence)
+            VALUES(?,1,?,?,?,?,?,?,?,'',false,?::jsonb)""", id, now, now, adminId, adminId, classId, null, "Legacy occurrence", """{"date":"2026-11-12","allDay":true}""")
+
+        val detail = tools.jackson.databind.json.JsonMapper.builder().build().readTree(liveHttp("GET", "/announcements/$id", studentCookie).body())
+        assertFalse(detail.get("occurrence").has("time"))
+        val calendar = tools.jackson.databind.json.JsonMapper.builder().build().readTree(liveHttp("GET", "/calendar?from=2026-11-12&to=2026-11-12", studentCookie).body())
+        assertTrue(calendar.get("items").get(0).has("time"))
+        assertTrue(calendar.get("items").get(0).get("time").isNull)
+        assertEquals(422, liveHttp("PATCH", "/announcements/$id", teacherCookie, """{"expectedRevision":1}""").statusCode())
+        val cleared = liveHttp("PATCH", "/announcements/$id", teacherCookie, """{"expectedRevision":1,"occurrence":null}""")
+        assertEquals(200, cleared.statusCode(), cleared.body())
+        assertTrue(tools.jackson.databind.json.JsonMapper.builder().build().readTree(cleared.body()).get("occurrence").isNull)
+    }
+
     @Test
     fun announcementIsVisibleOnlyToItsClassAndAppearsInCalendar() {
         val (adminCookie, _) = adminSession()
@@ -24,7 +49,17 @@ class AnnouncementsIntegrationTests : CoreIntegrationTestBase() {
         val createKey = "announcement-${UUID.randomUUID()}"
         val response = liveHttp("POST", "/announcements", teacherCookie, createBody, createKey)
         assertEquals(201, response.statusCode(), response.body())
-        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(response.body()).get("id").asText()
+        val responseMapper = tools.jackson.databind.json.JsonMapper.builder().build()
+        val responseJson = responseMapper.readTree(response.body())
+        val id = responseJson.get("id").asText()
+        val expectedReceipt = linkedMapOf(
+            "id" to id, "revision" to 1, "createdAt" to responseJson.get("createdAt").asText(),
+            "updatedAt" to responseJson.get("updatedAt").asText(), "updatedBy" to teacherId,
+            "classId" to classId, "subjectId" to subjectId, "title" to "Class update", "body" to "Tomorrow", "notify" to true,
+            "occurrence" to linkedMapOf("date" to "2026-11-12", "time" to "10:30", "allDay" to false),
+            "author" to linkedMapOf("id" to teacherId, "name" to responseJson.get("author").get("name").asText()),
+        )
+        assertEquals(responseMapper.writeValueAsString(expectedReceipt), response.body())
 
         assertEquals(200, liveHttp("GET", "/announcements/$id", studentCookie).statusCode())
         assertEquals(404, liveHttp("GET", "/announcements/$id", outsiderCookie).statusCode())
@@ -58,6 +93,11 @@ class AnnouncementsIntegrationTests : CoreIntegrationTestBase() {
         assertEquals(1, payload.get("revision").intValue())
         val replay = liveHttp("POST", "/announcements", teacherCookie, createBody, createKey)
         assertEquals(201, replay.statusCode())
+        assertEquals(response.body(), replay.body())
+        assertEquals(response.body(), jdbc.queryForObject(
+            "SELECT response_body FROM core.command_idempotency WHERE actor_id=? AND operation='createAnnouncement' AND idempotency_key=?",
+            String::class.java, teacherId, createKey,
+        ))
         assertEquals(id, tools.jackson.databind.json.JsonMapper.builder().build().readTree(replay.body()).get("id").asText())
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.announcement_notification_recipients WHERE announcement_id=? AND revision=1", Int::class.java, id))
         val noOp = liveHttp("PATCH", "/announcements/$id", teacherCookie, """{"expectedRevision":1}""")
@@ -197,6 +237,8 @@ class AnnouncementsIntegrationTests : CoreIntegrationTestBase() {
         val (_, studentId) = userSession("student")
         createB07Enrollment(classId, studentId, teacherId)
         val before = jdbc.queryForObject("SELECT count(*) FROM core.announcements", Int::class.java)!!
+        val beforeRecipients = jdbc.queryForObject("SELECT count(*) FROM core.announcement_notification_recipients", Int::class.java)!!
+        val key = "rollback-${UUID.randomUUID()}"
         DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
             connection.createStatement().use { statement ->
                 statement.execute("create or replace function core.reject_announcement_outbox() returns trigger language plpgsql as \$\$ begin if new.event_type='academic.announcement-notification-requested' then raise exception 'forced announcement outbox failure'; end if; return new; end \$\$")
@@ -206,9 +248,11 @@ class AnnouncementsIntegrationTests : CoreIntegrationTestBase() {
         try {
             val response = liveHttp("POST", "/announcements", teacherCookie,
                 """{"classId":"$classId","subjectId":null,"title":"Rollback","body":"No orphan","notify":true,"occurrence":null}""",
-                "rollback-${UUID.randomUUID()}")
+                key)
             assertEquals(500, response.statusCode(), response.body())
             assertEquals(before, jdbc.queryForObject("SELECT count(*) FROM core.announcements", Int::class.java))
+            assertEquals(beforeRecipients, jdbc.queryForObject("SELECT count(*) FROM core.announcement_notification_recipients", Int::class.java))
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.command_idempotency WHERE actor_id=? AND operation='createAnnouncement' AND idempotency_key=?", Int::class.java, teacherId, key))
         } finally {
             DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
                 connection.createStatement().use { statement ->

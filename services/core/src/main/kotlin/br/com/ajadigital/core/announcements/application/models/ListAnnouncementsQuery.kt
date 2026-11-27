@@ -5,4 +5,4 @@ import br.com.ajadigital.core.academic.application.models.AcademicPage
 
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
-data class ListCalendarEventsDto(val actor: AuthenticatedActor, val page: Int, val size: Int, val sort: String, val from: String?, val to: String?, val subjectId: String?)
+data class ListAnnouncementsQuery(val actor: AuthenticatedActor, val page: Int, val size: Int, val sort: String, val classId: String?, val subjectId: String?, val query: String?)

@@ -1,8 +1,10 @@
 package br.com.ajadigital.core.announcements.application.ports.`in`
 import br.com.ajadigital.core.announcements.application.models.*
+import br.com.ajadigital.core.announcements.application.contracts.Announcement
+import br.com.ajadigital.core.announcements.application.contracts.AnnouncementCalendarEvent
 
-import br.com.ajadigital.core.announcements.application.models.GetAnnouncementDto
+import br.com.ajadigital.core.announcements.application.models.GetAnnouncementQuery
 
 interface GetAnnouncementInputPort {
-    fun announcement(request: GetAnnouncementDto): Map<String, Any?>
+    fun announcement(request: GetAnnouncementQuery): Announcement
 }

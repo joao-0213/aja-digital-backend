@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.announcements.adapters.`in`.controllers
 import br.com.ajadigital.core.announcements.application.models.*
-import br.com.ajadigital.core.academic.application.models.AcademicPage
+import br.com.ajadigital.core.shared.application.contracts.Page
 import br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.requests.AnnouncementCreateRequest
 import br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.requests.AnnouncementEditRequest
 import br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.requests.AnnouncementRevisionRequest
@@ -14,12 +14,15 @@ import br.com.ajadigital.core.announcements.application.ports.`in`.UpdateAnnounc
 import br.com.ajadigital.core.announcements.application.ports.`in`.WithdrawAnnouncementInputPort
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementDraft
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementOccurrence
-import br.com.ajadigital.core.announcements.application.models.CreateAnnouncementDto
-import br.com.ajadigital.core.announcements.application.models.GetAnnouncementDto
-import br.com.ajadigital.core.announcements.application.models.ListAnnouncementsDto
-import br.com.ajadigital.core.announcements.application.models.ListCalendarEventsDto
-import br.com.ajadigital.core.announcements.application.models.UpdateAnnouncementDto
-import br.com.ajadigital.core.announcements.application.models.WithdrawAnnouncementDto
+import br.com.ajadigital.core.announcements.application.models.CreateAnnouncementCommand
+import br.com.ajadigital.core.announcements.application.models.GetAnnouncementQuery
+import br.com.ajadigital.core.announcements.application.models.ListAnnouncementsQuery
+import br.com.ajadigital.core.announcements.application.models.ListCalendarEventsQuery
+import br.com.ajadigital.core.announcements.application.models.UpdateAnnouncementCommand
+import br.com.ajadigital.core.announcements.application.models.WithdrawAnnouncementCommand
+import br.com.ajadigital.core.announcements.application.contracts.Announcement
+import br.com.ajadigital.core.announcements.application.contracts.AnnouncementCalendarEvent
+import br.com.ajadigital.core.announcements.application.contracts.AnnouncementOccurrenceProjection
 import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -33,8 +36,6 @@ import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.JsonNode
-import tools.jackson.databind.ObjectMapper
-import tools.jackson.databind.node.MissingNode
 
 
 @RestController
@@ -46,7 +47,6 @@ class AnnouncementController(
     private val getAnnouncement: GetAnnouncementInputPort,
     private val listAnnouncements: ListAnnouncementsInputPort,
     private val listCalendarEvents: ListCalendarEventsInputPort,
-    private val mapper: ObjectMapper,
 ) {
     @GetMapping("/api/v1/announcements")
     fun list(
@@ -57,7 +57,7 @@ class AnnouncementController(
         @RequestParam(required = false) classId: String?,
         @RequestParam(required = false) subjectId: String?,
         @RequestParam(required = false) q: String?,
-    ) = page(listAnnouncements.announcements(ListAnnouncementsDto(actor(cookie), page, pageSize, sort, classId?.let(::id), subjectId?.let(::id), q)))
+    ) = announcementPage(listAnnouncements.announcements(ListAnnouncementsQuery(actor(cookie), page, pageSize, sort, classId?.let(::id), subjectId?.let(::id), q)))
 
     @PostMapping("/api/v1/announcements")
     fun create(
@@ -66,32 +66,35 @@ class AnnouncementController(
         @RequestBody body: AnnouncementCreateRequest,
     ): ResponseEntity<Map<String, Any?>> {
         val draft = AnnouncementDraft(id(body.classId), nullableId(body.subjectId), body.title, body.body, boolean(body.notify), occurrence(body.occurrence))
-        return ResponseEntity.status(HttpStatus.CREATED).body(createAnnouncement.create(CreateAnnouncementDto(actor(cookie), draft, key ?: throw IllegalArgumentException())))
+        return ResponseEntity.status(HttpStatus.CREATED).body(createAnnouncement.create(CreateAnnouncementCommand(actor(cookie), draft, key ?: throw IllegalArgumentException())).response())
     }
 
     @GetMapping("/api/v1/announcements/{id}")
-    fun get(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = getAnnouncement.announcement(GetAnnouncementDto(actor(cookie), id(id)))
+    fun get(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = getAnnouncement.announcement(GetAnnouncementQuery(actor(cookie), id(id))).response()
 
     @PatchMapping("/api/v1/announcements/{id}")
     fun update(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: AnnouncementEditRequest): Map<String, Any?> {
         val principal = actor(cookie)
         val announcementId = id(id)
-        val current = getAnnouncement.announcement(GetAnnouncementDto(principal, announcementId))
-        val occurrence = if (body.occurrence.isMissingNode) current["occurrence"]?.let(::mapperNode)?.let(::occurrence) else occurrence(body.occurrence)
+        val current = getAnnouncement.announcement(GetAnnouncementQuery(principal, announcementId))
+        val occurrence = if (body.occurrence.isMissingNode) current.occurrence?.let {
+            require(it is AnnouncementOccurrenceProjection.WithTime)
+            AnnouncementOccurrence(it.date, it.time, it.allDay)
+        } else occurrence(body.occurrence)
         val draft = AnnouncementDraft(
-            if (body.classId.isMissingNode) current.getValue("classId") as String else text(body.classId).let(::id),
-            if (body.subjectId.isMissingNode) current["subjectId"] as String? else nullableId(body.subjectId),
-            if (body.title.isMissingNode) current.getValue("title") as String else text(body.title),
-            if (body.body.isMissingNode) current.getValue("body") as String else text(body.body),
-            if (body.notify.isMissingNode) current.getValue("notify") as Boolean else boolean(body.notify),
+            if (body.classId.isMissingNode) current.classId else text(body.classId).let(::id),
+            if (body.subjectId.isMissingNode) current.subjectId else nullableId(body.subjectId),
+            if (body.title.isMissingNode) current.title else text(body.title),
+            if (body.body.isMissingNode) current.body else text(body.body),
+            if (body.notify.isMissingNode) current.notify else boolean(body.notify),
             occurrence,
         )
-        return updateAnnouncement.update(UpdateAnnouncementDto(principal, announcementId, revision(body.expectedRevision), draft))
+        return updateAnnouncement.update(UpdateAnnouncementCommand(principal, announcementId, revision(body.expectedRevision), draft)).response()
     }
 
     @PostMapping("/api/v1/announcements/{id}/withdraw")
     fun withdraw(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: AnnouncementRevisionRequest): Map<String, Any?> =
-        withdrawAnnouncement.withdraw(WithdrawAnnouncementDto(actor(cookie), id(id), revision(body.expectedRevision)))
+        withdrawAnnouncement.withdraw(WithdrawAnnouncementCommand(actor(cookie), id(id), revision(body.expectedRevision))).response()
 
     @GetMapping("/api/v1/calendar")
     fun calendar(
@@ -102,10 +105,11 @@ class AnnouncementController(
         @RequestParam(required = false) from: String?,
         @RequestParam(required = false) to: String?,
         @RequestParam(required = false) subjectId: String?,
-    ) = page(listCalendarEvents.calendar(ListCalendarEventsDto(actor(cookie), page, pageSize, sort, from, to, subjectId?.let(::id))))
+    ) = calendarPage(listCalendarEvents.calendar(ListCalendarEventsQuery(actor(cookie), page, pageSize, sort, from, to, subjectId?.let(::id))))
 
     private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
-    private fun page(result: br.com.ajadigital.core.academic.application.models.AcademicPage) = mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
+    private fun announcementPage(result: Page<Announcement>) = mapOf("items" to result.items.map { it.response() }, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
+    private fun calendarPage(result: Page<AnnouncementCalendarEvent>) = mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     private fun id(value: String) = value.also { require(it.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"))) }
     private fun nullableId(node: JsonNode): String? = if (node.isNull) null else id(text(node))
     private fun text(node: JsonNode) = node.asString().also { require(node.isTextual) }
@@ -121,9 +125,10 @@ class AnnouncementController(
         require(allDay.isBoolean)
         return AnnouncementOccurrence(text(node.get("date")), if (time.isNull) null else text(time), allDay.booleanValue())
     }
-    private fun mapperNode(value: Any?): JsonNode = when (value) {
-        null -> MissingNode.getInstance()
-        is Map<*, *> -> mapper.valueToTree(value)
-        else -> MissingNode.getInstance()
-    }
+    private fun br.com.ajadigital.core.announcements.application.contracts.Announcement.response() = linkedMapOf(
+        "id" to id, "revision" to revision, "createdAt" to createdAt, "updatedAt" to updatedAt, "updatedBy" to updatedBy,
+        "classId" to classId, "subjectId" to subjectId, "title" to title, "body" to body, "notify" to notify,
+        "occurrence" to occurrence,
+        "author" to linkedMapOf("id" to author.id, "name" to author.name),
+    )
 }

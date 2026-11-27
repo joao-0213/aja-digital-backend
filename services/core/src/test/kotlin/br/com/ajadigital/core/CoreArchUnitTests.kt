@@ -220,6 +220,23 @@ class CoreArchUnitTests {
     }
 
     @Test
+    fun `announcement ports use typed application contracts`() {
+        val names = setOf(
+            "AnnouncementStoreOutputPort", "CreateAnnouncementInputPort", "GetAnnouncementInputPort",
+            "ListAnnouncementsInputPort", "ListCalendarEventsInputPort", "ListDashboardAnnouncementsInputPort",
+            "ListDashboardUpcomingEventsInputPort", "UpdateAnnouncementInputPort", "WithdrawAnnouncementInputPort",
+            "AnnouncementReceiptCodecOutputPort", "OutboxEventProducerInputPort", "InsertOutboxEventOutputPort",
+        )
+        val ports = CoreContractTypeAnalyzer.selectRoots(production.toList()).filter {
+            (it.packageName.startsWith("br.com.ajadigital.core.announcements.") || it.packageName.startsWith("br.com.ajadigital.core.outbox.")) && it.simpleName in names
+        }
+        assertEquals(names, ports.map { it.simpleName }.toSet())
+        assertTrue(ports.all { it.packageName.contains(".application.ports.") })
+        val findings = CoreContractTypeAnalyzer.analyze(production.toList(), ports)
+        assertTrue(findings.isEmpty(), findings.joinToString("\n"))
+    }
+
+    @Test
     fun `contract walker preserves project generic bindings and only allows exact transaction callback`() {
         val fixtures = ClassFileImporter().importClasses(
             br.com.ajadigital.core.architecture.contractfixtures.application.contracts.Page::class.java,

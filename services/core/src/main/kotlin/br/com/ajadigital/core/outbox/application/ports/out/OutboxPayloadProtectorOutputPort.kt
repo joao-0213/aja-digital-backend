@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.outbox.application.ports.out
 
-import br.com.ajadigital.core.identity.application.models.EncryptedOutboxPayload
+import br.com.ajadigital.core.outbox.application.contracts.EncryptedOutboxPayload
 import br.com.ajadigital.core.outbox.domain.models.EncryptOutboxPayloadDto
 import br.com.ajadigital.core.outbox.domain.models.OutboxPayloadKeyDto
 
