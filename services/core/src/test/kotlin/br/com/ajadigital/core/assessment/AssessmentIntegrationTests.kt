@@ -1,9 +1,17 @@
 package br.com.ajadigital.core.assessment
 import br.com.ajadigital.core.CoreIntegrationTestBase
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.NotFound
+import br.com.ajadigital.core.assessment.application.models.GetAssessmentQuery
+import br.com.ajadigital.core.assessment.application.models.ListAssessmentsQuery
+import br.com.ajadigital.core.assessment.application.ports.`in`.GetAssessmentInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.ListAssessmentsInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart
 import org.springframework.mock.web.MockMultipartFile
 import org.springframework.test.web.servlet.post
@@ -17,12 +25,133 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.time.Duration
 import java.time.Instant
+import java.security.MessageDigest
 
 class AssessmentIntegrationTests : CoreIntegrationTestBase() {
+    @Autowired private lateinit var actors: ResolveAuthenticatedActorInputPort
+    @Autowired private lateinit var getAssessment: GetAssessmentInputPort
+    @Autowired private lateinit var listAssessments: ListAssessmentsInputPort
+
+    @Test
+    fun assessmentReadUsesCurrentRoleForAnAlreadyResolvedActor() {
+        val (adminCookie, adminId) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (_, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        val body = """{"moduleId":"$moduleId","title":"Assess access","description":"","kind":"work","maxGrade":null,"deadline":null,"required":false,"allowLate":false,"questions":[]}"""
+        val created = liveHttp("POST", "/assessments", teacherCookie, body, "create-${UUID.randomUUID()}")
+        assertEquals(201, created.statusCode(), created.body())
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.body()).get("id").asText()
+        val retainedActor = actors.resolve(adminCookie)
+        val query = GetAssessmentQuery(retainedActor, id)
+        val listing = ListAssessmentsQuery(retainedActor, 1, 100, "id", null, moduleId, null, null)
+        assertEquals(id, getAssessment.assessment(query).record.id)
+        assertEquals(listOf(id), listAssessments.assessments(listing).items.map { it.record.id })
+        val lastPage = listAssessments.assessments(listing.copy(page = Int.MAX_VALUE))
+        assertEquals(1L, lastPage.total)
+        assertTrue(lastPage.items.isEmpty())
+
+        assertEquals(1, jdbc.update("UPDATE core.users SET role='teacher' WHERE id=?", adminId))
+        try {
+            assertEquals("teacher", actors.resolve(adminCookie).role)
+            assertThrows(NotFound::class.java) { getAssessment.assessment(query) }
+            assertEquals(0L, listAssessments.assessments(listing).total)
+        } finally {
+            jdbc.update("UPDATE core.users SET role='admin' WHERE id=?", adminId)
+        }
+    }
+
+    @Test
+    fun assessmentSnapshotFetchLeavesLocksFreeAndRechecksRevisionAtCommit() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (_, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        val body = """{"moduleId":"$moduleId","title":"Snapshot race","description":"","kind":"quiz","maxGrade":10.0,"deadline":null,"required":false,"allowLate":false,"questions":[{"source":"bank","questionId":"race-existing"}]}"""
+        val response = liveHttp("POST", "/assessments", teacherCookie, body, "initial-${UUID.randomUUID()}")
+        assertEquals(201, response.statusCode(), response.body())
+        val id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(response.body()).get("id").stringValue()
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(2)
+        val pendingKey = "pending-${UUID.randomUUID()}"
+        try {
+            questionSnapshotProvider.blockNextSnapshot(started, release)
+            val pending = pool.submit<HttpResponse<String>> {
+                liveHttp("PATCH", "/assessments/$id", teacherCookie, """{"expectedRevision":1,"confirmResetDrafts":true,"questions":[{"source":"bank","questionId":"race-new"}]}""", pendingKey)
+            }
+            assertTrue(started.await(10, TimeUnit.SECONDS), "Update did not reach snapshot provider")
+            val winner = pool.submit<HttpResponse<String>> {
+                liveHttp("PATCH", "/assessments/$id", teacherCookie, """{"expectedRevision":1,"title":"Committed first"}""", "winner-${UUID.randomUUID()}")
+            }.get(10, TimeUnit.SECONDS)
+            assertEquals(200, winner.statusCode(), winner.body())
+            release.countDown()
+            val stale = pending.get(10, TimeUnit.SECONDS)
+            assertEquals(409, stale.statusCode(), stale.body())
+            assertEquals(2, jdbc.queryForObject("SELECT revision FROM core.assessments WHERE id=?", Int::class.java, id))
+            assertEquals("race-existing", jdbc.queryForObject("SELECT question_id FROM core.assessment_questions WHERE assessment_id=?", String::class.java, id))
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.command_idempotency WHERE idempotency_key=?", Int::class.java, pendingKey))
+        } finally {
+            release.countDown()
+            pool.shutdownNow()
+        }
+    }
+
+    @Test
+    fun coreAuthorsAgainstTheRealAuthenticatedQuestionsSnapshotEndpoint() {
+        val (adminCookie, _) = adminSession()
+        val (teacherCookie, teacherId) = userSession("teacher")
+        val (_, moduleId) = createB07WorkModule(adminCookie, teacherCookie, teacherId)
+        val questions = startQuestionsProcess()
+        try {
+            val id = "authoring-${UUID.randomUUID()}"
+            DriverManager.getConnection("${postgres.jdbcUrl}&currentSchema=questions", "questions", "questions-test").use { connection ->
+                connection.prepareStatement("""INSERT INTO questions.question_bank(id,revision,created_at,subject,topic,difficulty,institution,year,statement,options,correct_option,explanation)
+                    VALUES (?,4,now(),'Math','Algebra','easy','AJA',2026,'Original catalogue item','{2,3}',0,'Because')""").use {
+                    it.setString(1, id)
+                    assertEquals(1, it.executeUpdate())
+                }
+            }
+            val core = startCoreProcess("http://127.0.0.1:${questions.port}/internal/v1/snapshots")
+            try {
+                val key = "bank-create-${UUID.randomUUID()}"
+                val body = """{"moduleId":"$moduleId","title":"Catalogue quiz","description":"","kind":"quiz","maxGrade":10.0,"deadline":null,"required":false,"allowLate":false,"questions":[{"source":"bank","questionId":"$id"}]}"""
+                val client = HttpClient.newHttpClient()
+                fun create(value: String): HttpResponse<String> = client.send(
+                    HttpRequest.newBuilder(URI("http://127.0.0.1:${core.port}/api/v1/assessments"))
+                        .header("Origin", "https://aja.example.test")
+                        .header("Cookie", "aja_session=$teacherCookie")
+                        .header("Idempotency-Key", key)
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(value)).build(),
+                    HttpResponse.BodyHandlers.ofString(),
+                )
+                val created = create(body)
+                assertEquals(201, created.statusCode(), created.body())
+                val assessmentId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(created.body()).get("id").stringValue()
+                assertEquals(4, jdbc.queryForObject("SELECT source_revision FROM core.assessment_questions WHERE assessment_id=?", Int::class.java, assessmentId))
+                assertTrue(jdbc.queryForObject("SELECT content_hash FROM core.assessment_questions WHERE assessment_id=?", String::class.java, assessmentId).orEmpty().matches(Regex("[a-f0-9]{64}")))
+                val fingerprint = MessageDigest.getInstance("SHA-256").digest(body.toByteArray()).joinToString("") { "%02x".format(it) }
+                assertEquals(fingerprint, jdbc.queryForObject("SELECT request_hash FROM core.command_idempotency WHERE idempotency_key=?", String::class.java, key))
+                assertEquals(created.body(), jdbc.queryForObject("SELECT response_body FROM core.command_idempotency WHERE idempotency_key=?", String::class.java, key))
+                val question = """"questions":[{"id":"$id","year":2026,"image":null,"topic":"Algebra","origin":"bank","correct":0,"options":["2","3"],"subject":"Math","statement":"Original catalogue item","difficulty":"easy","explanation":"Because","institution":"AJA"}]"""
+                assertTrue(created.body().contains(question), created.body())
+                val replay = create(body)
+                assertEquals(201, replay.statusCode(), replay.body())
+                assertEquals(created.body(), replay.body())
+                val changedNumber = create(body.replace("10.0", "10"))
+                assertEquals(409, changedNumber.statusCode(), changedNumber.body())
+            } finally {
+                stopCoreProcess(core)
+            }
+        } finally {
+            stopQuestionsProcess(questions)
+        }
+    }
+
     @Test
     fun assessmentPatchDistinguishesAbsentConfirmationFromExplicitNullOverHttpAndPostgres() {
         val (adminCookie, _) = adminSession()

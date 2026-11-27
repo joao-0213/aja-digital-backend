@@ -1,57 +1,71 @@
 package br.com.ajadigital.core.assessment.application.usecases
-import br.com.ajadigital.core.assessment.application.models.*
 
-import br.com.ajadigital.core.assessment.domain.models.SubmissionStoreUpdateDto
-
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreUpdateDto
-
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAssessmentDto
-
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAuthorizeWriteDto
-
-import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentDto
-
-import br.com.ajadigital.core.assessment.domain.policies.AssessmentPolicy
-import br.com.ajadigital.core.assessment.domain.policies.AssessmentEditPolicy
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Conflict
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Forbidden
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.NotFound
+import br.com.ajadigital.core.assessment.application.models.AssessmentDetails
+import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentCommand
 import br.com.ajadigital.core.assessment.application.ports.`in`.UpdateAssessmentInputPort
-import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStoreOutputPort
-import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProviderOutputPort
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
-import br.com.ajadigital.core.shared.domain.models.SerializeJsonDto
+import br.com.ajadigital.core.assessment.application.models.GetAssessmentQuery
+import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentRecord
+import br.com.ajadigital.core.assessment.domain.policies.AssessmentEditPolicy
+import br.com.ajadigital.core.assessment.domain.policies.AssessmentPolicy
+import br.com.ajadigital.core.assessment.application.ports.out.AssessmentReadOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.AssessmentWriteOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
+import br.com.ajadigital.core.shared.application.contracts.FieldChange
+import br.com.ajadigital.core.shared.application.contracts.valueOrNull
+import br.com.ajadigital.core.assessment.application.models.AssessmentReceiptKey
 
 class UpdateAssessmentUseCase(
-    private val store: AssessmentStoreOutputPort,
-    private val snapshots: QuestionSnapshotProviderOutputPort,
-    private val idempotency: IdempotencyStoreOutputPort,
-    private val mapper: JsonSerializerOutputPort,
+    private val store: AssessmentWriteOutputPort,
+    private val read: AssessmentReadOutputPort,
+    snapshots: QuestionSnapshotProviderOutputPort,
 ) : UpdateAssessmentInputPort {
-    override fun update(request: UpdateAssessmentDto): Map<String, Any?> {
-                val (actor, id, key, body) = request
-        AssessmentPolicy.writer(actor)
+    private val prepare = PrepareAssessmentQuestions(snapshots)
+
+    override fun update(request: UpdateAssessmentCommand): AssessmentDetails.Staff {
+        val (actor, id, key, hash, expectedRevision, changes, selection, confirmation) = request
+        AssessmentPolicy.writer(actor.role, actor.active)
         AssessmentPolicy.id(id)
-        AssessmentPolicy.validKey(key)
-        val hash = AssessmentPolicy.requestHash(mapper, body)
-        val expectedRevision = AssessmentPolicy.integer(body, "expectedRevision").takeIf { it > 0 } ?: throw IllegalArgumentException()
-        val current = store.assessment(AssessmentStoreAssessmentDto(actor.id, actor.role, actor.sessionValidationReference, id)) ?: throw AcademicNotFound()
-        AssessmentPolicy.findReplay(idempotency, actor, "updateAssessment", "/assessments/$id", key, hash)?.let { return it }
-        val questionsSupplied = AssessmentPolicy.has(body, "questions")
-        val requestedDraft = AssessmentPolicy.partialDraft(body, current)
-        store.authorizeWrite(AssessmentStoreAuthorizeWriteDto(actor.id, actor.role, actor.sessionValidationReference, current["moduleId"] as String))
-        if (requestedDraft.moduleId != current["moduleId"]) store.authorizeWrite(AssessmentStoreAuthorizeWriteDto(actor.id, actor.role, actor.sessionValidationReference, requestedDraft.moduleId))
-        val questions = if (questionsSupplied) AssessmentPolicy.entries(AssessmentPolicy.value(body, "questions"), requestedDraft.kind, current) else null
-        val effectiveQuestionCount = questions?.size ?: (current["questionIds"] as? List<*>)?.size ?: 0
-        if (!AssessmentEditPolicy.isValidKindQuestionCount(requestedDraft.kind, effectiveQuestionCount)) {
-            throw AcademicConflict(current["revision"] as? Int)
+        AssessmentPolicy.validateCommand(key, hash)
+        require(expectedRevision > 0)
+        val current = when (val found = read.assessment(GetAssessmentQuery(actor, id))) {
+            null -> throw NotFound()
+            is AssessmentDetails.Student -> throw Forbidden()
+            is AssessmentDetails.Staff -> found
         }
-        val reset = AssessmentPolicy.optionalBoolean(body, "confirmResetDrafts") ?: false
-        if (questions != null && AssessmentPolicy.questionsChanged(current, questions) && !reset) throw AcademicConflict(current["revision"] as? Int)
-        val existingIds = (current["questionIds"] as? List<*>)?.filterIsInstance<String>()?.toSet().orEmpty()
-        val prepared = questions?.let { AssessmentPolicy.capture(snapshots, it, existingIds) }
-        return store.update(AssessmentStoreUpdateDto(actor.id, actor.role, actor.sessionValidationReference, id, key, hash, expectedRevision, requestedDraft, prepared, reset))
-            ?: throw AcademicConflict(current["revision"] as? Int)
+        store.replay(AssessmentReceiptKey.update(actor.id, id, key, hash))?.let { return it }
+
+        val edit = requireNotNull(changes)
+        edit.moduleId.valueOrNull()?.let(AssessmentPolicy::id)
+        edit.title.valueOrNull()?.let(AssessmentPolicy::validateTitle)
+        edit.description.valueOrNull()?.let(AssessmentPolicy::validateDescription)
+        if (edit.maxGrade is FieldChange.Set) AssessmentPolicy.validateMaxGrade(edit.maxGrade.value)
+        val prior = current.record.draft
+        val draft = edit.applyTo(prior)
+        store.authorizeWrite(actor, prior.moduleId)
+        if (draft.moduleId != prior.moduleId) {
+            store.authorizeWrite(actor, draft.moduleId)
+        }
+        val questions = when (selection) {
+            FieldChange.Unchanged -> null
+            is FieldChange.Set -> {
+                val selected = requireNotNull(selection.value)
+                require(AssessmentEditPolicy.isValidKindQuestionCount(draft.kind, selected.items.size))
+                prepare.identify(selected, current.questions)
+            }
+        }
+        val revision = current.record.revision
+        if (!AssessmentEditPolicy.isValidKindQuestionCount(draft.kind, questions?.size ?: current.questions.size)) {
+            throw Conflict(revision)
+        }
+        val reset = requireNotNull(confirmation)
+        if (questions != null && !reset && AssessmentEditPolicy.questionsChanged(current.questions, questions)) {
+            throw Conflict(revision)
+        }
+        val prepared = questions?.let { prepare.capture(it, current.questions.mapTo(mutableSetOf()) { question -> question.id }) }
+        return store.update(UpdateAssessmentRecord(actor, id, key, hash, expectedRevision, draft, prepared, reset))
+            ?: throw Conflict(revision)
     }
 }

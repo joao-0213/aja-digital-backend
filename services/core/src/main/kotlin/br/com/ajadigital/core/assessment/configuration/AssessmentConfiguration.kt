@@ -22,9 +22,10 @@ import br.com.ajadigital.core.assessment.application.ports.`in`.SubmitAttemptInp
 import br.com.ajadigital.core.assessment.application.ports.`in`.SubmitSubmissionInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.UpdateAssessmentInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.UpdateSubmissionInputPort
-import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStoreOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.AssessmentReadOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.AssessmentWriteOutputPort
 import br.com.ajadigital.core.assessment.domain.ports.out.AttemptStoreOutputPort
-import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProviderOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
 import br.com.ajadigital.core.assessment.domain.ports.out.SubmissionStoreOutputPort
 import br.com.ajadigital.core.assessment.application.usecases.CheckPracticeBlockedUseCase
 import br.com.ajadigital.core.assessment.application.usecases.CountPendingFeedbackUseCase
@@ -56,39 +57,29 @@ import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 @Configuration
 class AssessmentConfiguration {
     @Bean
-    fun createAssessment(
-        store: AssessmentStoreOutputPort,
-        snapshots: QuestionSnapshotProviderOutputPort,
-        idempotency: IdempotencyStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
-    ): CreateAssessmentInputPort = CreateAssessmentUseCase(store, snapshots, idempotency, mapper)
+    fun createAssessment(store: AssessmentWriteOutputPort, snapshots: QuestionSnapshotProviderOutputPort): CreateAssessmentInputPort =
+        CreateAssessmentUseCase(store, snapshots)
 
     @Bean
     fun updateAssessment(
-        store: AssessmentStoreOutputPort,
-        snapshots: QuestionSnapshotProviderOutputPort,
-        idempotency: IdempotencyStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
-    ): UpdateAssessmentInputPort = UpdateAssessmentUseCase(store, snapshots, idempotency, mapper)
+        store: AssessmentWriteOutputPort, read: AssessmentReadOutputPort, snapshots: QuestionSnapshotProviderOutputPort,
+    ): UpdateAssessmentInputPort = UpdateAssessmentUseCase(store, read, snapshots)
 
     @Bean
-    fun publishAssessment(
-        store: AssessmentStoreOutputPort,
-        idempotency: IdempotencyStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
-    ): PublishAssessmentInputPort = PublishAssessmentUseCase(store, idempotency, mapper)
+    fun publishAssessment(store: AssessmentWriteOutputPort, read: AssessmentReadOutputPort): PublishAssessmentInputPort =
+        PublishAssessmentUseCase(store, read)
 
     @Bean
-    fun getAssessment(store: AssessmentStoreOutputPort): GetAssessmentInputPort = GetAssessmentUseCase(store)
+    fun getAssessment(store: AssessmentReadOutputPort): GetAssessmentInputPort = GetAssessmentUseCase(store)
 
     @Bean
-    fun listAssessments(store: AssessmentStoreOutputPort): ListAssessmentsInputPort = ListAssessmentsUseCase(store)
+    fun listAssessments(store: AssessmentReadOutputPort): ListAssessmentsInputPort = ListAssessmentsUseCase(store)
 
     @Bean
-    fun listDashboardAssessments(store: AssessmentStoreOutputPort): ListDashboardAssessmentsInputPort = ListDashboardAssessmentsUseCase(store)
+    fun listDashboardAssessments(store: AssessmentReadOutputPort): ListDashboardAssessmentsInputPort = ListDashboardAssessmentsUseCase(store)
 
     @Bean
-    fun countPendingStudentAssessments(store: AssessmentStoreOutputPort): CountPendingStudentAssessmentsInputPort = CountPendingStudentAssessmentsUseCase(store)
+    fun countPendingStudentAssessments(store: AssessmentReadOutputPort): CountPendingStudentAssessmentsInputPort = CountPendingStudentAssessmentsUseCase(store)
 
     @Bean
     fun checkPracticeBlocked(store: AttemptStoreOutputPort): CheckPracticeBlockedInputPort = CheckPracticeBlockedUseCase(store)

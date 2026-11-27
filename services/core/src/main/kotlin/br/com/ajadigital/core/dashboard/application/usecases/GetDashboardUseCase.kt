@@ -5,6 +5,8 @@ import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboard
 import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardUpcomingEventsInputPort
 import br.com.ajadigital.core.announcements.application.models.ListDashboardAnnouncementsDto
 import br.com.ajadigital.core.announcements.application.models.ListDashboardUpcomingEventsDto
+import br.com.ajadigital.core.assessment.application.contracts.DashboardAssessment
+import br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery
 import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingFeedbackInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingStudentAssessmentsInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.ListDashboardAssessmentsInputPort
@@ -45,14 +47,14 @@ class GetDashboardUseCase(
         val (actor) = request
         require(actor.active && actor.role in setOf("student", "teacher", "admin") && (actor.role != "student" || actor.emailConfirmedAt != null)) { throw AcademicForbidden() }
         val subjectsPage = subjects.subjects(ListSubjectsQuery(actor, 1, LIMIT, "id", null, null))
-        val assessmentPage = dashboardAssessments.dashboardAssessments(br.com.ajadigital.core.assessment.application.models.ListDashboardAssessmentsDto(actor, LIMIT))
+        val assessmentItems = dashboardAssessments.dashboardAssessments(ListDashboardAssessmentsQuery(actor, LIMIT))
         val announcementItems = dashboardAnnouncements.dashboardAnnouncements(ListDashboardAnnouncementsDto(actor, 5))
         val today = LocalDate.ofInstant(clock.instant(), BRASILIA)
         val upcomingItems = dashboardUpcoming.dashboardUpcoming(ListDashboardUpcomingEventsDto(actor, today, today.plusDays(30), 5))
         val topicItems = dashboardTopics.dashboardTopics(ListDashboardTopicsDto(actor))
         val summary = mapOf(
             "subjects" to subjectsPage.items.map(::subjectProjection),
-            "assessments" to items(assessmentPage).map { it.project(ASSESSMENT_FIELDS) },
+            "assessments" to assessmentItems.map(::assessmentProjection),
             "announcements" to announcementItems,
             "upcoming" to upcomingItems,
             "topics" to topicItems,
@@ -70,7 +72,7 @@ class GetDashboardUseCase(
             "completedMaterials" to contentProjection.completedMaterials,
             "totalMaterials" to contentProjection.totalMaterials,
             "pendingEnrollmentCount" to myPendingEnrollments.myPendingEnrollmentCount(br.com.ajadigital.core.academic.application.models.CountMyPendingEnrollmentsDto(actor)),
-            "pendingAssessmentCount" to pendingStudentAssessments.pendingStudentCount(br.com.ajadigital.core.assessment.application.models.CountPendingStudentAssessmentsDto(actor)),
+            "pendingAssessmentCount" to pendingStudentAssessments.pendingStudentCount(actor),
         )
     }
 
@@ -97,13 +99,21 @@ class GetDashboardUseCase(
         )
     }
 
-    private fun items(page: Map<String, Any?>) = (page["items"] as? List<*>)?.filterIsInstance<Map<String, Any?>>().orEmpty()
+    private fun assessmentProjection(assessment: DashboardAssessment): Map<String, Any?> = linkedMapOf(
+        "id" to assessment.id, "revision" to assessment.revision, "createdAt" to assessment.createdAt.toString(),
+        "updatedAt" to assessment.updatedAt.toString(), "updatedBy" to assessment.updatedBy, "moduleId" to assessment.moduleId,
+        "title" to assessment.title, "description" to assessment.description, "kind" to assessment.kind, "maxGrade" to assessment.maxGrade,
+        "deadline" to assessment.deadline?.toString(), "required" to assessment.required, "allowLate" to assessment.allowLate,
+        "status" to "published", "publishedAt" to assessment.publishedAt.toString(), "questionCount" to assessment.questionCount,
+    ).apply {
+        assessment.assigned?.let { put("assigned", it) }
+    }
+
     private fun Map<String, Any?>.project(fields: Set<String>) = filterKeys(fields::contains)
 
     private companion object {
         const val LIMIT = 100
         val BRASILIA: ZoneId = ZoneId.of("America/Sao_Paulo")
         val CLASS_FIELDS = setOf("id", "revision", "createdAt", "updatedAt", "updatedBy", "name", "code", "year", "shift", "active", "studentCount")
-        val ASSESSMENT_FIELDS = setOf("id", "revision", "createdAt", "updatedAt", "updatedBy", "moduleId", "title", "description", "kind", "maxGrade", "deadline", "required", "allowLate", "status", "publishedAt", "questionCount", "assigned", "subjectName")
     }
 }

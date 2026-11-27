@@ -1,10 +1,8 @@
 package br.com.ajadigital.core.assessment.application.ports.`in`
-import br.com.ajadigital.core.assessment.application.models.*
 
-import br.com.ajadigital.core.assessment.application.models.PublishAssessmentDto
-
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.assessment.application.models.AssessmentDetails
+import br.com.ajadigital.core.assessment.application.models.PublishAssessmentCommand
 
 interface PublishAssessmentInputPort {
-    fun publish(request: PublishAssessmentDto): Map<String, Any?>
+    fun publish(request: PublishAssessmentCommand): AssessmentDetails.Staff
 }

@@ -1,39 +1,31 @@
 package br.com.ajadigital.core.assessment.application.usecases
-import br.com.ajadigital.core.assessment.application.models.*
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreCreateDto
-
-import br.com.ajadigital.core.assessment.domain.models.SubmissionStoreCreateDto
-
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAuthorizeWriteDto
-
-import br.com.ajadigital.core.assessment.application.models.CreateAssessmentDto
-
-import br.com.ajadigital.core.assessment.domain.policies.AssessmentPolicy
+import br.com.ajadigital.core.assessment.application.models.AssessmentDetails
+import br.com.ajadigital.core.assessment.application.models.CreateAssessmentCommand
 import br.com.ajadigital.core.assessment.application.ports.`in`.CreateAssessmentInputPort
-import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStoreOutputPort
-import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProviderOutputPort
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
-import br.com.ajadigital.core.shared.domain.models.SerializeJsonDto
+import br.com.ajadigital.core.assessment.application.models.CreateAssessmentRecord
+import br.com.ajadigital.core.assessment.domain.policies.AssessmentEditPolicy
+import br.com.ajadigital.core.assessment.domain.policies.AssessmentPolicy
+import br.com.ajadigital.core.assessment.application.ports.out.AssessmentWriteOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
+import br.com.ajadigital.core.assessment.application.models.AssessmentReceiptKey
 
 class CreateAssessmentUseCase(
-    private val store: AssessmentStoreOutputPort,
-    private val snapshots: QuestionSnapshotProviderOutputPort,
-    private val idempotency: IdempotencyStoreOutputPort,
-    private val mapper: JsonSerializerOutputPort,
+    private val store: AssessmentWriteOutputPort,
+    snapshots: QuestionSnapshotProviderOutputPort,
 ) : CreateAssessmentInputPort {
-    override fun create(request: CreateAssessmentDto): Map<String, Any?> {
-                val (actor, key, body) = request
-        AssessmentPolicy.writer(actor)
-        AssessmentPolicy.validKey(key)
-        val draft = AssessmentPolicy.draft(body)
-        val questions = AssessmentPolicy.entries(AssessmentPolicy.value(body, "questions"), draft.kind, null)
-        store.authorizeWrite(AssessmentStoreAuthorizeWriteDto(actor.id, actor.role, actor.sessionValidationReference, draft.moduleId))
-        val hash = AssessmentPolicy.requestHash(mapper, body)
-        AssessmentPolicy.findReplay(idempotency, actor, "createAssessment", "/assessments", key, hash)?.let { return it }
-        val prepared = AssessmentPolicy.capture(snapshots, questions, emptySet())
-        return store.create(AssessmentStoreCreateDto(actor.id, actor.role, actor.sessionValidationReference, key, hash, draft, prepared))
+    private val prepare = PrepareAssessmentQuestions(snapshots)
+
+    override fun create(request: CreateAssessmentCommand): AssessmentDetails.Staff {
+        val (actor, key, hash, draft, selection) = request
+        AssessmentPolicy.writer(actor.role, actor.active)
+        AssessmentPolicy.validateCommand(key, hash)
+        AssessmentPolicy.validateDraft(draft)
+        require(AssessmentEditPolicy.isValidKindQuestionCount(draft.kind, selection.items.size))
+        val questions = prepare.identify(selection, emptyList())
+        store.authorizeWrite(actor, draft.moduleId)
+        store.replay(AssessmentReceiptKey.create(actor.id, key, hash))?.let { return it }
+        val captured = prepare.capture(questions, emptySet())
+        return store.create(CreateAssessmentRecord(actor, key, hash, draft, captured))
     }
 }

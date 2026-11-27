@@ -1,5 +1,8 @@
 package br.com.ajadigital.core.assessment.domain.policies
 
+import br.com.ajadigital.core.assessment.domain.models.AssessmentKind
+import br.com.ajadigital.core.assessment.domain.models.AssessmentState
+import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -9,21 +12,33 @@ import java.time.Instant
 
 class AssessmentEditPolicyTests {
     @Test
+    fun `only confirmed question edits without submissions can reset attempts`() {
+        val current = AssessmentDraft("module-1", "Quiz", "", AssessmentKind.QUIZ, 10.0, null, true, false)
+        val requested = current.copy(title = "Revised")
+        assertNull(AssessmentEditPolicy.edit(current, requested, hasSubmissions = false, changedQuestions = true, confirmResetDrafts = false))
+        assertEquals(requested, AssessmentEditPolicy.edit(current, requested, hasSubmissions = false, changedQuestions = true, confirmResetDrafts = true))
+        assertNull(AssessmentEditPolicy.edit(current, requested, hasSubmissions = true, changedQuestions = true, confirmResetDrafts = true))
+        assertEquals(requested, AssessmentEditPolicy.edit(current, requested, hasSubmissions = true, changedQuestions = false, confirmResetDrafts = false))
+    }
+
+    @Test
     fun `validates kind and question count`() {
-        assertTrue(AssessmentEditPolicy.isValidKindQuestionCount("work", 0))
-        assertFalse(AssessmentEditPolicy.isValidKindQuestionCount("work", 1))
-        assertTrue(AssessmentEditPolicy.isValidKindQuestionCount("quiz", 1))
-        assertFalse(AssessmentEditPolicy.isValidKindQuestionCount("quiz", 0))
+        assertTrue(AssessmentEditPolicy.isValidKindQuestionCount(AssessmentKind.WORK, 0))
+        assertFalse(AssessmentEditPolicy.isValidKindQuestionCount(AssessmentKind.WORK, 1))
+        assertTrue(AssessmentEditPolicy.isValidKindQuestionCount(AssessmentKind.QUIZ, 1))
+        assertFalse(AssessmentEditPolicy.isValidKindQuestionCount(AssessmentKind.QUIZ, 0))
     }
 
     @Test
     fun `allows publish only for draft without submissions and valid question count`() {
-        assertTrue(AssessmentEditPolicy.canPublish("draft", hasSubmissions = false, kind = "quiz", questionCount = 2))
-        assertTrue(AssessmentEditPolicy.canPublish("draft", hasSubmissions = false, kind = "work", questionCount = 0))
-        assertFalse(AssessmentEditPolicy.canPublish("published", hasSubmissions = false, kind = "quiz", questionCount = 2))
-        assertFalse(AssessmentEditPolicy.canPublish("draft", hasSubmissions = true, kind = "quiz", questionCount = 2))
-        assertFalse(AssessmentEditPolicy.canPublish("draft", hasSubmissions = false, kind = "quiz", questionCount = 0))
-        assertFalse(AssessmentEditPolicy.canPublish("draft", hasSubmissions = false, kind = "work", questionCount = 1))
+        val draft = AssessmentState.Draft
+        val published = AssessmentState.Published(Instant.EPOCH)
+        assertTrue(AssessmentEditPolicy.canPublish(draft, hasSubmissions = false, kind = AssessmentKind.QUIZ, questionCount = 2))
+        assertTrue(AssessmentEditPolicy.canPublish(draft, hasSubmissions = false, kind = AssessmentKind.WORK, questionCount = 0))
+        assertFalse(AssessmentEditPolicy.canPublish(published, hasSubmissions = false, kind = AssessmentKind.QUIZ, questionCount = 2))
+        assertFalse(AssessmentEditPolicy.canPublish(draft, hasSubmissions = true, kind = AssessmentKind.QUIZ, questionCount = 2))
+        assertFalse(AssessmentEditPolicy.canPublish(draft, hasSubmissions = false, kind = AssessmentKind.QUIZ, questionCount = 0))
+        assertFalse(AssessmentEditPolicy.canPublish(draft, hasSubmissions = false, kind = AssessmentKind.WORK, questionCount = 1))
     }
 
     @Test

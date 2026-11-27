@@ -3,8 +3,6 @@ import br.com.ajadigital.core.assessment.application.models.*
 
 import br.com.ajadigital.core.assessment.domain.models.SubmissionStoreUpdateDto
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreUpdateDto
-
 import br.com.ajadigital.core.assessment.application.models.UpdateSubmissionDto
 
 import br.com.ajadigital.core.assessment.domain.policies.SubmissionPolicy

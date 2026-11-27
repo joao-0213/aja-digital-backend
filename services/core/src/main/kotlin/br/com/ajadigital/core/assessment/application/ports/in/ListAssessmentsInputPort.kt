@@ -1,10 +1,8 @@
 package br.com.ajadigital.core.assessment.application.ports.`in`
-import br.com.ajadigital.core.assessment.application.models.*
 
-import br.com.ajadigital.core.assessment.application.models.ListAssessmentsDto
-
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.assessment.application.models.AssessmentResults
+import br.com.ajadigital.core.assessment.application.models.ListAssessmentsQuery
 
 interface ListAssessmentsInputPort {
-    fun assessments(request: ListAssessmentsDto): Map<String, Any?>
+    fun assessments(request: ListAssessmentsQuery): AssessmentResults
 }

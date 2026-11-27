@@ -1,10 +1,8 @@
 package br.com.ajadigital.core.assessment.application.ports.`in`
-import br.com.ajadigital.core.assessment.application.models.*
 
-import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentDto
-
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.assessment.application.models.AssessmentDetails
+import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentCommand
 
 interface UpdateAssessmentInputPort {
-    fun update(request: UpdateAssessmentDto): Map<String, Any?>
+    fun update(request: UpdateAssessmentCommand): AssessmentDetails.Staff
 }

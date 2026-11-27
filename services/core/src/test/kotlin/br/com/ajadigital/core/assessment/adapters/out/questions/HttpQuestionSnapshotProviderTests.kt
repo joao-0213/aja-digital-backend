@@ -28,7 +28,7 @@ class HttpQuestionSnapshotProviderTests {
         try {
             val provider = HttpQuestionSnapshotProvider("http://127.0.0.1:${server.address.port}/snapshots", "a-test-token-that-is-at-least-32-bytes")
             val start = System.nanoTime()
-            assertThrows(QuestionsUnavailable::class.java) { provider.snapshots(br.com.ajadigital.core.assessment.domain.models.QuestionSnapshotProviderSnapshotsDto(listOf("q1"))) }
+            assertThrows(QuestionsUnavailable::class.java) { provider.snapshots(br.com.ajadigital.core.assessment.application.models.QuestionSnapshotQuery(listOf("q1"))) }
             val elapsed = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - start)
             assertTrue(elapsed < 5, "request should honor its bounded read timeout, took ${elapsed}s")
         } finally {

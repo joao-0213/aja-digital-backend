@@ -2,7 +2,7 @@ package br.com.ajadigital.core.forum.application.usecases
 import br.com.ajadigital.core.forum.application.models.*
 
 import br.com.ajadigital.core.forum.domain.policies.ForumPolicy
-import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProviderOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
 import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
 import br.com.ajadigital.core.forum.domain.exceptions.InvalidTopicReference
 import br.com.ajadigital.core.forum.domain.models.TopicDraft
@@ -30,7 +30,7 @@ class CreateTopicUseCase(
         val hash = ForumPolicy.sha256(mapper.serialize(SerializeJsonDto(draft)))
         store.authorizeAndFindReplay(AuthorizeAndFindTopicReplayDto(actor.id, actor.role, actor.sessionValidationReference, draft, key, hash))?.let { return it }
         if (draft.targetType == "question") {
-            val snapshots = questions.snapshots(br.com.ajadigital.core.assessment.domain.models.QuestionSnapshotProviderSnapshotsDto(listOf(draft.targetId!!)))
+            val snapshots = questions.snapshots(br.com.ajadigital.core.assessment.application.models.QuestionSnapshotQuery(listOf(draft.targetId!!)))
             if (snapshots.size != 1 || snapshots.single().questionId != draft.targetId) throw InvalidTopicReference()
         }
         return store.create(CreateTopicRecordDto(actor.id, actor.role, actor.sessionValidationReference, draft, key, hash))

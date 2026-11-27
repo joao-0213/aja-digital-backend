@@ -1,84 +1,111 @@
 package br.com.ajadigital.core.assessment
-import br.com.ajadigital.core.assessment.application.models.*
 
-import br.com.ajadigital.core.assessment.domain.models.*
-import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStoreOutputPort
-import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProviderOutputPort
+import br.com.ajadigital.core.assessment.domain.models.AssessmentKind
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Conflict
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Forbidden
+import br.com.ajadigital.core.assessment.application.models.AssessmentChanges
+import br.com.ajadigital.core.assessment.application.models.AssessmentDetails
+import br.com.ajadigital.core.assessment.application.models.AssessmentQuestionSelections
+import br.com.ajadigital.core.assessment.application.models.AssessmentResults
+import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentCommand
+import br.com.ajadigital.core.assessment.application.ports.out.AssessmentReadOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.AssessmentWriteOutputPort
 import br.com.ajadigital.core.assessment.application.usecases.UpdateAssessmentUseCase
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.assessment.application.contracts.DashboardAssessment
+import br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery
+import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
+import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestionContent
+import br.com.ajadigital.core.assessment.domain.models.AssessmentRecord
+import br.com.ajadigital.core.assessment.domain.models.AssessmentState
+import br.com.ajadigital.core.assessment.application.models.GetAssessmentQuery
+import br.com.ajadigital.core.assessment.application.models.ListAssessmentsQuery
+import br.com.ajadigital.core.assessment.application.models.CreateAssessmentRecord
+import br.com.ajadigital.core.assessment.application.models.PublishAssessmentCommand
+import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentRecord
+import br.com.ajadigital.core.assessment.domain.models.BankQuestionSnapshot
+import br.com.ajadigital.core.assessment.application.models.QuestionSnapshotQuery
+import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
-import br.com.ajadigital.core.shared.adapters.out.serialization.JacksonJsonSerializer
-import br.com.ajadigital.core.shared.domain.models.*
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.application.contracts.FieldChange
+import br.com.ajadigital.core.assessment.application.models.AssessmentReceiptKey
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
-import tools.jackson.databind.json.JsonMapper
 import java.time.Instant
 
 class UpdateAssessmentUseCaseTests {
-    private val mapper = JsonMapper.builder().build()
-    private val teacher = AuthenticatedActor("teacher-1", "teacher", true, Instant.parse("2026-01-01T00:00:00Z"), "session-hash")
+    private val teacher = AuthenticatedActor("teacher-1", "teacher", true, Instant.EPOCH, "session-hash")
+    private val request = UpdateAssessmentCommand(
+        teacher, "assessment-1", "idempotency-123", "a".repeat(64), 1,
+        AssessmentChanges(), FieldChange.Unchanged, false,
+    )
+    private val store = RecordingStore()
+    private val useCase = UpdateAssessmentUseCase(store, store, object : QuestionSnapshotProviderOutputPort {
+        override fun snapshots(request: QuestionSnapshotQuery): List<BankQuestionSnapshot> =
+            error("No outside questions were requested")
+    })
 
     @Test
-    fun `confirmResetDrafts absence false and true are accepted and mapped`() {
-        assertEquals(false, update(emptyMap()).confirmResetDrafts)
-        assertEquals(false, update(mapOf("confirmResetDrafts" to false)).confirmResetDrafts)
-        assertEquals(true, update(mapOf("confirmResetDrafts" to true)).confirmResetDrafts)
+    fun `typed edit changes only explicitly supplied fields`() {
+        useCase.update(request.copy(changes = AssessmentChanges(deadline = FieldChange.Set(null)), confirmResetDrafts = true))
+        val update = checkNotNull(store.updated)
+        assertNull(update.draft?.deadline)
+        assertEquals("Existing title", update.draft?.title)
+        assertEquals(true, update.confirmResetDrafts)
     }
 
     @Test
-    fun `confirmResetDrafts explicit null and non-boolean values are rejected`() {
-        listOf(null, "true", 1, emptyList<Any>(), emptyMap<String, Any>()).forEach { value ->
-            assertThrows(IllegalArgumentException::class.java) { update(mapOf("confirmResetDrafts" to value)) }
-        }
+    fun `the exact typed input port rejects a student before a store call`() {
+        val student = AuthenticatedActor("student-1", "student", true, Instant.EPOCH, "student-session")
+        assertThrows(Forbidden::class.java) { useCase.update(request.copy(actor = student)) }
+        assertEquals(0, store.readCount)
+        assertNull(store.updated)
     }
 
     @Test
-    fun `authorization precedes malformed confirmation value validation`() {
-        val forbidden = useCase()
-        val student = AuthenticatedActor(teacher.id, "student", teacher.active, teacher.emailConfirmedAt, teacher.sessionValidationReference)
-        assertThrows(AcademicForbidden::class.java) {
-            forbidden.update(UpdateAssessmentDto(student, "assessment-1", "idempotency-123", body(mapOf("confirmResetDrafts" to null))))
-        }
+    fun `kind change without a quiz composition cannot reach the write port`() {
+        val edit = request.copy(changes = AssessmentChanges(kind = FieldChange.Set(AssessmentKind.QUIZ)))
+        assertThrows(Conflict::class.java) { useCase.update(edit) }
+        assertNull(store.updated)
     }
 
-    private fun update(fields: Map<String, Any?>): AssessmentStoreUpdateDto {
-        val store = RecordingStore()
-        val useCase = UpdateAssessmentUseCase(store, noSnapshots, noIdempotency, JacksonJsonSerializer(mapper))
-        useCase.update(UpdateAssessmentDto(teacher, "assessment-1", "idempotency-123", body(fields)))
-        return checkNotNull(store.updated)
+    @Test
+    fun `question inputs retain neither the selection nor the option buffer`() {
+        val options = mutableListOf("A", "B")
+        val content = AssessmentQuestionContent("Math", "Sets", "easy", "AJA", 2026, "Question", options, null, 0, "Explanation")
+        val input = mutableListOf<AssessmentQuestionSelections.Selection>(AssessmentQuestionSelections.Selection.Authored("author-1", null, content))
+        val questions = AssessmentQuestionSelections(input)
+        input.clear()
+        options[0] = "Modified"
+        assertEquals(1, questions.items.size)
+        assertEquals(listOf("A", "B"), content.options)
     }
 
-    private fun body(fields: Map<String, Any?>): Any = linkedMapOf<String, Any?>("expectedRevision" to 1).apply { putAll(fields) }
+    private class RecordingStore : AssessmentReadOutputPort, AssessmentWriteOutputPort {
+        var updated: UpdateAssessmentRecord? = null
+        var readCount = 0
 
-    private fun useCase() = UpdateAssessmentUseCase(RecordingStore(), noSnapshots, noIdempotency, JacksonJsonSerializer(mapper))
-
-    private val noSnapshots = object : QuestionSnapshotProviderOutputPort {
-        override fun snapshots(request: QuestionSnapshotProviderSnapshotsDto): List<BankQuestionSnapshot> = error("No question snapshots expected")
-    }
-
-    private val noIdempotency = object : IdempotencyStoreOutputPort {
-        override fun find(request: FindIdempotencyDto): Map<String, Any?>? = null
-        override fun save(request: SaveIdempotencyDto) = Unit
-    }
-
-    private class RecordingStore : AssessmentStoreOutputPort {
-        var updated: AssessmentStoreUpdateDto? = null
-        override fun authorizeWrite(request: AssessmentStoreAuthorizeWriteDto) = Unit
-        override fun create(request: AssessmentStoreCreateDto): Map<String, Any?> = error("Not used")
-        override fun update(request: AssessmentStoreUpdateDto): Map<String, Any?>? {
+        override fun authorizeWrite(actor: AuthenticatedActor, moduleId: String) = Unit
+        override fun replay(request: AssessmentReceiptKey): AssessmentDetails.Staff? = null
+        override fun create(request: CreateAssessmentRecord): AssessmentDetails.Staff = error("Not used")
+        override fun update(request: UpdateAssessmentRecord): AssessmentDetails.Staff {
             updated = request
-            return mapOf("id" to request.id)
+            return current(request.id)
         }
-        override fun publish(request: AssessmentStorePublishDto): Map<String, Any?>? = error("Not used")
-        override fun assessment(request: AssessmentStoreAssessmentDto): Map<String, Any?> = mapOf(
-            "id" to request.id, "revision" to 1, "moduleId" to "module-1", "title" to "Work",
-            "description" to "", "kind" to "work", "maxGrade" to null, "deadline" to null,
-            "required" to false, "allowLate" to false, "questionIds" to emptyList<String>(),
-        )
-        override fun assessments(request: AssessmentStoreAssessmentsDto): AssessmentPage = error("Not used")
-        override fun dashboardAssessments(request: AssessmentStoreDashboardAssessmentsDto): AssessmentPage = error("Not used")
-        override fun pendingStudentCount(request: AssessmentStorePendingStudentCountDto): Int = error("Not used")
+        override fun publish(request: PublishAssessmentCommand): AssessmentDetails.Staff? = error("Not used")
+        override fun assessment(request: GetAssessmentQuery): AssessmentDetails.Staff {
+            readCount++
+            return current(request.id)
+        }
+        override fun assessments(request: ListAssessmentsQuery): AssessmentResults = error("Not used")
+        override fun dashboardAssessments(query: ListDashboardAssessmentsQuery): List<DashboardAssessment> = error("Not used")
+        override fun pendingStudentCount(actor: AuthenticatedActor): Int = error("Not used")
+
+        private fun current(id: String): AssessmentDetails.Staff {
+            val draft = AssessmentDraft("module-1", "Existing title", "", AssessmentKind.WORK, null, Instant.EPOCH, false, false)
+            val facts = AssessmentRecord(id, 1, Instant.EPOCH, Instant.EPOCH, null, draft, AssessmentState.Draft)
+            return AssessmentDetails.Staff(facts, emptyList(), false)
+        }
     }
 }

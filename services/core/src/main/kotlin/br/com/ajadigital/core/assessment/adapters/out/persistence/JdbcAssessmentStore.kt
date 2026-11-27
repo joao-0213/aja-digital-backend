@@ -1,33 +1,42 @@
 package br.com.ajadigital.core.assessment.adapters.out.persistence
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreCreateDto
+import br.com.ajadigital.core.assessment.domain.models.AssessmentKind
+import br.com.ajadigital.core.assessment.application.models.CreateAssessmentRecord
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreUpdateDto
+import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentRecord
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStorePublishDto
+import br.com.ajadigital.core.assessment.application.models.PublishAssessmentCommand
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAssessmentDto
+import br.com.ajadigital.core.assessment.application.models.GetAssessmentQuery
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAssessmentsDto
+import br.com.ajadigital.core.assessment.application.models.ListAssessmentsQuery
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreDashboardAssessmentsDto
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStorePendingStudentCountDto
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAuthorizeWriteDto
 
-import br.com.ajadigital.core.shared.domain.models.SaveIdempotencyDto
+import br.com.ajadigital.core.assessment.adapters.serialization.AssessmentRepresentation
+import br.com.ajadigital.core.assessment.application.models.AssessmentDetails
+import br.com.ajadigital.core.assessment.application.models.AssessmentResults
+import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestionContent
+import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestionView
+import br.com.ajadigital.core.assessment.domain.models.AssessmentRecord
+import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
+import br.com.ajadigital.core.assessment.application.models.AssessmentReceiptKey
 import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Conflict
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.IdempotencyConflict
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Forbidden
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.NotFound
 import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
-import br.com.ajadigital.core.assessment.domain.models.AssessmentPage
+import br.com.ajadigital.core.assessment.application.contracts.DashboardAssessment
+import br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestion
+import br.com.ajadigital.core.assessment.domain.models.AssessmentState
 import br.com.ajadigital.core.assessment.domain.policies.AssessmentEditPolicy
-import br.com.ajadigital.core.assessment.domain.ports.out.AssessmentStoreOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.AssessmentReadOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.AssessmentWriteOutputPort
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
@@ -38,59 +47,53 @@ import java.time.Clock
 import java.util.UUID
 
 @Repository
-class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val clock: Clock, private val idempotency: IdempotencyStoreOutputPort) : AssessmentStoreOutputPort {
+class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val clock: Clock, private val idempotency: EncodedIdempotencyStoreOutputPort) : AssessmentReadOutputPort, AssessmentWriteOutputPort {
     @Transactional
-    override fun authorizeWrite(request: AssessmentStoreAuthorizeWriteDto) {
-        val (actorId, role, sessionHash, moduleId) = request
+    override fun authorizeWrite(actor: AuthenticatedActor, moduleId: String) {
         lockAuthInvariant()
-        if (lockModuleForWrite(moduleId, actorId, sessionHash, role) == null) throw AcademicNotFound()
+        if (lockModuleForWrite(moduleId, actor) == null) throw NotFound()
     }
 
     @Transactional
-    override fun create(request: AssessmentStoreCreateDto): Map<String, Any?> {
-        val (actorId, role, sessionHash, key, requestHash, draft, questions) = request
+    override fun create(request: CreateAssessmentRecord): AssessmentDetails.Staff {
+        val actor = request.actor
+        val actorId = actor.id
+        val draft = request.draft
         lockAuthInvariant()
-        val module = lockModuleForWrite(draft.moduleId, actorId, sessionHash, role) ?: throw AcademicNotFound()
-        replay(actorId, "createAssessment", "/assessments", key, requestHash)?.let { return it }
+        lockModuleForWrite(draft.moduleId, actor) ?: throw NotFound()
+        val command = AssessmentReceiptKey.create(actorId, request.key, request.requestHash)
+        replay(command)?.let { return it }
         val now = Timestamp.from(clock.instant())
         val id = UUID.randomUUID().toString()
         val order = jdbc.queryForObject("SELECT COALESCE(max(order_index)+1,0) FROM core.assessments WHERE module_id=?", Int::class.java, draft.moduleId) ?: 0
         jdbc.update("""INSERT INTO core.assessments(id,module_id,kind,status,revision,published_at,deadline,allow_late,created_at,updated_at,updated_by,title,description,max_grade,required,order_index)
-            VALUES(?,?,?,'draft',1,NULL,?,?,?,?,?,?,?,?,?,?)""", id, draft.moduleId, draft.kind, draft.deadline?.let(Timestamp::from), draft.allowLate, now, now, actorId, draft.title, draft.description, draft.maxGrade, draft.required, order)
-        writeQuestions(id, questions)
+            VALUES(?,?,?,'draft',1,NULL,?,?,?,?,?,?,?,?,?,?)""", id, draft.moduleId, draft.kind.value, draft.deadline?.let(Timestamp::from), draft.allowLate, now, now, actorId, draft.title, draft.description, draft.maxGrade, draft.required, order)
+        writeQuestions(id, request.questions)
         audit(actorId, "academic.assessment_created", id)
-        val result = assessment(br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAssessmentDto(actorId, role, sessionHash, id)) ?: throw AcademicNotFound()
-        idempotency.save(SaveIdempotencyDto(actorId, "createAssessment", "/assessments", key, requestHash, result))
-        return result
+        return refreshAndSave(command, GetAssessmentQuery(actor, id))
     }
 
     @Transactional
-    override fun update(request: AssessmentStoreUpdateDto): Map<String, Any?>? {
-        val (actorId, role, sessionHash, id, key, requestHash, expectedRevision, draft, questions, confirmResetDrafts) = request
+    override fun update(request: UpdateAssessmentRecord): AssessmentDetails.Staff? {
+        val actor = request.actor
+        val actorId = actor.id
+        val id = request.id
+        val expectedRevision = request.expectedRevision
+        val draft = request.draft
         lockAuthInvariant()
         val priorModule = jdbc.query("SELECT module_id FROM core.assessments WHERE id=?", { rs, _ -> rs.getString(1) }, id).firstOrNull() ?: return null
-        val moduleIds = (listOf(priorModule) + listOfNotNull(draft?.moduleId)).distinct().sorted()
-        moduleIds.forEach { lockModuleForWrite(it, actorId, sessionHash, role) ?: throw AcademicNotFound() }
-        val current = jdbc.query("SELECT * FROM core.assessments WHERE id=? FOR UPDATE", { rs, _ -> rs.assessmentBase() }, id).firstOrNull() ?: return null
-        replay(actorId, "updateAssessment", "/assessments/$id", key, requestHash)?.let { return it }
-        if (current["revision"] != expectedRevision || current["moduleId"] != priorModule) return null
+        val moduleIds = listOf(priorModule, draft.moduleId).distinct().sorted()
+        moduleIds.forEach { lockModuleForWrite(it, actor) ?: throw NotFound() }
+        val current = jdbc.query("SELECT * FROM core.assessments WHERE id=? FOR UPDATE", { rs, _ -> rs.assessmentRecord() }, id).firstOrNull() ?: return null
+        val command = AssessmentReceiptKey.update(actorId, id, request.key, request.requestHash)
+        replay(command)?.let { return it }
+        if (current.revision != expectedRevision || current.draft.moduleId != priorModule) return null
         val submitted = hasSubmissions(id)
-        val desiredQuestions = questions?.let { retainExistingSnapshots(id, it) }
-        val changedQuestions = desiredQuestions != null && questionSignature(id) != desiredQuestions.map { it.id to it.snapshot }
-        if (changedQuestions && !confirmResetDrafts) throw AcademicConflict(current["revision"] as Int)
-        var next = draft ?: current.toDraft()
-        if (submitted) {
-            val sameStructure = current["moduleId"] == next.moduleId &&
-                current["kind"] == next.kind &&
-                current["maxGrade"] == next.maxGrade &&
-                current["required"] == next.required &&
-                current["allowLate"] == next.allowLate &&
-                !changedQuestions
-            val oldDeadline = (current["deadline"] as String?)?.let(java.time.Instant::parse)
-            val resolution = AssessmentEditPolicy.resolvePostSubmissionDeadline(sameStructure, oldDeadline, next.deadline)
-            if (!resolution.allowed) throw AcademicConflict(current["revision"] as Int)
-            next = next.copy(deadline = resolution.resolvedDeadline)
-        }
+        val desiredQuestions = request.questions?.let { retainExistingSnapshots(id, it) }
+        val changedQuestions = desiredQuestions != null && AssessmentEditPolicy.questionsChanged(questionSignature(id), desiredQuestions)
+        val prior = current.draft
+        val next = AssessmentEditPolicy.edit(prior, draft, submitted, changedQuestions, request.confirmResetDrafts)
+            ?: throw Conflict(expectedRevision)
         val now = Timestamp.from(clock.instant())
         if (desiredQuestions != null && changedQuestions) {
             resetPendingAttempts(id)
@@ -100,57 +103,77 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         }
         if (jdbc.update("""UPDATE core.assessments SET module_id=?,kind=?,deadline=?,allow_late=?,title=?,description=?,max_grade=?,required=?,
             revision=revision+1,updated_at=?,updated_by=?,questions_updated_at=CASE WHEN ? THEN ? ELSE questions_updated_at END
-            WHERE id=? AND revision=?""", next.moduleId, next.kind, next.deadline?.let(Timestamp::from), next.allowLate, next.title, next.description, next.maxGrade, next.required,
+            WHERE id=? AND revision=?""", next.moduleId, next.kind.value, next.deadline?.let(Timestamp::from), next.allowLate, next.title, next.description, next.maxGrade, next.required,
             now, actorId, changedQuestions, now, id, expectedRevision) != 1) return null
-        if (current["moduleId"] != next.moduleId) updatePublicationSubject(id, next.moduleId)
+        if (prior.moduleId != next.moduleId) updatePublicationSubject(id, next.moduleId)
         audit(actorId, "academic.assessment_updated", id)
-        val result = assessment(br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAssessmentDto(actorId, role, sessionHash, id)) ?: return null
-        idempotency.save(SaveIdempotencyDto(actorId, "updateAssessment", "/assessments/$id", key, requestHash, result))
-        return result
+        return refreshAndSave(command, GetAssessmentQuery(actor, id))
     }
 
     @Transactional
-    override fun publish(request: AssessmentStorePublishDto): Map<String, Any?>? {
-        val (actorId, role, sessionHash, id, key, requestHash, expectedRevision) = request
+    override fun publish(request: PublishAssessmentCommand): AssessmentDetails.Staff? {
+        val (actor, id, key, expectedRevision, requestHash) = request
+        val actorId = actor.id
         lockAuthInvariant()
         val moduleId = jdbc.query("SELECT module_id FROM core.assessments WHERE id=?", { rs, _ -> rs.getString(1) }, id).firstOrNull() ?: return null
-        val module = lockModuleForWrite(moduleId, actorId, sessionHash, role) ?: return null
-        val row = jdbc.query("SELECT * FROM core.assessments WHERE id=? FOR UPDATE", { rs, _ -> rs.assessmentBase() }, id).firstOrNull() ?: return null
-        replay(actorId, "publishAssessment", "/assessments/$id/publish", key, requestHash)?.let { return it }
-        if (row["revision"] != expectedRevision) return null
-        if (row["status"] != "draft") throw AcademicConflict(row["revision"] as Int)
+        val module = lockModuleForWrite(moduleId, actor) ?: return null
+        val row = jdbc.query("SELECT * FROM core.assessments WHERE id=? FOR UPDATE", { rs, _ -> rs.assessmentRecord() }, id).firstOrNull() ?: return null
+        val command = AssessmentReceiptKey.publish(actorId, id, key, requestHash)
+        replay(command)?.let { return it }
+        if (row.revision != expectedRevision || row.draft.moduleId != moduleId) return null
+        if (row.state != AssessmentState.Draft) throw Conflict(expectedRevision)
         val questionCount = questionSignature(id).size
-        if (!AssessmentEditPolicy.canPublish(row["status"] as String, hasSubmissions(id), row["kind"] as String, questionCount)) throw AcademicConflict(row["revision"] as Int)
+        if (!AssessmentEditPolicy.canPublish(row.state, hasSubmissions(id), row.draft.kind, questionCount)) throw Conflict(expectedRevision)
         val now = Timestamp.from(clock.instant())
         jdbc.update("UPDATE core.assessments SET status='published',published_at=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=?", now, now, actorId, id, expectedRevision)
         jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?) ON CONFLICT DO NOTHING", module.first, "assessment:$id")
         audit(actorId, "academic.assessment_published", id)
-        val result = assessment(br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAssessmentDto(actorId, role, sessionHash, id)) ?: return null
-        idempotency.save(SaveIdempotencyDto(actorId, "publishAssessment", "/assessments/$id/publish", key, requestHash, result))
-        return result
+        return refreshAndSave(command, GetAssessmentQuery(actor, id))
     }
 
-    override fun assessment(request: AssessmentStoreAssessmentDto): Map<String, Any?>? {
-        val (actorId, role, sessionHash, id) = request
-        requireSession(actorId, sessionHash)
+    override fun assessment(request: GetAssessmentQuery): AssessmentDetails? {
+        val (actor, id) = request
+        val actorId = actor.id
+        val role = requireSession(actorId, actor.sessionValidationReference)
         val where = accessPredicate(role)
         val row = jdbc.query("""SELECT a.*,m.subject_id,s.class_id,c.active AS class_active,
             (SELECT count(*)::integer FROM core.assessment_questions aq WHERE aq.assessment_id=a.id) AS question_count,
             EXISTS(SELECT 1 FROM core.enrollments e WHERE e.class_id=s.class_id AND e.student_id=? AND e.status='active' AND NOT jsonb_exists(e.unassigned_assessment_ids,a.id)) AS assigned
             FROM core.assessments a JOIN core.modules m ON m.id=a.module_id JOIN core.subjects s ON s.id=m.subject_id JOIN core.classes c ON c.id=s.class_id
-            WHERE a.id=? AND $where""", { rs, _ -> rs.assessmentBase() + mapOf("classActive" to rs.getBoolean("class_active"), "assigned" to rs.getBoolean("assigned"), "questionCount" to rs.getInt("question_count")) }, *(listOf(actorId, id) + if (role == "teacher" || role == "student") listOf(actorId) else emptyList()).toTypedArray()).firstOrNull() ?: return null
-        return dto(row, actorId, role, sessionHash)
+            WHERE a.id=? AND $where""", { rs, _ -> rs.readRow() },
+            *(listOf(actorId, id) + if (role == "teacher" || role == "student") listOf(actorId) else emptyList()).toTypedArray(),
+        ).firstOrNull() ?: return null
+        return if (role == "student") row.student() else AssessmentDetails.Staff(
+            row.record, questionRows(listOf(id))[id].orEmpty(), hasSubmissions(id),
+        )
     }
 
-    override fun assessments(request: AssessmentStoreAssessmentsDto): AssessmentPage {
-        val (actorId, role, sessionHash, page, pageSize, sort, subjectId, moduleId, kind, status) = request
-        return assessmentPage(actorId, role, sessionHash, page, pageSize, sort, subjectId, moduleId, kind, status, false)
+    override fun assessments(request: ListAssessmentsQuery): AssessmentResults {
+        val (actor, page, pageSize, sort, subjectId, moduleId, kind, status) = request
+        val loaded = assessmentPage(actor.id, actor.sessionValidationReference, page, pageSize, sort, subjectId, moduleId, kind, status)
+        return AssessmentResults(loaded.details, page, pageSize, loaded.total)
     }
 
-    override fun dashboardAssessments(request: AssessmentStoreDashboardAssessmentsDto): AssessmentPage = run { val (actorId, role, sessionHash, pageSize) = request; assessmentPage(actorId, role, sessionHash, 1, pageSize, "id", null, null, null, "published", true) }
+    override fun dashboardAssessments(query: ListDashboardAssessmentsQuery): List<DashboardAssessment> {
+        val (actor, pageSize) = query
+        val loaded = assessmentPage(actor.id, actor.sessionValidationReference, 1, pageSize, "id", null, null, null, "published")
+        return loaded.details.zip(loaded.rows).map { (details, row) ->
+            val record = row.record
+            val draft = record.draft
+            DashboardAssessment(
+                record.id, record.revision, record.createdAt, record.updatedAt, record.updatedBy,
+                draft.moduleId, draft.title, draft.description, draft.kind.value, draft.maxGrade,
+                draft.deadline, draft.required, draft.allowLate, checkNotNull(record.state.publishedAt),
+                row.questionCount, (details as? AssessmentDetails.Student)?.assigned,
+            )
+        }
+    }
 
-    private fun assessmentPage(actorId: String, role: String, sessionHash: String, page: Int, pageSize: Int, sort: String, subjectId: String?, moduleId: String?, kind: String?, status: String?, dashboard: Boolean): AssessmentPage {
-        requireSession(actorId, sessionHash)
+    private fun assessmentPage(
+        actorId: String, sessionHash: String, page: Int, pageSize: Int, sort: String,
+        subjectId: String?, moduleId: String?, kind: String?, status: String?,
+    ): LoadedPage {
+        val role = requireSession(actorId, sessionHash)
         val clauses = mutableListOf(accessPredicate(role))
         val args = mutableListOf<Any>()
         if (role == "teacher" || role == "student") args += actorId
@@ -165,20 +188,30 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         val rows = jdbc.query("""SELECT a.*,m.subject_id,s.class_id,c.active AS class_active,
             (SELECT count(*)::integer FROM core.assessment_questions aq WHERE aq.assessment_id=a.id) AS question_count,
             EXISTS(SELECT 1 FROM core.enrollments e WHERE e.class_id=s.class_id AND e.student_id=? AND e.status='active' AND NOT jsonb_exists(e.unassigned_assessment_ids,a.id)) AS assigned
-            $joins WHERE $where ORDER BY $order LIMIT ? OFFSET ?""", { rs, _ -> rs.assessmentBase() + mapOf("classActive" to rs.getBoolean("class_active"), "assigned" to rs.getBoolean("assigned"), "questionCount" to rs.getInt("question_count")) }, *(listOf(actorId) + args + listOf(pageSize, (page - 1) * pageSize)).toTypedArray())
-        val ids = rows.map { it["id"] as String }
-        val questionsById = if (role == "student") emptyMap() else questionRows(ids)
-        val submissions = if (role == "student") emptySet() else hasSubmissions(ids)
-        val items = rows.map { row ->
-            val item = dto(row, actorId, role, sessionHash, questionsById[row["id"] as String].orEmpty(), (row["id"] as String) in submissions)
-            if (dashboard) item + ("questionCount" to row["questionCount"]) else item
+            $joins WHERE $where ORDER BY $order LIMIT ? OFFSET ?""", { rs, _ -> rs.readRow() },
+            *(listOf(actorId) + args + listOf(pageSize, (page - 1L) * pageSize)).toTypedArray(),
+        )
+        val items = if (role == "student") rows.map(ReadRow::student) else {
+            val ids = rows.map { it.record.id }
+            val questions = questionRows(ids)
+            val submissions = hasSubmissions(ids)
+            rows.map { row -> AssessmentDetails.Staff(row.record, questions[row.record.id].orEmpty(), row.record.id in submissions) }
         }
-        return AssessmentPage(items, page, pageSize, count)
+        return LoadedPage(rows, items, count)
     }
 
+    private data class LoadedPage(val rows: List<ReadRow>, val details: List<AssessmentDetails>, val total: Long)
+
+    private data class ReadRow(val record: AssessmentRecord, val assigned: Boolean, val questionCount: Int) {
+        fun student() = AssessmentDetails.Student(record, questionCount, assigned)
+    }
+
+    private fun ResultSet.readRow() = ReadRow(assessmentRecord(), getBoolean("assigned"), getInt("question_count"))
+
     @Transactional(readOnly = true)
-    override fun pendingStudentCount(request: AssessmentStorePendingStudentCountDto): Int {
-        val (actorId, sessionHash) = request
+    override fun pendingStudentCount(actor: AuthenticatedActor): Int {
+        val actorId = actor.id
+        val sessionHash = actor.sessionValidationReference
         requireSession(actorId, sessionHash, "student")
         val where = accessPredicate("student")
         return jdbc.queryForObject("""SELECT count(*) FROM core.assessments a
@@ -190,32 +223,12 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
             )))""", Int::class.java, actorId, actorId, actorId) ?: 0
     }
 
-    private fun dto(row: Map<String, Any?>, actorId: String, role: String, sessionHash: String, loadedQuestions: List<Map<String, Any?>>? = null, loadedHasSubmissions: Boolean? = null): Map<String, Any?> {
-        val id = row["id"] as String
-        val questions = if (role == "student") emptyList() else loadedQuestions ?: questionRows(listOf(id))[id].orEmpty()
-        val base = linkedMapOf<String, Any?>(
-            "id" to id, "revision" to row["revision"], "createdAt" to row["createdAt"], "updatedAt" to row["updatedAt"], "updatedBy" to row["updatedBy"],
-            "moduleId" to row["moduleId"], "title" to row["title"], "description" to row["description"], "kind" to row["kind"],
-            "maxGrade" to row["maxGrade"], "deadline" to row["deadline"], "required" to row["required"], "allowLate" to row["allowLate"],
-            "status" to row["status"], "publishedAt" to row["publishedAt"],
-        )
-        if (role == "student") {
-            base["questionCount"] = row["questionCount"]
-            base["assigned"] = row["assigned"] == true
-        } else {
-            base["questionIds"] = questions.map { it["id"] }
-            base["questions"] = questions.map { it - setOf("sourceRevision", "contentHash") }
-            base["hasSubmissions"] = loadedHasSubmissions ?: hasSubmissions(listOf(id)).contains(id)
-        }
-        return base
-    }
-
-    private fun questionRows(ids: List<String>): Map<String, List<Map<String, Any?>>> {
+    private fun questionRows(ids: List<String>): Map<String, List<AssessmentQuestionView>> {
         if (ids.isEmpty()) return emptyMap()
         val placeholders = ids.joinToString(",") { "?" }
         return jdbc.query("SELECT assessment_id,question_id,source,source_revision,content_hash,snapshot::text FROM core.assessment_questions WHERE assessment_id IN ($placeholders) ORDER BY assessment_id,position", { rs, _ ->
-            @Suppress("UNCHECKED_CAST")
-            rs.getString("assessment_id") to ((mapper.readValue(rs.getString("snapshot"), Map::class.java) as Map<String, Any?>) + mapOf("id" to rs.getString("question_id"), "origin" to if (rs.getString("source") == "bank") "bank" else "author", "sourceRevision" to rs.getObject("source_revision") as? Int, "contentHash" to rs.getString("content_hash")))
+            val snapshot = AssessmentRepresentation.readQuestion(mapper.readTree(rs.getString("snapshot")))
+            rs.getString("assessment_id") to AssessmentQuestionView(rs.getString("question_id"), rs.getString("source"), snapshot)
         }, *ids.toTypedArray()).groupBy({ it.first }, { it.second })
     }
 
@@ -223,29 +236,28 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         questions.forEachIndexed { position, question ->
             val snapshot = snapshotImage(id, question)
             jdbc.update("""INSERT INTO core.assessment_questions(assessment_id,question_id,position,source,source_revision,content_hash,snapshot)
-                VALUES(?,?,?,?,?,?,?::jsonb)""", id, question.id, position, question.source, question.sourceRevision, question.contentHash, mapper.writeValueAsString(snapshot))
+                VALUES(?,?,?,?,?,?,?::jsonb)""", id, question.id, position, question.source, question.sourceRevision, question.contentHash, mapper.writeValueAsString(AssessmentRepresentation.question(question.id, question.source, snapshot)))
         }
     }
 
-    private fun snapshotImage(assessmentId: String, question: AssessmentQuestion): Map<String, Any?> {
-        val snapshot = question.snapshot?.toMutableMap() ?: throw AcademicNotFound()
+    private fun snapshotImage(assessmentId: String, question: AssessmentQuestion): AssessmentQuestionContent {
+        val snapshot = question.snapshot ?: throw NotFound()
         if (question.source != "bank") return snapshot
-        val image = snapshot["image"] as? Map<*, *> ?: return snapshot
-        val sourceId = assessmentImageId(image["src"] as? String) ?: throw AcademicNotFound()
+        val image = snapshot.image ?: return snapshot
+        val sourceId = assessmentImageId(image.src) ?: throw NotFound()
         val source = jdbc.query("SELECT purpose,parent_id,name,mime,size,sha256,content FROM core.files WHERE id=? AND status='attached'", { rs, _ ->
             listOf(rs.getString("purpose"), rs.getString("parent_id"), rs.getString("name"), rs.getString("mime"), rs.getLong("size"), rs.getString("sha256"), rs.getBytes("content"))
-        }, sourceId).firstOrNull() ?: throw AcademicNotFound()
+        }, sourceId).firstOrNull() ?: throw NotFound()
         if (source[0] == "assessment" && source[1] == assessmentId) return snapshot
-        if (source[0] != "question") throw AcademicNotFound()
+        if (source[0] != "question") throw NotFound()
         val copiedId = UUID.randomUUID().toString()
         jdbc.update("""INSERT INTO core.files(id,purpose,parent_id,name,mime,size,sha256,status,content,created_at)
             VALUES(?,'assessment',?,?,?,?,?,'attached',?,?)""", copiedId, assessmentId, source[2], source[3], source[4], source[5], source[6], Timestamp.from(clock.instant()))
-        snapshot["image"] = mapOf("src" to "/api/v1/files/$copiedId/content", "alt" to image["alt"])
-        return snapshot
+        return snapshot.withImage(image.copy(src = "/api/v1/files/$copiedId/content"))
     }
 
     private fun deleteUnusedAssessmentImages(assessmentId: String, questions: List<AssessmentQuestion>) {
-        val keep = questions.mapNotNull { question -> (question.snapshot?.get("image") as? Map<*, *>)?.get("src") as? String }
+        val keep = questions.mapNotNull { question -> question.snapshot?.image?.src }
             .mapNotNull(::assessmentImageId).toSet()
         jdbc.query("SELECT id FROM core.files WHERE purpose='assessment' AND parent_id=?", { rs, _ -> rs.getString(1) }, assessmentId)
             .filterNot { it in keep }
@@ -256,14 +268,17 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
 
     private fun retainExistingSnapshots(id: String, questions: List<AssessmentQuestion>): List<AssessmentQuestion> = questions.map { question ->
         if (question.snapshot != null) question else jdbc.query("SELECT source_revision,content_hash,snapshot::text FROM core.assessment_questions WHERE assessment_id=? AND question_id=? AND source='bank'", { rs, _ ->
-            @Suppress("UNCHECKED_CAST")
-            question.copy(snapshot = mapper.readValue(rs.getString("snapshot"), Map::class.java) as Map<String, Any?>, sourceRevision = rs.getObject("source_revision") as? Int, contentHash = rs.getString("content_hash"))
-        }, id, question.id).firstOrNull() ?: throw AcademicNotFound()
+            question.copy(
+                snapshot = AssessmentRepresentation.readQuestion(mapper.readTree(rs.getString("snapshot"))),
+                sourceRevision = rs.getInt("source_revision").takeUnless { rs.wasNull() },
+                contentHash = rs.getString("content_hash"),
+            )
+        }, id, question.id).firstOrNull() ?: throw NotFound()
     }
 
-    private fun questionSignature(id: String): List<Pair<String, Any?>> = jdbc.query("SELECT question_id,snapshot::text FROM core.assessment_questions WHERE assessment_id=? ORDER BY position", { rs, _ ->
-        @Suppress("UNCHECKED_CAST")
-        rs.getString(1) to mapper.readValue(rs.getString(2), Map::class.java) as Map<String, Any?>
+    private fun questionSignature(id: String): List<AssessmentQuestionView> = jdbc.query("SELECT question_id,snapshot::text FROM core.assessment_questions WHERE assessment_id=? ORDER BY position", { rs, _ ->
+        val node = mapper.readTree(rs.getString(2))
+        AssessmentQuestionView(rs.getString(1), checkNotNull(node.required("origin").stringValue()), AssessmentRepresentation.readQuestion(node))
     }, id)
     private fun hasSubmissions(ids: List<String>): Set<String> {
         if (ids.isEmpty()) return emptySet()
@@ -287,12 +302,14 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     }
 
     private fun updatePublicationSubject(id: String, moduleId: String) {
-        val subjectId = jdbc.queryForObject("SELECT subject_id FROM core.modules WHERE id=?", String::class.java, moduleId) ?: throw AcademicNotFound()
+        val subjectId = jdbc.queryForObject("SELECT subject_id FROM core.modules WHERE id=?", String::class.java, moduleId) ?: throw NotFound()
         jdbc.update("DELETE FROM core.subject_publications WHERE publication_id=?", "assessment:$id")
         if (jdbc.queryForObject("SELECT status='published' FROM core.assessments WHERE id=?", Boolean::class.java, id) == true) jdbc.update("INSERT INTO core.subject_publications(subject_id,publication_id) VALUES(?,?)", subjectId, "assessment:$id")
     }
 
-    private fun lockModuleForWrite(moduleId: String, actorId: String, sessionHash: String, role: String): Pair<String, Int>? {
+    private fun lockModuleForWrite(moduleId: String, actor: AuthenticatedActor): Pair<String, Int>? {
+        val actorId = actor.id
+        val sessionHash = actor.sessionValidationReference
         val currentRole = requireSession(actorId, sessionHash, "admin", "teacher")
         val found = jdbc.query("SELECT s.class_id FROM core.modules m JOIN core.subjects s ON s.id=m.subject_id WHERE m.id=? AND m.withdrawn_at IS NULL", { rs, _ -> rs.getString(1) }, moduleId).firstOrNull() ?: return null
         val activeClass = jdbc.query("SELECT active FROM core.classes WHERE id=? FOR UPDATE", { rs, _ -> rs.getBoolean(1) }, found).firstOrNull() ?: return null
@@ -301,7 +318,7 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         val module = jdbc.query("SELECT revision FROM core.modules WHERE id=? AND withdrawn_at IS NULL FOR UPDATE", { rs, _ -> rs.getInt(1) }, moduleId).firstOrNull() ?: return null
         val allowed = activeClass && (currentRole == "admin" || canWriteSubject(subjectId, actorId))
         requireSession(actorId, sessionHash, "admin", "teacher")
-        if (!allowed) throw AcademicForbidden()
+        if (!allowed) throw Forbidden()
         return subjectId to module
     }
 
@@ -315,18 +332,33 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     private fun requireSession(actorId: String, hash: String, vararg roles: String): String {
         val accepted = if (roles.isEmpty()) listOf("admin", "teacher", "student") else roles.toList()
         val placeholders = accepted.joinToString(",") { "?" }
-        return jdbc.query("SELECT u.role FROM core.users u JOIN core.sessions s ON s.user_id=u.id WHERE u.id=? AND u.active AND u.role IN ($placeholders) AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?", { rs, _ -> rs.getString(1) }, *(listOf(actorId) + accepted + listOf(hash, Timestamp.from(clock.instant()))).toTypedArray()).firstOrNull() ?: throw AcademicForbidden()
+        return jdbc.query("SELECT u.role FROM core.users u JOIN core.sessions s ON s.user_id=u.id WHERE u.id=? AND u.active AND u.role IN ($placeholders) AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?", { rs, _ -> rs.getString(1) }, *(listOf(actorId) + accepted + listOf(hash, Timestamp.from(clock.instant()))).toTypedArray()).firstOrNull() ?: throw Forbidden()
     }
     private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }
-    private fun replay(actorId: String, operation: String, target: String, key: String, requestHash: String): Map<String, Any?>? = try {
-        idempotency.find(FindIdempotencyDto(actorId, operation, target, key, requestHash))
-    } catch (_: IdempotencyKeyReuse) { throw br.com.ajadigital.core.academic.domain.exceptions.AcademicIdempotencyConflict() }
+    override fun replay(request: AssessmentReceiptKey): AssessmentDetails.Staff? = try {
+        idempotency.findEncoded(request.toStorageKey())?.let { AssessmentRepresentation.readStaff(mapper.readTree(it)) }
+    } catch (_: IdempotencyKeyReuse) {
+        throw IdempotencyConflict()
+    }
+
+    private fun refreshAndSave(command: AssessmentReceiptKey, query: GetAssessmentQuery): AssessmentDetails.Staff {
+        val result = assessment(query) as? AssessmentDetails.Staff ?: throw NotFound()
+        idempotency.saveEncoded(command.toStorageKey(), mapper.writeValueAsString(AssessmentRepresentation.response(result)))
+        return result
+    }
+
+    private fun AssessmentReceiptKey.toStorageKey() =
+        FindIdempotencyDto(actorId, operation, target, key, requestHash)
+
     private fun audit(actorId: String, eventType: String, id: String) { jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), eventType, id, actorId) }
-    private fun ResultSet.assessmentBase() = mapOf(
-        "id" to getString("id"), "revision" to getInt("revision"), "createdAt" to getTimestamp("created_at").toInstant().toString(), "updatedAt" to getTimestamp("updated_at").toInstant().toString(),
-        "updatedBy" to getString("updated_by"), "moduleId" to getString("module_id"), "title" to getString("title"), "description" to getString("description"),
-        "kind" to getString("kind"), "maxGrade" to getBigDecimal("max_grade")?.toDouble(), "deadline" to getTimestamp("deadline")?.toInstant()?.toString(),
-        "required" to getBoolean("required"), "allowLate" to getBoolean("allow_late"), "status" to getString("status"), "publishedAt" to getTimestamp("published_at")?.toInstant()?.toString(),
+    private fun ResultSet.assessmentRecord() = AssessmentRecord(
+        getString("id"), getInt("revision"), getTimestamp("created_at").toInstant(),
+        getTimestamp("updated_at").toInstant(), getString("updated_by"),
+        AssessmentDraft(
+            getString("module_id"), getString("title"), getString("description"), AssessmentKind.parse(getString("kind")),
+            getBigDecimal("max_grade")?.toDouble(), getTimestamp("deadline")?.toInstant(),
+            getBoolean("required"), getBoolean("allow_late"),
+        ),
+        AssessmentRepresentation.state(getString("status"), getTimestamp("published_at")?.toInstant()),
     )
-    private fun Map<String, Any?>.toDraft() = AssessmentDraft(moduleId = getValue("moduleId") as String, title = getValue("title") as String, description = getValue("description") as String, kind = getValue("kind") as String, maxGrade = get("maxGrade") as Double?, deadline = get("deadline")?.let { java.time.Instant.parse(it as String) }, required = getValue("required") as Boolean, allowLate = getValue("allowLate") as Boolean)
 }

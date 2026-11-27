@@ -8,6 +8,7 @@ import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.springframework.transaction.annotation.Transactional
 
 /** Rules currently safe to run on the mixed legacy/target production tree. */
@@ -168,6 +169,23 @@ class CoreArchUnitTests {
                 "..identity.application.ports.out..", "..identity.adapters..", "..identity.configuration..",
             )
             .check(production)
+    }
+
+    @Test
+    fun `assessment authoring ports have typed contracts`() {
+        val classes = production.toList()
+        val names = setOf(
+            "CreateAssessmentInputPort", "UpdateAssessmentInputPort", "PublishAssessmentInputPort",
+            "GetAssessmentInputPort", "ListAssessmentsInputPort", "ListDashboardAssessmentsInputPort",
+            "CountPendingStudentAssessmentsInputPort", "AssessmentReadOutputPort", "AssessmentWriteOutputPort",
+            "QuestionSnapshotProviderOutputPort",
+        )
+        val ports = CoreContractTypeAnalyzer.selectRoots(classes).filter {
+            it.packageName.startsWith("br.com.ajadigital.core.assessment.") && it.simpleName in names
+        }
+        assertEquals(names, ports.map { it.simpleName }.toSet())
+        val findings = CoreContractTypeAnalyzer.analyze(classes, ports)
+        assertTrue(findings.isEmpty(), findings.joinToString("\n"))
     }
 
     @Test

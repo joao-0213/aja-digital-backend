@@ -1,6 +1,0 @@
-package br.com.ajadigital.core.assessment.application.models
-
-import br.com.ajadigital.core.assessment.domain.models.*
-import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
-
-data class ListDashboardAssessmentsDto(val actor: AuthenticatedActor, val pageSize: Int = 100)

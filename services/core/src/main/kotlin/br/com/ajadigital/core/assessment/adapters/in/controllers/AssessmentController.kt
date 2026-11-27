@@ -1,16 +1,8 @@
 package br.com.ajadigital.core.assessment.adapters.`in`.controllers
-import br.com.ajadigital.core.assessment.application.models.*
-
-import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentDto
-
-import br.com.ajadigital.core.assessment.application.models.PublishAssessmentDto
-
-import br.com.ajadigital.core.assessment.application.models.ListAssessmentsDto
-
-import br.com.ajadigital.core.assessment.application.models.GetAssessmentDto
-
-import br.com.ajadigital.core.assessment.application.models.CreateAssessmentDto
-
+import br.com.ajadigital.core.assessment.adapters.serialization.AssessmentRepresentation
+import br.com.ajadigital.core.assessment.application.models.ListAssessmentsQuery
+import br.com.ajadigital.core.assessment.application.models.GetAssessmentQuery
+import br.com.ajadigital.core.assessment.domain.policies.AssessmentPolicy
 import br.com.ajadigital.core.assessment.application.ports.`in`.CreateAssessmentInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.GetAssessmentInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.ListAssessmentsInputPort
@@ -31,7 +23,6 @@ import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.JsonNode
-import br.com.ajadigital.core.shared.adapters.`in`.web.requests.toRequestValue
 
 @RestController
 class AssessmentController(
@@ -41,6 +32,7 @@ class AssessmentController(
     private val getAssessment: GetAssessmentInputPort,
     private val updateAssessment: UpdateAssessmentInputPort,
     private val publishAssessment: PublishAssessmentInputPort,
+    private val requests: AssessmentRequestReader,
 ) {
     @GetMapping("/api/v1/assessments")
     fun assessments(
@@ -55,32 +47,46 @@ class AssessmentController(
         request: HttpServletRequest,
     ): Map<String, Any?> {
         require(request.parameterMap.keys.all { it in setOf("page", "pageSize", "sort", "subjectId", "moduleId", "kind", "status") })
-        return listAssessments.assessments(ListAssessmentsDto(actor(cookie), page.toIntOrNull() ?: throw IllegalArgumentException(), pageSize.toIntOrNull() ?: throw IllegalArgumentException(), sort, subjectId, moduleId, kind, status))
+        val result = listAssessments.assessments(ListAssessmentsQuery(actor(cookie), page.toIntOrNull() ?: throw IllegalArgumentException(), pageSize.toIntOrNull() ?: throw IllegalArgumentException(), sort, subjectId, moduleId, kind, status))
+        return mapOf("items" to result.items.map(AssessmentRepresentation::response), "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     }
 
     @PostMapping("/api/v1/assessments")
     fun create(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: JsonNode, request: HttpServletRequest): ResponseEntity<Any> {
         require(request.parameterMap.isEmpty())
-        return ResponseEntity.status(HttpStatus.CREATED).body(createAssessment.create(CreateAssessmentDto(actor(cookie), key ?: throw IllegalArgumentException(), body.toRequestValue())))
+        val actor = actor(cookie)
+        val requestKey = requireNotNull(key)
+        AssessmentPolicy.writer(actor.role, actor.active)
+        val created = createAssessment.create(requests.create(actor, requestKey, body))
+        return ResponseEntity.status(HttpStatus.CREATED).body(AssessmentRepresentation.response(created))
     }
 
     @GetMapping("/api/v1/assessments/{id}")
     fun assessment(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, request: HttpServletRequest) = run {
         require(request.parameterMap.isEmpty())
-        getAssessment.assessment(GetAssessmentDto(actor(cookie), id))
+        AssessmentRepresentation.response(getAssessment.assessment(GetAssessmentQuery(actor(cookie), id)))
     }
 
     @PatchMapping("/api/v1/assessments/{id}")
     fun update(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: JsonNode, request: HttpServletRequest) = run {
         require(request.parameterMap.isEmpty())
-        updateAssessment.update(UpdateAssessmentDto(actor(cookie), id, key ?: throw IllegalArgumentException(), body.toRequestValue()))
+        val actor = actor(cookie)
+        val requestKey = requireNotNull(key)
+        AssessmentPolicy.writer(actor.role, actor.active)
+        val updated = updateAssessment.update(requests.update(actor, id, requestKey, body))
+        AssessmentRepresentation.response(updated)
     }
 
     @PostMapping("/api/v1/assessments/{id}/publish")
     fun publish(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: JsonNode, request: HttpServletRequest) = run {
         require(request.parameterMap.isEmpty())
-        publishAssessment.publish(PublishAssessmentDto(actor(cookie), id, key ?: throw IllegalArgumentException(), body.get("expectedRevision")?.takeIf { it.isIntegralNumber && it.canConvertToInt() }?.intValue() ?: throw IllegalArgumentException(), body.toRequestValue()))
+        val actor = actor(cookie)
+        val requestKey = requireNotNull(key)
+        require(body.get("expectedRevision")?.let { it.isIntegralNumber && it.canConvertToInt() } == true)
+        AssessmentPolicy.writer(actor.role, actor.active)
+        val published = publishAssessment.publish(requests.publish(actor, id, requestKey, body))
+        AssessmentRepresentation.response(published)
     }
 
-    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
+    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(cookie)
 }

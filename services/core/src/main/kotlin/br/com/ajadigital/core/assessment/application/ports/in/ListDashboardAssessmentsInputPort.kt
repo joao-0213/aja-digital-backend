@@ -1,10 +1,8 @@
 package br.com.ajadigital.core.assessment.application.ports.`in`
-import br.com.ajadigital.core.assessment.application.models.*
 
-import br.com.ajadigital.core.assessment.application.models.ListDashboardAssessmentsDto
-
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.assessment.application.contracts.DashboardAssessment
+import br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery
 
 interface ListDashboardAssessmentsInputPort {
-    fun dashboardAssessments(request: ListDashboardAssessmentsDto): Map<String, Any?>
+    fun dashboardAssessments(query: ListDashboardAssessmentsQuery): List<DashboardAssessment>
 }

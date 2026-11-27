@@ -12,6 +12,8 @@ import com.tngtech.archunit.core.domain.JavaClasses
 internal object CoreContractTypeAnalyzer {
     private val publishedTypes = setOf(
         "br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor",
+        "br.com.ajadigital.core.assessment.application.contracts.DashboardAssessment",
+        "br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery",
         "br.com.ajadigital.core.curriculum.application.contracts.ListSubjectsQuery",
         "br.com.ajadigital.core.curriculum.application.contracts.SubjectSummary",
         "br.com.ajadigital.core.curriculum.application.contracts.Subject",

@@ -1,8 +1,6 @@
 package br.com.ajadigital.core.assessment.application.usecases
 import br.com.ajadigital.core.assessment.application.models.*
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentStoreCreateDto
-
 import br.com.ajadigital.core.assessment.domain.models.SubmissionStoreCreateDto
 
 import br.com.ajadigital.core.assessment.application.models.CreateSubmissionDto

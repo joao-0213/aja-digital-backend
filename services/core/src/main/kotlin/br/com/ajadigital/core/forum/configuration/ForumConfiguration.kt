@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.forum.configuration
 
-import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProviderOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.CreateTopicInputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.GetTopicInputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.ListDashboardTopicsInputPort

@@ -1,19 +1,35 @@
 package br.com.ajadigital.core.shared.adapters.out.transaction
 
+import br.com.ajadigital.core.assessment.domain.models.AssessmentKind
 import br.com.ajadigital.core.forum.domain.models.*
 import br.com.ajadigital.core.forum.application.models.*
+import br.com.ajadigital.core.shared.application.contracts.FieldChange
 import br.com.ajadigital.core.shared.domain.models.SaveIdempotencyDto
+import br.com.ajadigital.core.assessment.application.models.AssessmentReceiptKey
 import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
 import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
+import br.com.ajadigital.core.assessment.application.contracts.DashboardAssessment
+import br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery
 import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
-import br.com.ajadigital.core.assessment.application.models.CreateAssessmentDto
-import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentDto
-import br.com.ajadigital.core.assessment.domain.models.AssessmentPage
+import br.com.ajadigital.core.assessment.application.models.AssessmentChanges
+import br.com.ajadigital.core.assessment.application.models.AssessmentDetails
+import br.com.ajadigital.core.assessment.application.models.AssessmentQuestionSelections
+import br.com.ajadigital.core.assessment.application.models.AssessmentResults
+import br.com.ajadigital.core.assessment.application.models.CreateAssessmentRecord
+import br.com.ajadigital.core.assessment.application.models.CreateAssessmentCommand
+import br.com.ajadigital.core.assessment.application.models.PublishAssessmentCommand
+import br.com.ajadigital.core.assessment.application.models.QuestionSnapshotQuery
+import br.com.ajadigital.core.assessment.application.models.GetAssessmentQuery
+import br.com.ajadigital.core.assessment.application.models.ListAssessmentsQuery
+import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentCommand
+import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentRecord
+import br.com.ajadigital.core.assessment.application.ports.out.AssessmentReadOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.AssessmentWriteOutputPort
 import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestion
 import br.com.ajadigital.core.assessment.domain.models.BankQuestionSnapshot
 import br.com.ajadigital.core.assessment.domain.models.*
 import br.com.ajadigital.core.assessment.domain.ports.out.*
-import br.com.ajadigital.core.assessment.domain.ports.out.QuestionSnapshotProviderOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
 import br.com.ajadigital.core.assessment.application.usecases.CreateAssessmentUseCase
 import br.com.ajadigital.core.assessment.application.usecases.UpdateAssessmentUseCase
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
@@ -59,7 +75,7 @@ class SpringTransactionRunnerTests {
             }
         }
         val snapshots = object : QuestionSnapshotProviderOutputPort {
-            override fun snapshots(request: br.com.ajadigital.core.assessment.domain.models.QuestionSnapshotProviderSnapshotsDto): List<BankQuestionSnapshot> { val (ids) = request; snapshotInTx = inTx; return ids.map { id -> BankQuestionSnapshot(id, 1, "hash-$id", "Math", "Algebra", "easy", "ENEM", 2025, "Q?", listOf("A", "B"), 0, "Exp", null) } }
+            override fun snapshots(request: br.com.ajadigital.core.assessment.application.models.QuestionSnapshotQuery): List<BankQuestionSnapshot> { val ids = request.ids; snapshotInTx = inTx; return ids.map { id -> BankQuestionSnapshot(id, 1, "hash-$id", "Math", "Algebra", "easy", "ENEM", 2025, "Q?", listOf("A", "B"), 0, "Exp", null) } }
         }
         val store = object : TopicStoreOutputPort {
             override fun authorizeAndFindReplay(request: AuthorizeAndFindTopicReplayDto): Map<String, Any?>? = null
@@ -89,34 +105,49 @@ class SpringTransactionRunnerTests {
     }
 
     @Test
-    fun `ManageAssessments create and update call question snapshots without TransactionRunnerOutputPort`() {
-        var snapshotCalls = 0
+    fun `assessment create and update capture questions before the atomic write`() {
+        val calls = mutableListOf<String>()
         val snapshots = object : QuestionSnapshotProviderOutputPort {
-            override fun snapshots(request: br.com.ajadigital.core.assessment.domain.models.QuestionSnapshotProviderSnapshotsDto): List<BankQuestionSnapshot> { val (ids) = request; snapshotCalls++; return ids.map { id -> BankQuestionSnapshot(id, 1, "a".repeat(64), "Math", "Algebra", "easy", "ENEM", 2025, "Q?", listOf("A", "B"), 0, "Exp", null) } }
+            override fun snapshots(request: QuestionSnapshotQuery): List<BankQuestionSnapshot> {
+                calls += "fetch"
+                return request.ids.map { id ->
+                    BankQuestionSnapshot(id, 1, "a".repeat(64), "Math", "Algebra", "easy", "ENEM", 2025, "Q?", listOf("A", "B"), 0, "Exp", null)
+                }
+            }
         }
-        val store = object : AssessmentStoreOutputPort {
-            override fun authorizeWrite(request: br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAuthorizeWriteDto): Unit {}
-            override fun create(request: br.com.ajadigital.core.assessment.domain.models.AssessmentStoreCreateDto): Map<String, Any?> = mapOf("id" to "assess-1")
-            override fun update(request: br.com.ajadigital.core.assessment.domain.models.AssessmentStoreUpdateDto): Map<String, Any?>? = mapOf("id" to request.id, "revision" to 2)
-            override fun publish(request: br.com.ajadigital.core.assessment.domain.models.AssessmentStorePublishDto): Map<String, Any?>? = throw UnsupportedOperationException()
-            override fun assessment(request: br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAssessmentDto): Map<String, Any?>? = mapOf("id" to request.id, "revision" to 1, "moduleId" to "mod-1", "title" to "Quiz", "description" to "Desc", "kind" to "quiz", "maxGrade" to 10.0, "deadline" to null, "required" to true, "allowLate" to false, "questionIds" to listOf("q-1"))
-            override fun assessments(request: br.com.ajadigital.core.assessment.domain.models.AssessmentStoreAssessmentsDto): AssessmentPage = throw UnsupportedOperationException()
-            override fun dashboardAssessments(request: br.com.ajadigital.core.assessment.domain.models.AssessmentStoreDashboardAssessmentsDto): AssessmentPage = throw UnsupportedOperationException()
-            override fun pendingStudentCount(request: br.com.ajadigital.core.assessment.domain.models.AssessmentStorePendingStudentCountDto): Int = throw UnsupportedOperationException()
+        val draft = AssessmentDraft("mod-1", "Quiz", "Desc", AssessmentKind.QUIZ, 10.0, null, true, false)
+        val record = AssessmentRecord("assess-1", 1, Instant.EPOCH, Instant.EPOCH, null, draft, AssessmentState.Draft)
+        val store = object : AssessmentReadOutputPort, AssessmentWriteOutputPort {
+            override fun authorizeWrite(actor: AuthenticatedActor, moduleId: String) { calls += "authorize" }
+            override fun replay(request: AssessmentReceiptKey): AssessmentDetails.Staff? = null
+            override fun create(request: CreateAssessmentRecord): AssessmentDetails.Staff {
+                calls += "create"
+                assertEquals("q-1", request.questions.single().id)
+                return AssessmentDetails.Staff(record, emptyList(), false)
+            }
+            override fun update(request: UpdateAssessmentRecord): AssessmentDetails.Staff {
+                calls += "update"
+                assertEquals("q-2", request.questions?.single()?.id)
+                return AssessmentDetails.Staff(record.copy(revision = 2), emptyList(), false)
+            }
+            override fun publish(request: PublishAssessmentCommand): AssessmentDetails.Staff? = error("Not used")
+            override fun assessment(request: GetAssessmentQuery): AssessmentDetails.Staff = AssessmentDetails.Staff(record, emptyList(), false)
+            override fun assessments(request: ListAssessmentsQuery): AssessmentResults = error("Not used")
+            override fun dashboardAssessments(query: ListDashboardAssessmentsQuery): List<DashboardAssessment> = error("Not used")
+            override fun pendingStudentCount(actor: AuthenticatedActor): Int = error("Not used")
         }
-        val idempotency = object : IdempotencyStoreOutputPort {
-            override fun find(request: FindIdempotencyDto): Map<String, Any?>? = null
-            override fun save(request: SaveIdempotencyDto) {}
-        }
+        fun bank(id: String) = AssessmentQuestionSelections(listOf(AssessmentQuestionSelections.Selection.Bank(id)))
 
-        val createUseCase = CreateAssessmentUseCase(store, snapshots, idempotency, serializer)
-        val updateUseCase = UpdateAssessmentUseCase(store, snapshots, idempotency, serializer)
-        val createBody = mapper.readTree("""{"moduleId":"mod-1","title":"Quiz","description":"Desc","kind":"quiz","maxGrade":10,"deadline":null,"required":true,"allowLate":false,"questions":[{"source":"bank","questionId":"q-1"}]}""")
-        val updateBody = mapper.readTree("""{"expectedRevision":1,"confirmResetDrafts":true,"questions":[{"source":"bank","questionId":"q-2"}]}""")
-
-        assertEquals("assess-1", createUseCase.create(CreateAssessmentDto(teacher, "idem-create-1234", createBody.toRequestValue()))["id"])
-        assertEquals(2, updateUseCase.update(UpdateAssessmentDto(teacher, "assess-1", "idem-update-1234", updateBody.toRequestValue()))["revision"])
-        assertEquals(2, snapshotCalls)
+        val createUseCase = CreateAssessmentUseCase(store, snapshots)
+        val updateUseCase = UpdateAssessmentUseCase(store, store, snapshots)
+        val created = createUseCase.create(CreateAssessmentCommand(teacher, "idem-create-1234", "a".repeat(64), draft, bank("q-1")))
+        val updated = updateUseCase.update(UpdateAssessmentCommand(
+            teacher, created.record.id, "idem-update-1234", "b".repeat(64), 1,
+            AssessmentChanges(), FieldChange.Set(bank("q-2")), true,
+        ))
+        assertEquals("assess-1", created.record.id)
+        assertEquals(2, updated.record.revision)
+        assertEquals(listOf("authorize", "fetch", "create", "authorize", "fetch", "update"), calls)
     }
 
     @Test
@@ -208,7 +239,7 @@ class SpringTransactionRunnerTests {
             override fun withdrawReply(request: WithdrawTopicReplyRecordDto): Map<String, Any?>? = null
         }
         val snapshots = object : QuestionSnapshotProviderOutputPort {
-            override fun snapshots(request: br.com.ajadigital.core.assessment.domain.models.QuestionSnapshotProviderSnapshotsDto): List<BankQuestionSnapshot> = emptyList()
+            override fun snapshots(request: br.com.ajadigital.core.assessment.application.models.QuestionSnapshotQuery): List<BankQuestionSnapshot> = emptyList()
         }
         val failingIdempotency = object : IdempotencyStoreOutputPort {
             override fun find(request: FindIdempotencyDto): Map<String, Any?>? {

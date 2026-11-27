@@ -1,10 +1,8 @@
 package br.com.ajadigital.core.assessment.application.ports.`in`
-import br.com.ajadigital.core.assessment.application.models.*
 
-import br.com.ajadigital.core.assessment.application.models.GetAssessmentDto
-
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.assessment.application.models.AssessmentDetails
+import br.com.ajadigital.core.assessment.application.models.GetAssessmentQuery
 
 interface GetAssessmentInputPort {
-    fun assessment(request: GetAssessmentDto): Map<String, Any?>
+    fun assessment(request: GetAssessmentQuery): AssessmentDetails
 }

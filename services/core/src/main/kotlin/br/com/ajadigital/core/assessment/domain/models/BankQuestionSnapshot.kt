@@ -1,8 +1,8 @@
 package br.com.ajadigital.core.assessment.domain.models
 
+import java.util.Collections
 
-
-data class BankQuestionSnapshot(
+class BankQuestionSnapshot(
     val questionId: String,
     val revision: Int,
     val contentHash: String,
@@ -12,8 +12,10 @@ data class BankQuestionSnapshot(
     val institution: String,
     val year: Int,
     val statement: String,
-    val options: List<String>,
+    options: List<String>,
     val correctOption: Int,
     val explanation: String,
     val image: BankQuestionImage?,
-)
+) {
+    val options: List<String> = Collections.unmodifiableList(options.toList())
+}
