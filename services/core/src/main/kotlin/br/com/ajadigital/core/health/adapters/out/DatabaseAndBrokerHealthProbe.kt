@@ -1,7 +1,6 @@
 package br.com.ajadigital.core.health.adapters.out
 
-import br.com.ajadigital.core.health.domain.ports.out.HealthProbeOutputPort
-import br.com.ajadigital.core.health.domain.models.HealthProbeDto
+import br.com.ajadigital.core.health.application.ports.out.HealthProbeOutputPort
 import org.springframework.stereotype.Component
 import org.springframework.amqp.rabbit.connection.ConnectionFactory
 import javax.sql.DataSource
@@ -11,7 +10,7 @@ class DatabaseAndBrokerHealthProbe(
     private val dataSource: DataSource,
     private val rabbitConnectionFactory: ConnectionFactory,
 ) : HealthProbeOutputPort {
-    override fun dependenciesAvailable(request: HealthProbeDto): Boolean {
+    override fun dependenciesAvailable(): Boolean {
         val databaseAvailable = runCatching { dataSource.connection.use { it.isValid(1) } }.getOrDefault(false)
         val brokerAvailable = runCatching {
             rabbitConnectionFactory.createConnection().use { connection ->

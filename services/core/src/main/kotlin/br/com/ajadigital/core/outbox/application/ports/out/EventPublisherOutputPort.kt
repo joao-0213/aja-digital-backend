@@ -1,4 +1,4 @@
-package br.com.ajadigital.core.outbox.domain.ports.out
+package br.com.ajadigital.core.outbox.application.ports.out
 
 import br.com.ajadigital.core.outbox.domain.models.PendingOutboxEvent
 import br.com.ajadigital.core.outbox.domain.models.PublishEventDto

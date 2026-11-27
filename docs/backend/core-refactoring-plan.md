@@ -1,6 +1,6 @@
 # Core refactoring plan
 
-**Status (2026-11-17):** R-00 through R-06 are recorded as verified in their evidence documents; R-07 through R-09 remain pending. Phases 0 through 5 are therefore complete only to the extent covered by those recorded issues; phases 6 and 7 remain pending. These are historical issue records, not proof that the current worktree has no later drift. The user has authorized execution under [core-golden-path-orchestration-prompt.md](core-golden-path-orchestration-prompt.md); the resumable local issue order and current baseline are in [core-golden-path-issues.md](core-golden-path-issues.md) and [core-golden-path-execution.md](core-golden-path-execution.md). Core execution decisions D-01–D-12 in that prompt supersede only incompatible older Core package/DTO/helper conventions; public/private contracts and migration constraints remain binding. Current API and service contracts remain governed by [ARQUITETURA.md](../../ARQUITETURA.md), [docs/backend/operation-ownership.md](operation-ownership.md), issue acceptance criteria, and [docs/http/openapi.json](../http/openapi.json). Target package rules are in [ARCHITECTURE.md](../../ARCHITECTURE.md).
+**Status (2026-11-17):** R-00 through R-07 are recorded as verified in their evidence documents. R-08 and R-09 remain pending. Phases 0 through 5 are therefore complete only to the extent covered by those recorded issues; phases 6 and 7 remain pending. These are historical issue records, not proof that the current worktree has no later drift. The user has authorized execution under [core-golden-path-orchestration-prompt.md](core-golden-path-orchestration-prompt.md); the resumable local issue order and current baseline are in [core-golden-path-issues.md](core-golden-path-issues.md) and [core-golden-path-execution.md](core-golden-path-execution.md). Core execution decisions D-01–D-12 in that prompt supersede only incompatible older Core package/DTO/helper conventions; public/private contracts and migration constraints remain binding. Current API and service contracts remain governed by [ARQUITETURA.md](../../ARQUITETURA.md), [docs/backend/operation-ownership.md](operation-ownership.md), issue acceptance criteria, and [docs/http/openapi.json](../http/openapi.json). Target package rules are in [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
 ## Scope and constraints
 
@@ -289,7 +289,7 @@ Each type gets its own file. Split related request/response DTOs, exception type
 
 ### R-07 — Isolate shared support and cross-cutting boundaries
 
-**Implements:** phase 5, support part. **Depends on:** R-06. **Status:** all criteria **pending**.
+**Implements:** phase 5, support part. **Depends on:** R-06. **Status:** verified in [GP-05 evidence](core-golden-path-gp05-evidence.md).
 
 **Scope:** consolidate cross-feature technical capabilities under `shared/`:
 
@@ -320,7 +320,7 @@ Verify `health/` feature has its complete adapter structure (controller, use cas
 
 **Acceptance criteria:**
 
-- **Pending:** `shared/` contains only cross-feature technical capabilities, no domain rules; `OriginFilter` is outside the pure functional core; health feature has complete adapter structure; features that use `TransactionRunner` or `IdempotencyStore` depend on the shared ports, not implementations; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes.
+- **Verified:** `shared/` contains only cross-feature technical capabilities, no domain rules; `OriginFilter` is outside the pure functional core; health feature has complete adapter structure; features that use `TransactionRunner` or `IdempotencyStore` depend on the shared ports, not implementations; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes.
 
 ---
 

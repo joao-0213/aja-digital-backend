@@ -9,8 +9,8 @@ import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventPublishedDto
 import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventFailedDto
 import br.com.ajadigital.core.outbox.domain.models.RedriveStoredOutboxEventDto
 import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
-import br.com.ajadigital.core.outbox.domain.ports.out.EventPublisherOutputPort
-import br.com.ajadigital.core.outbox.domain.ports.out.OutboxRepositoryOutputPort
+import br.com.ajadigital.core.outbox.application.ports.out.EventPublisherOutputPort
+import br.com.ajadigital.core.outbox.application.ports.out.OutboxRepositoryOutputPort
 import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -51,12 +51,14 @@ class PublishPendingEventsTests {
         val event2 = PendingOutboxEvent("id-2", "identity.student.registered", 1, "key-1", ByteArray(12), ByteArray(16), 4)
         val failures = mutableListOf<Triple<String, Int, Instant?>>()
         val nextAttempts = mutableMapOf<String, Instant>()
+        val lastErrors = mutableMapOf<String, String>()
         val repo = object : OutboxRepositoryOutputPort {
             override fun claimPending(request: ClaimPendingOutboxEventsDto) = listOf(event1, event2)
             override fun markPublished(request: MarkOutboxEventPublishedDto) = Unit
             override fun markFailedAttempt(request: MarkOutboxEventFailedDto) {
                 failures += Triple(request.id, request.attemptCount, request.failedAt)
                 nextAttempts[request.id] = request.nextAttemptAt
+                lastErrors[request.id] = request.lastError
             }
             override fun redrive(request: RedriveStoredOutboxEventDto) = false
         }
@@ -70,9 +72,11 @@ class PublishPendingEventsTests {
         assertEquals(1, failures[0].second)
         assertNull(failures[0].third)
         assertEquals(now.plusSeconds(1), nextAttempts["id-1"])
+        assertEquals("IllegalStateException", lastErrors["id-1"])
 
         assertEquals(5, failures[1].second)
         assertEquals(now, failures[1].third)
         assertEquals(now.plusSeconds(16), nextAttempts["id-2"])
+        assertEquals("IllegalStateException", lastErrors["id-2"])
     }
 }

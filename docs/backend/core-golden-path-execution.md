@@ -175,3 +175,7 @@ The Ponytail follow-up removed the unused session reference from five store quer
 ## GP-04.9 — Dashboard
 
 **Status: GP-04.9 complete.** [GP-04.9 evidence](core-golden-path-gp049-evidence.md) records the typed read composition, source query inventory, full Core gate and independent reviews.
+
+## GP-05 — Health, web boundaries and outbox
+
+**Status: GP-05 complete.** [GP-05 evidence](core-golden-path-gp05-evidence.md) records the current health, Origin, error and outbox checks and independent reviews.

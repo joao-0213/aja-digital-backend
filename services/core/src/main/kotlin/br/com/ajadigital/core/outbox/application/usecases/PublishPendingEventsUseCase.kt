@@ -9,8 +9,8 @@ import br.com.ajadigital.core.outbox.domain.models.ClaimPendingOutboxEventsDto
 import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventPublishedDto
 import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventFailedDto
 import br.com.ajadigital.core.outbox.application.ports.`in`.PublishPendingEventsInputPort
-import br.com.ajadigital.core.outbox.domain.ports.out.EventPublisherOutputPort
-import br.com.ajadigital.core.outbox.domain.ports.out.OutboxRepositoryOutputPort
+import br.com.ajadigital.core.outbox.application.ports.out.EventPublisherOutputPort
+import br.com.ajadigital.core.outbox.application.ports.out.OutboxRepositoryOutputPort
 import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
 import java.time.Clock
 import java.time.Instant

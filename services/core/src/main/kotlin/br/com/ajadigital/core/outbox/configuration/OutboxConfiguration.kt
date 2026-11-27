@@ -8,10 +8,10 @@ import br.com.ajadigital.core.outbox.adapters.out.security.AesGcmOutboxPayloadPr
 import br.com.ajadigital.core.outbox.application.ports.`in`.PublishPendingEventsInputPort
 import br.com.ajadigital.core.outbox.application.ports.`in`.RedriveOutboxEventInputPort
 import br.com.ajadigital.core.outbox.application.ports.`in`.OutboxEventProducerInputPort
-import br.com.ajadigital.core.outbox.domain.ports.out.EventPublisherOutputPort
+import br.com.ajadigital.core.outbox.application.ports.out.EventPublisherOutputPort
 import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
 import br.com.ajadigital.core.outbox.application.ports.out.InsertOutboxEventOutputPort
-import br.com.ajadigital.core.outbox.domain.ports.out.OutboxRepositoryOutputPort
+import br.com.ajadigital.core.outbox.application.ports.out.OutboxRepositoryOutputPort
 import br.com.ajadigital.core.outbox.application.usecases.PublishPendingEventsUseCase
 import br.com.ajadigital.core.outbox.application.usecases.RedriveOutboxEventUseCase
 import br.com.ajadigital.core.outbox.application.usecases.OutboxEventProducerUseCase

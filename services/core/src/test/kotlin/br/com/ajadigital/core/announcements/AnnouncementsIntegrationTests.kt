@@ -250,6 +250,11 @@ class AnnouncementsIntegrationTests : CoreIntegrationTestBase() {
                 """{"classId":"$classId","subjectId":null,"title":"Rollback","body":"No orphan","notify":true,"occurrence":null}""",
                 key)
             assertEquals(500, response.statusCode(), response.body())
+            val error = tools.jackson.databind.json.JsonMapper.builder().build().readTree(response.body()).get("error")
+            assertEquals("PERSISTENCE_FAILED", error.get("code").asText())
+            assertEquals("Request could not be completed", error.get("message").asText())
+            assertTrue(error.get("requestId").asText().isNotBlank())
+            assertFalse(response.body().contains("forced announcement outbox failure"))
             assertEquals(before, jdbc.queryForObject("SELECT count(*) FROM core.announcements", Int::class.java))
             assertEquals(beforeRecipients, jdbc.queryForObject("SELECT count(*) FROM core.announcement_notification_recipients", Int::class.java))
             assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM core.command_idempotency WHERE actor_id=? AND operation='createAnnouncement' AND idempotency_key=?", Int::class.java, teacherId, key))
