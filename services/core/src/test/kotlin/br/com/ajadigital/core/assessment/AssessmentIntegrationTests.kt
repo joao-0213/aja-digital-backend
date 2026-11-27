@@ -448,6 +448,18 @@ class AssessmentIntegrationTests : CoreIntegrationTestBase() {
             cookie(Cookie("aja_session", studentCookie))
             content = """{"assessmentId":"$assessmentId"}"""
         }.andExpect { status { isCreated() } }.andReturn()
+        val replayedStart = mvc.post("/api/v1/attempts") {
+            contentType = org.springframework.http.MediaType.APPLICATION_JSON
+            header("Origin", "https://aja.example.test")
+            header("Idempotency-Key", startKey)
+            cookie(Cookie("aja_session", studentCookie))
+            content = """{"assessmentId":"$assessmentId"}"""
+        }.andExpect { status { isCreated() } }.andReturn()
+        assertEquals(started.response.contentAsString, replayedStart.response.contentAsString)
+        assertEquals(started.response.contentAsString, jdbc.queryForObject(
+            "SELECT response_body FROM core.command_idempotency WHERE actor_id=? AND operation='startAttempt' AND idempotency_key=?",
+            String::class.java, studentId, startKey,
+        ))
         val attemptId = tools.jackson.databind.json.JsonMapper.builder().build().readTree(started.response.contentAsString).get("id").asText()
         mvc.post("/api/v1/attempts") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
@@ -587,6 +599,7 @@ class AssessmentIntegrationTests : CoreIntegrationTestBase() {
         pool.shutdownNow()
         assertEquals(listOf(200, 200), responses.map { it.response.status }.sorted())
         val result = tools.jackson.databind.json.JsonMapper.builder().build().readTree(responses.first().response.contentAsString)
+        assertEquals(responses.first().response.contentAsString, responses.last().response.contentAsString)
         val receiptId = result.get("receipt").get("id").asText()
         assertEquals(receiptId, tools.jackson.databind.json.JsonMapper.builder().build().readTree(responses.last().response.contentAsString).get("receipt").get("id").asText())
         assertEquals(10.0, result.get("score").doubleValue())
@@ -602,13 +615,21 @@ class AssessmentIntegrationTests : CoreIntegrationTestBase() {
             content = """{"expectedRevision":2,"confirmResetDrafts":true,"questions":[$changedAfterSubmit]}"""
         }.andExpect { status { isConflict() } }
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.attempts WHERE id=? AND submitted_at IS NOT NULL AND receipt_id=?", Int::class.java, attemptId, receiptId))
-        mvc.post("/api/v1/attempts/$attemptId/submit") {
+        val submittedReplay = mvc.post("/api/v1/attempts/$attemptId/submit") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")
             header("Idempotency-Key", submitKey)
             cookie(Cookie("aja_session", studentCookie))
             content = body
-        }.andExpect { status { isOk() }; jsonPath("$.receipt.id") { value(receiptId) } }
+        }.andExpect { status { isOk() }; jsonPath("$.receipt.id") { value(receiptId) } }.andReturn()
+        assertEquals(responses.first().response.contentAsString, submittedReplay.response.contentAsString)
+        assertEquals(submittedReplay.response.contentAsString, jdbc.queryForObject(
+            "SELECT response_body FROM core.command_idempotency WHERE actor_id=? AND operation='submitAttempt' AND idempotency_key=?",
+            String::class.java, studentId, submitKey,
+        ))
+        val replaySnapshot = tools.jackson.databind.json.JsonMapper.builder().build().readTree(submittedReplay.response.contentAsString).at("/questions/0")
+        assertTrue(replaySnapshot.has("image") && replaySnapshot.get("image").isNull)
+        assertTrue(replaySnapshot.has("correct"))
         mvc.post("/api/v1/attempts/$attemptId/submit") {
             contentType = org.springframework.http.MediaType.APPLICATION_JSON
             header("Origin", "https://aja.example.test")

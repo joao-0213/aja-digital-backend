@@ -1,6 +1,5 @@
 package br.com.ajadigital.core.assessment.application.models
 
-import br.com.ajadigital.core.assessment.domain.models.*
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
-data class GetAttemptResultDto(val actor: AuthenticatedActor, val id: String)
+data class StartAttemptCommand(val actor: AuthenticatedActor, val key: String, val body: StartAttemptBody?, val requestHash: String)

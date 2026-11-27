@@ -1,17 +1,20 @@
 package br.com.ajadigital.core.assessment.adapters.`in`.controllers
 import br.com.ajadigital.core.assessment.application.models.*
+import br.com.ajadigital.core.assessment.adapters.serialization.AttemptRepresentation
+import br.com.ajadigital.core.assessment.domain.policies.AttemptPolicy
+import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 
-import br.com.ajadigital.core.assessment.application.models.SubmitAttemptDto
+import br.com.ajadigital.core.assessment.application.models.SubmitAttemptCommand
 
-import br.com.ajadigital.core.assessment.application.models.StartAttemptDto
+import br.com.ajadigital.core.assessment.application.models.StartAttemptCommand
 
-import br.com.ajadigital.core.assessment.application.models.SaveAttemptAnswersDto
+import br.com.ajadigital.core.assessment.application.models.SaveAttemptAnswersCommand
 
-import br.com.ajadigital.core.assessment.application.models.ListAttemptsDto
+import br.com.ajadigital.core.assessment.application.models.ListAttemptsQuery
 
-import br.com.ajadigital.core.assessment.application.models.GetAttemptResultDto
+import br.com.ajadigital.core.assessment.application.models.GetAttemptResultQuery
 
-import br.com.ajadigital.core.assessment.application.models.GetAttemptDto
+import br.com.ajadigital.core.assessment.application.models.GetAttemptQuery
 
 import br.com.ajadigital.core.assessment.application.ports.`in`.GetAttemptResultInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.GetAttemptInputPort
@@ -45,6 +48,7 @@ class AttemptController(
     private val saveAttemptAnswers: SaveAttemptAnswersInputPort,
     private val submitAttempt: SubmitAttemptInputPort,
     private val getAttemptResult: GetAttemptResultInputPort,
+    private val serializer: JsonSerializerOutputPort,
 ) {
     @GetMapping("/api/v1/attempts")
     fun attempts(
@@ -57,38 +61,74 @@ class AttemptController(
         request: HttpServletRequest,
     ): Map<String, Any?> {
         require(request.parameterMap.keys.all { it in setOf("page", "pageSize", "sort", "assessmentId", "studentId") })
-        return listAttempts.attempts(ListAttemptsDto(actor(cookie), page.toIntOrNull() ?: throw IllegalArgumentException(), pageSize.toIntOrNull() ?: throw IllegalArgumentException(), sort, assessmentId, studentId))
+        val found = listAttempts.attempts(ListAttemptsQuery(actor(cookie), page.toIntOrNull() ?: throw IllegalArgumentException(), pageSize.toIntOrNull() ?: throw IllegalArgumentException(), sort, assessmentId, studentId))
+        return AttemptRepresentation.page(found)
     }
 
     @PostMapping("/api/v1/attempts")
     fun start(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: JsonNode, request: HttpServletRequest): ResponseEntity<Any> {
         require(request.parameterMap.isEmpty())
-        return ResponseEntity.status(HttpStatus.CREATED).body(startAttempt.start(StartAttemptDto(actor(cookie), key ?: throw IllegalArgumentException(), body.toRequestValue())))
+        val actor = actor(cookie)
+        val idempotencyKey = key ?: throw IllegalArgumentException()
+        val value = body.toRequestValue()
+        val parsed = value as? Map<*, *>
+        val commandBody = parsed?.let { StartAttemptBody(it["assessmentId"] as? String, fieldsMatch(it, setOf("assessmentId"))) }
+        val hash = AttemptPolicy.hash(serializer, value)
+        return ResponseEntity.status(HttpStatus.CREATED).body(AttemptRepresentation.attempt(startAttempt.start(StartAttemptCommand(actor, idempotencyKey, commandBody, hash))))
     }
 
     @GetMapping("/api/v1/attempts/{id}")
     fun attempt(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, request: HttpServletRequest): Map<String, Any?> {
         require(request.parameterMap.isEmpty())
-        return getAttempt.attempt(GetAttemptDto(actor(cookie), id))
+        return AttemptRepresentation.attempt(getAttempt.attempt(GetAttemptQuery(actor(cookie), id)))
     }
 
     @PatchMapping("/api/v1/attempts/{id}/answers")
     fun saveAnswers(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: JsonNode, request: HttpServletRequest): Map<String, Any?> {
         require(request.parameterMap.isEmpty())
-        return saveAttemptAnswers.saveAnswers(SaveAttemptAnswersDto(actor(cookie), id, body.toRequestValue()))
+        val actor = actor(cookie)
+        val value = body.toRequestValue()
+        val parsed = value as? Map<*, *>
+        val commandBody = parsed?.let {
+            val rawAnswers = it["answers"] as? Map<*, *>
+            var answersValid = rawAnswers != null
+            val answers = LinkedHashMap<String, Int?>()
+            rawAnswers?.forEach { (rawId, rawAnswer) ->
+                val questionId = rawId as? String
+                val answer = if (rawAnswer == null) null else AttemptPolicy.integerValue(rawAnswer)?.takeIf { index -> index >= 0 }
+                if (questionId == null || rawAnswer != null && answer == null) answersValid = false
+                else answers[questionId] = answer
+            }
+            SaveAttemptAnswersBody(
+                expectedRevision = AttemptPolicy.integerValue(it["expectedRevision"]),
+                answers = answers.takeIf { answersValid },
+                fieldsValid = fieldsMatch(it, setOf("expectedRevision", "answers")),
+                answersValid = answersValid,
+            )
+        }
+        return AttemptRepresentation.attempt(saveAttemptAnswers.saveAnswers(SaveAttemptAnswersCommand(actor, id, commandBody)))
     }
 
     @PostMapping("/api/v1/attempts/{id}/submit")
     fun submit(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestHeader(name = "Idempotency-Key", required = false) key: String?, @RequestBody body: JsonNode, request: HttpServletRequest): Map<String, Any?> {
         require(request.parameterMap.isEmpty())
-        return submitAttempt.submit(SubmitAttemptDto(actor(cookie), id, key ?: throw IllegalArgumentException(), body.toRequestValue()))
+        val actor = actor(cookie)
+        val idempotencyKey = key ?: throw IllegalArgumentException()
+        val value = body.toRequestValue()
+        val parsed = value as? Map<*, *>
+        val commandBody = parsed?.let { SubmitAttemptBody(AttemptPolicy.integerValue(it["expectedRevision"]), fieldsMatch(it, setOf("expectedRevision"))) }
+        val hash = AttemptPolicy.hash(serializer, value)
+        return AttemptRepresentation.result(submitAttempt.submit(SubmitAttemptCommand(actor, id, idempotencyKey, commandBody, hash)))
     }
 
     @GetMapping("/api/v1/attempts/{id}/result")
     fun result(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, request: HttpServletRequest): Map<String, Any?> {
         require(request.parameterMap.isEmpty())
-        return getAttemptResult.result(GetAttemptResultDto(actor(cookie), id))
+        return AttemptRepresentation.result(getAttemptResult.result(GetAttemptResultQuery(actor(cookie), id)))
     }
 
     private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
+
+    private fun fieldsMatch(fields: Map<*, *>, expected: Set<String>) = fields.keys.filterIsInstance<String>().toSet() == expected
+
 }

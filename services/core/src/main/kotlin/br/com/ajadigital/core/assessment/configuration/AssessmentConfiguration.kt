@@ -24,7 +24,7 @@ import br.com.ajadigital.core.assessment.application.ports.`in`.UpdateAssessment
 import br.com.ajadigital.core.assessment.application.ports.`in`.UpdateSubmissionInputPort
 import br.com.ajadigital.core.assessment.application.ports.out.AssessmentReadOutputPort
 import br.com.ajadigital.core.assessment.application.ports.out.AssessmentWriteOutputPort
-import br.com.ajadigital.core.assessment.domain.ports.out.AttemptStoreOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.AttemptStoreOutputPort
 import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
 import br.com.ajadigital.core.assessment.domain.ports.out.SubmissionStoreOutputPort
 import br.com.ajadigital.core.assessment.application.usecases.CheckPracticeBlockedUseCase
@@ -85,7 +85,7 @@ class AssessmentConfiguration {
     fun checkPracticeBlocked(store: AttemptStoreOutputPort): CheckPracticeBlockedInputPort = CheckPracticeBlockedUseCase(store)
 
     @Bean
-    fun startAttempt(store: AttemptStoreOutputPort, mapper: JsonSerializerOutputPort): StartAttemptInputPort = StartAttemptUseCase(store, mapper)
+    fun startAttempt(store: AttemptStoreOutputPort): StartAttemptInputPort = StartAttemptUseCase(store)
 
     @Bean
     fun listAttempts(store: AttemptStoreOutputPort): ListAttemptsInputPort = ListAttemptsUseCase(store)
@@ -97,7 +97,7 @@ class AssessmentConfiguration {
     fun saveAttemptAnswers(store: AttemptStoreOutputPort): SaveAttemptAnswersInputPort = SaveAttemptAnswersUseCase(store)
 
     @Bean
-    fun submitAttempt(store: AttemptStoreOutputPort, mapper: JsonSerializerOutputPort): SubmitAttemptInputPort = SubmitAttemptUseCase(store, mapper)
+    fun submitAttempt(store: AttemptStoreOutputPort): SubmitAttemptInputPort = SubmitAttemptUseCase(store)
 
     @Bean
     fun getAttemptResult(store: AttemptStoreOutputPort): GetAttemptResultInputPort = GetAttemptResultUseCase(store)

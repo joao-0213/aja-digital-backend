@@ -151,3 +151,7 @@ The Ponytail follow-up removed the unused session reference from five store quer
 ## GP-04.3 — Assessment authoring
 
 **Status: GP-04.3 complete.** [GP-04.3 evidence](core-golden-path-gp043-evidence.md) records authoring contract validation and the independent ECC and database reviews.
+
+## GP-04.4 — Attempts
+
+**Status: GP-04.4 complete.** [GP-04.4 evidence](core-golden-path-gp044-evidence.md) records the contract validation, full test and build gate, and independent reviews.
