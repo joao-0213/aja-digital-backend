@@ -8,5 +8,6 @@ import br.com.ajadigital.core.shared.application.contracts.Page
 
 interface MaterialReadOutputPort {
     fun materials(request: StoreMaterialsQuery): Page<Material>
+
     fun material(request: GetMaterialQuery): MaterialDetail?
 }

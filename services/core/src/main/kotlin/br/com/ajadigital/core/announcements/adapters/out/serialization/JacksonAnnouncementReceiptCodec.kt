@@ -9,15 +9,39 @@ import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 
 @Component
-class JacksonAnnouncementReceiptCodec(private val mapper: ObjectMapper) : AnnouncementReceiptCodecOutputPort {
+class JacksonAnnouncementReceiptCodec(
+    private val mapper: ObjectMapper,
+) : AnnouncementReceiptCodecOutputPort {
     override fun encode(announcement: Announcement): String = mapper.writeValueAsString(announcement)
+
     override fun decode(receipt: String): Announcement {
         val stored = mapper.readValue(receipt, AnnouncementReceipt::class.java)
-        val occurrence = stored.occurrence?.takeUnless(JsonNode::isNull)?.let {
-            if (it.has("time")) AnnouncementOccurrenceProjection.WithTime(it.get("date").asString(), it.get("time")?.takeUnless(JsonNode::isNull)?.asString(), it.get("allDay").booleanValue())
-            else AnnouncementOccurrenceProjection.WithoutTime(it.get("date").asString(), it.get("allDay").booleanValue())
-        }
-        return Announcement(stored.id, stored.revision, stored.createdAt, stored.updatedAt, stored.updatedBy, stored.classId, stored.subjectId, stored.title, stored.body, stored.notify, occurrence, stored.author)
+        val occurrence =
+            stored.occurrence?.takeUnless(JsonNode::isNull)?.let {
+                if (it.has("time")) {
+                    AnnouncementOccurrenceProjection.WithTime(
+                        it.get("date").asString(),
+                        it.get("time")?.takeUnless(JsonNode::isNull)?.asString(),
+                        it.get("allDay").booleanValue(),
+                    )
+                } else {
+                    AnnouncementOccurrenceProjection.WithoutTime(it.get("date").asString(), it.get("allDay").booleanValue())
+                }
+            }
+        return Announcement(
+            stored.id,
+            stored.revision,
+            stored.createdAt,
+            stored.updatedAt,
+            stored.updatedBy,
+            stored.classId,
+            stored.subjectId,
+            stored.title,
+            stored.body,
+            stored.notify,
+            occurrence,
+            stored.author,
+        )
     }
 
     private data class AnnouncementReceipt(

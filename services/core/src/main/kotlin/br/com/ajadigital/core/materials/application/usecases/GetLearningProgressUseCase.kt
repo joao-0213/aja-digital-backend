@@ -8,13 +8,22 @@ import br.com.ajadigital.core.materials.application.ports.out.LearningProgressOu
 import br.com.ajadigital.core.materials.domain.policies.MaterialRules
 import br.com.ajadigital.core.shared.application.contracts.Page
 
-class GetLearningProgressUseCase(private val store: LearningProgressOutputPort) : GetLearningProgressInputPort {
+class GetLearningProgressUseCase(
+    private val store: LearningProgressOutputPort,
+) : GetLearningProgressInputPort {
     override fun progress(request: GetLearningProgressQuery): Page<LearningProgress> {
-        val (actor, page, size, sort, subjectId, materialId) = request
+        val actor = request.actor
+        val page = request.page
+        val size = request.size
+        val sort = request.sort
+        val subjectId = request.subjectId
+        val materialId = request.materialId
         actor.requireReader()
-        require(page > 0 && size in 1..100 && sort != null)
+        require(page > 0 && size in 1..MAX_PAGE_SIZE && sort != null)
         require(subjectId == null || MaterialRules.validId(subjectId))
         require(materialId == null || MaterialRules.validId(materialId))
         return store.progress(StoreProgressQuery(actor, page, size, sort, subjectId, materialId))
     }
 }
+
+private const val MAX_PAGE_SIZE = 100

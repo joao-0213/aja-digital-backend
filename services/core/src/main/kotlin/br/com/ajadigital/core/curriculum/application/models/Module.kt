@@ -1,6 +1,5 @@
 package br.com.ajadigital.core.curriculum.application.models
 
-
 data class Module(
     val id: String,
     val revision: Int,

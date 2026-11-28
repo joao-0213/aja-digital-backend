@@ -6,12 +6,17 @@ import br.com.ajadigital.core.materials.application.models.MaterialDetail
 import br.com.ajadigital.core.materials.application.models.MaterialSubject
 import br.com.ajadigital.core.shared.application.contracts.Page
 
-internal fun <T, R> Page<T>.toResponse(transform: (T) -> R) =
-    mapOf("items" to items.map(transform), "page" to page, "pageSize" to pageSize, "total" to total)
+internal fun <T, R> Page<T>.toResponse(transform: (T) -> R) = mapOf("items" to items.map(transform), "page" to page, "pageSize" to pageSize, "total" to total)
 
 internal fun FileMetadata.toResponse() = mapOf(
-    "id" to id, "name" to name, "size" to size, "mime" to mime, "purpose" to purpose.publicValue,
-    "parentId" to parentId, "status" to status.value, "downloadUrl" to "/api/v1/files/$id/content",
+    "id" to id,
+    "name" to name,
+    "size" to size,
+    "mime" to mime,
+    "purpose" to purpose.publicValue,
+    "parentId" to parentId,
+    "status" to status.value,
+    "downloadUrl" to "/api/v1/files/$id/content",
 )
 
 internal fun Material.toResponse() = mapOf(
@@ -21,7 +26,10 @@ internal fun Material.toResponse() = mapOf(
 )
 
 internal fun MaterialDetail.toResponse() = mapOf(
-    "material" to material.toResponse(), "module" to module, "subject" to subject.toResponse(), "canManageContent" to canManageContent,
+    "material" to material.toResponse(),
+    "module" to module,
+    "subject" to subject.toResponse(),
+    "canManageContent" to canManageContent,
 )
 
 private fun MaterialSubject.toResponse() = mapOf(

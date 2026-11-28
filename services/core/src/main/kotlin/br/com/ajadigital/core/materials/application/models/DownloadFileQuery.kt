@@ -2,4 +2,8 @@ package br.com.ajadigital.core.materials.application.models
 
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
-data class DownloadFileQuery(val actor: AuthenticatedActor, val id: String, val disposition: FileDisposition?)
+data class DownloadFileQuery(
+    val actor: AuthenticatedActor,
+    val id: String,
+    val disposition: FileDisposition?,
+)

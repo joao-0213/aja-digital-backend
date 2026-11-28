@@ -12,10 +12,13 @@ import org.springframework.web.bind.annotation.RestControllerAdvice
 class AnnouncementsExceptionHandler {
     @ExceptionHandler(AnnouncementForbidden::class)
     fun forbidden() = FeatureHttpErrors.forbidden()
+
     @ExceptionHandler(AnnouncementNotFound::class)
     fun notFound() = FeatureHttpErrors.notFound()
+
     @ExceptionHandler(AnnouncementConflict::class)
     fun conflict(exception: AnnouncementConflict) = FeatureHttpErrors.conflict(exception.currentRevision)
+
     @ExceptionHandler(AnnouncementIdempotencyConflict::class)
     fun idempotencyConflict() = FeatureHttpErrors.idempotencyConflict()
 }

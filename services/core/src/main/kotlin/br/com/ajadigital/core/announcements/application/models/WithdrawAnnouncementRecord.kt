@@ -1,3 +1,9 @@
 package br.com.ajadigital.core.announcements.application.models
 
-data class WithdrawAnnouncementRecord(val actorId: String, val role: String, val sessionHash: String, val id: String, val revision: Int)
+data class WithdrawAnnouncementRecord(
+    val actorId: String,
+    val role: String,
+    val sessionHash: String,
+    val id: String,
+    val revision: Int,
+)

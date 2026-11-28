@@ -15,7 +15,11 @@ class UpdateModuleUseCase(
     private val transactionRunner: TransactionRunnerOutputPort,
 ) : UpdateModuleInputPort {
     override fun updateModule(request: UpdateModuleCommand): Module = transactionRunner.run {
-        val (actor, id, revision, titleChange, descriptionChange) = request
+        val actor = request.actor
+        val id = request.id
+        val revision = request.revision
+        val titleChange = request.title
+        val descriptionChange = request.description
         CurriculumPolicy.requireWriterRole(actor.active, actor.role)
         require(revision > 0)
         val title = titleChange.valueOrNull()

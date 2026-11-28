@@ -1,26 +1,26 @@
 package br.com.ajadigital.core.identity.configuration
 
-import br.com.ajadigital.core.outbox.application.ports.`in`.OutboxEventProducerInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.HashPasswordInputPort
 import br.com.ajadigital.core.identity.application.ports.`in`.LoginInputPort
 import br.com.ajadigital.core.identity.application.ports.`in`.LogoutInputPort
-import br.com.ajadigital.core.identity.application.ports.`in`.ResolveSessionInputPort
-import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
 import br.com.ajadigital.core.identity.application.ports.`in`.RegisterStudentInputPort
 import br.com.ajadigital.core.identity.application.ports.`in`.RequestAuthTokenInputPort
 import br.com.ajadigital.core.identity.application.ports.`in`.ResetPasswordInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.ResolveSessionInputPort
 import br.com.ajadigital.core.identity.application.ports.`in`.UpdateOwnProfileInputPort
-import br.com.ajadigital.core.identity.application.ports.`in`.HashPasswordInputPort
 import br.com.ajadigital.core.identity.application.ports.out.IdentityStoreOutputPort
 import br.com.ajadigital.core.identity.application.ports.out.PasswordHasherOutputPort
+import br.com.ajadigital.core.identity.application.usecases.HashPasswordUseCase
 import br.com.ajadigital.core.identity.application.usecases.LoginUseCase
 import br.com.ajadigital.core.identity.application.usecases.LogoutUseCase
-import br.com.ajadigital.core.identity.application.usecases.ResolveSessionUseCase
-import br.com.ajadigital.core.identity.application.usecases.ResolveAuthenticatedActorUseCase
 import br.com.ajadigital.core.identity.application.usecases.RegisterStudentUseCase
 import br.com.ajadigital.core.identity.application.usecases.RequestAuthTokenUseCase
 import br.com.ajadigital.core.identity.application.usecases.ResetPasswordUseCase
+import br.com.ajadigital.core.identity.application.usecases.ResolveAuthenticatedActorUseCase
+import br.com.ajadigital.core.identity.application.usecases.ResolveSessionUseCase
 import br.com.ajadigital.core.identity.application.usecases.UpdateOwnProfileUseCase
-import br.com.ajadigital.core.identity.application.usecases.HashPasswordUseCase
+import br.com.ajadigital.core.outbox.application.ports.`in`.OutboxEventProducerInputPort
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -40,7 +40,7 @@ class IdentityConfiguration {
     fun registerStudent(
         store: IdentityStoreOutputPort,
         hasher: PasswordHasherOutputPort,
-                clock: Clock,
+        clock: Clock,
         encryption: OutboxEventProducerInputPort,
     ): RegisterStudentInputPort = RegisterStudentUseCase(store, hasher, clock, encryption)
 
@@ -52,11 +52,13 @@ class IdentityConfiguration {
     ): LoginInputPort = LoginUseCase(store, hasher, clock)
 
     @Bean
-    fun resolveSession(store: IdentityStoreOutputPort, clock: Clock): ResolveSessionInputPort = ResolveSessionUseCase(store, clock)
+    fun resolveSession(
+        store: IdentityStoreOutputPort,
+        clock: Clock,
+    ): ResolveSessionInputPort = ResolveSessionUseCase(store, clock)
 
     @Bean
-    fun resolveAuthenticatedActor(resolveSession: ResolveSessionInputPort): ResolveAuthenticatedActorInputPort =
-        ResolveAuthenticatedActorUseCase(resolveSession)
+    fun resolveAuthenticatedActor(resolveSession: ResolveSessionInputPort): ResolveAuthenticatedActorInputPort = ResolveAuthenticatedActorUseCase(resolveSession)
 
     @Bean
     fun logout(store: IdentityStoreOutputPort): LogoutInputPort = LogoutUseCase(store)
@@ -64,7 +66,7 @@ class IdentityConfiguration {
     @Bean
     fun requestAuthToken(
         store: IdentityStoreOutputPort,
-                clock: Clock,
+        clock: Clock,
         encryption: OutboxEventProducerInputPort,
     ): RequestAuthTokenInputPort = RequestAuthTokenUseCase(store, clock, encryption)
 

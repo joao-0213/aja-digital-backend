@@ -1,0 +1,9 @@
+style:
+  # Spotless owns formatting and applies the project's line-length convention.
+  MaxLineLength:
+    active: false
+  ReturnCount:
+    excludeGuardClauses: true
+  ThrowsCount:
+    max: 4
+    excludeGuardClauses: true

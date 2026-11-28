@@ -6,6 +6,8 @@ import br.com.ajadigital.core.shared.application.contracts.Page
 
 interface MaterialPublicationReceiptOutputPort {
     fun fingerprint(request: StorePublishMaterialsCommand): String
+
     fun encode(result: Page<Material>): String
+
     fun decode(response: String): Page<Material>
 }

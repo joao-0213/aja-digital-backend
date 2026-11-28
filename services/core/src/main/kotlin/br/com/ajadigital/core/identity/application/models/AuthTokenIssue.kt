@@ -2,7 +2,6 @@ package br.com.ajadigital.core.identity.application.models
 
 import java.time.Instant
 
-
 data class AuthTokenIssue(
     val id: String,
     val userId: String,

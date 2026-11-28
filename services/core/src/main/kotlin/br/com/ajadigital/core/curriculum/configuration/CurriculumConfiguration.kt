@@ -11,6 +11,7 @@ import br.com.ajadigital.core.curriculum.application.ports.`in`.ReorderModulesIn
 import br.com.ajadigital.core.curriculum.application.ports.`in`.UpdateModuleInputPort
 import br.com.ajadigital.core.curriculum.application.ports.`in`.UpdateSubjectInputPort
 import br.com.ajadigital.core.curriculum.application.ports.`in`.VisitSubjectInputPort
+import br.com.ajadigital.core.curriculum.application.ports.out.CurriculumReceiptCodecOutputPort
 import br.com.ajadigital.core.curriculum.application.ports.out.SubjectStoreOutputPort
 import br.com.ajadigital.core.curriculum.application.usecases.CreateModuleUseCase
 import br.com.ajadigital.core.curriculum.application.usecases.CreateSubjectUseCase
@@ -27,7 +28,6 @@ import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencySto
 import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import br.com.ajadigital.core.curriculum.application.ports.out.CurriculumReceiptCodecOutputPort
 
 @Configuration
 class CurriculumConfiguration {

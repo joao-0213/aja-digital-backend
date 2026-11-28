@@ -1,3 +1,5 @@
 package br.com.ajadigital.email.domain.health
 
-data class ServiceReadiness(val available: Boolean)
+data class ServiceReadiness(
+    val available: Boolean,
+)

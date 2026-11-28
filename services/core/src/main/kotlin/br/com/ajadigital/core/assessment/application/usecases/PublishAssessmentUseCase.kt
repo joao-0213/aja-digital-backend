@@ -1,20 +1,27 @@
 package br.com.ajadigital.core.assessment.application.usecases
 
-import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Conflict
-import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.NotFound
-import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Forbidden
 import br.com.ajadigital.core.assessment.application.models.AssessmentDetails
+import br.com.ajadigital.core.assessment.application.models.AssessmentReceiptKey
+import br.com.ajadigital.core.assessment.application.models.GetAssessmentQuery
 import br.com.ajadigital.core.assessment.application.models.PublishAssessmentCommand
 import br.com.ajadigital.core.assessment.application.ports.`in`.PublishAssessmentInputPort
-import br.com.ajadigital.core.assessment.application.models.GetAssessmentQuery
-import br.com.ajadigital.core.assessment.domain.policies.AssessmentPolicy
 import br.com.ajadigital.core.assessment.application.ports.out.AssessmentReadOutputPort
 import br.com.ajadigital.core.assessment.application.ports.out.AssessmentWriteOutputPort
-import br.com.ajadigital.core.assessment.application.models.AssessmentReceiptKey
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Conflict
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Forbidden
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.NotFound
+import br.com.ajadigital.core.assessment.domain.policies.AssessmentPolicy
 
-class PublishAssessmentUseCase(private val store: AssessmentWriteOutputPort, private val read: AssessmentReadOutputPort) : PublishAssessmentInputPort {
+class PublishAssessmentUseCase(
+    private val store: AssessmentWriteOutputPort,
+    private val read: AssessmentReadOutputPort,
+) : PublishAssessmentInputPort {
     override fun publish(request: PublishAssessmentCommand): AssessmentDetails.Staff {
-        val (actor, id, key, expectedRevision, hash) = request
+        val actor = request.actor
+        val id = request.id
+        val key = request.key
+        val expectedRevision = request.expectedRevision
+        val hash = request.fingerprint
         AssessmentPolicy.writer(actor.role, actor.active)
         AssessmentPolicy.id(id)
         require(expectedRevision > 0)

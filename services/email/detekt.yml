@@ -1,0 +1,12 @@
+style:
+  # Spotless owns formatting and applies the project's line-length convention.
+  MaxLineLength:
+    active: false
+  ReturnCount:
+    excludeGuardClauses: true
+  ThrowsCount:
+    excludeGuardClauses: true
+exceptions:
+  TooGenericExceptionCaught:
+    # Recovery handles any delivery or queue exception to persist the outcome or release the claim.
+    excludes: ['**/ProcessIdentityEmail.kt', '**/RedriveDeadEmail.kt']

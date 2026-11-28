@@ -6,5 +6,6 @@ import br.com.ajadigital.core.outbox.domain.models.EncryptOutboxPayloadDto
 
 interface OutboxPayloadProtectorOutputPort {
     fun encrypt(request: EncryptOutboxPayloadDto): EncryptedOutboxPayload
+
     fun encryptIdentityNotification(request: PrepareIdentityNotificationCommand): EncryptedOutboxPayload
 }

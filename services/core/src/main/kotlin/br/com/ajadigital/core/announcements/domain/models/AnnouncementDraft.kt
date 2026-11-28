@@ -1,7 +1,5 @@
 package br.com.ajadigital.core.announcements.domain.models
 
-
-
 data class AnnouncementDraft(
     val classId: String,
     val subjectId: String?,

@@ -7,7 +7,9 @@ import br.com.ajadigital.core.materials.application.ports.out.MaterialReadOutput
 import br.com.ajadigital.core.materials.domain.exceptions.MaterialsNotFound
 import br.com.ajadigital.core.materials.domain.policies.MaterialRules
 
-class GetMaterialUseCase(private val store: MaterialReadOutputPort) : GetMaterialInputPort {
+class GetMaterialUseCase(
+    private val store: MaterialReadOutputPort,
+) : GetMaterialInputPort {
     override fun material(request: GetMaterialQuery): MaterialDetail {
         MaterialRules.id(request.id)
         request.actor.requireSessionRole()

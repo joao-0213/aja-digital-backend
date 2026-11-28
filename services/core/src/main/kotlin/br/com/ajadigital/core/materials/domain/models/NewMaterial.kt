@@ -4,19 +4,38 @@ import br.com.ajadigital.core.materials.domain.policies.MaterialRules
 import java.net.URI
 import java.net.URISyntaxException
 
-class NewMaterial(val moduleId: String, val title: String, val duration: Double, val content: String, val source: Source) {
+class NewMaterial(
+    val moduleId: String,
+    val title: String,
+    val duration: Double,
+    val content: String,
+    val source: Source,
+) {
     init {
-        require(MaterialRules.validId(moduleId) && title.isNotBlank() && title.length <= 160 && duration in 1.0..600.0 && content.length <= 1_000_000)
+        require(
+            MaterialRules.validId(moduleId) && title.isNotBlank() && title.length <= MAX_TITLE_LENGTH && duration in 1.0..MAX_DURATION_MINUTES &&
+                content.length <= MAX_CONTENT_LENGTH,
+        )
         require(source != Source.Lesson || content.isNotBlank())
     }
 
     sealed interface Source {
         data object Lesson : Source
-        data class Pdf(val fileId: String) : Source {
-            init { require(MaterialRules.validId(fileId)) }
+
+        data class Pdf(
+            val fileId: String,
+        ) : Source {
+            init {
+                require(MaterialRules.validId(fileId))
+            }
         }
-        data class Video(val url: String) : Source {
-            init { require(isValidUrl(url)) }
+
+        data class Video(
+            val url: String,
+        ) : Source {
+            init {
+                require(isValidUrl(url))
+            }
 
             companion object {
                 fun isValidUrl(value: String): Boolean = try {
@@ -28,3 +47,7 @@ class NewMaterial(val moduleId: String, val title: String, val duration: Double,
         }
     }
 }
+
+private const val MAX_TITLE_LENGTH = 160
+private const val MAX_DURATION_MINUTES = 600.0
+private const val MAX_CONTENT_LENGTH = 1_000_000

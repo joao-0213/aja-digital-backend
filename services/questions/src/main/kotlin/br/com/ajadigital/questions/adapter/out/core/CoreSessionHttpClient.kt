@@ -3,6 +3,7 @@ package br.com.ajadigital.questions.adapter.out.core
 import br.com.ajadigital.questions.ports.out.CoreSessionIntrospection
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpHeaders
+import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.stereotype.Component
@@ -14,8 +15,11 @@ import java.time.Duration
 import java.time.Instant
 
 class InvalidQuestionSession : RuntimeException()
+
 class QuestionSessionUnavailable : RuntimeException()
+
 class QuestionAccessForbidden : RuntimeException()
+
 class QuestionPracticeBlocked : RuntimeException()
 
 @Component
@@ -25,72 +29,71 @@ class CoreSessionHttpClient(
     private val objectMapper: ObjectMapper,
 ) : CoreSessionIntrospection {
     private val serviceTokenBytes = serviceToken.toByteArray(Charsets.UTF_8)
-    private val client = RestClient.builder().baseUrl(sessionUrl).requestFactory(
-        SimpleClientHttpRequestFactory().apply {
-            setConnectTimeout(Duration.ofSeconds(2))
-            setReadTimeout(Duration.ofSeconds(2))
-        },
-    ).build()
+    private val client =
+        RestClient
+            .builder()
+            .baseUrl(sessionUrl)
+            .requestFactory(
+                SimpleClientHttpRequestFactory().apply {
+                    setConnectTimeout(Duration.ofSeconds(2))
+                    setReadTimeout(Duration.ofSeconds(2))
+                },
+            ).build()
 
     init {
-        require(serviceTokenBytes.size >= 32) { "Questions service credential must contain at least 32 bytes" }
+        require(serviceTokenBytes.size >= MIN_SERVICE_TOKEN_BYTES) { "Questions service credential must contain at least 32 bytes" }
     }
 
     override fun requireActiveSession(cookie: String?) {
         if (cookie == null || !cookie.matches(Regex("[A-Za-z0-9_-]{43}"))) throw InvalidQuestionSession()
-        try {
-            val result = client.get().header("X-AJA-Service-Token", String(serviceTokenBytes, Charsets.UTF_8))
-                .header(HttpHeaders.COOKIE, "aja_session=$cookie")
-                .exchange { _, response ->
-                    when (response.statusCode.value()) {
-                        200 -> objectMapper.readValue(response.body, CoreSessionResponse::class.java)
-                        401 -> throw InvalidQuestionSession()
-                        else -> throw QuestionSessionUnavailable()
+        callCore {
+            val result =
+                client
+                    .get()
+                    .header("X-AJA-Service-Token", String(serviceTokenBytes, Charsets.UTF_8))
+                    .header(HttpHeaders.COOKIE, "aja_session=$cookie")
+                    .exchange { _, response ->
+                        when (response.statusCode.value()) {
+                            HttpStatus.OK.value() -> objectMapper.readValue(response.body, CoreSessionResponse::class.java)
+                            HttpStatus.UNAUTHORIZED.value() -> throw InvalidQuestionSession()
+                            else -> throw QuestionSessionUnavailable()
+                        }
                     }
-                }
             if (!result.active) throw InvalidQuestionSession()
             if (result.role !in setOf("student", "teacher", "admin")) throw QuestionAccessForbidden()
-            return
-        } catch (exception: InvalidQuestionSession) {
-            throw exception
-        } catch (exception: QuestionAccessForbidden) {
-            throw exception
-        } catch (exception: QuestionSessionUnavailable) {
-            throw exception
-        } catch (_: RestClientException) {
-            throw QuestionSessionUnavailable()
-        } catch (_: JacksonException) {
-            throw QuestionSessionUnavailable()
         }
     }
 
-    override fun practiceBlocked(cookie: String?, questionId: String): Boolean {
+    override fun practiceBlocked(
+        cookie: String?,
+        questionId: String,
+    ): Boolean {
         if (cookie == null || !cookie.matches(Regex("[A-Za-z0-9_-]{43}"))) throw InvalidQuestionSession()
-        try {
-            return client.post().uri("/practice")
+        return callCore {
+            client
+                .post()
+                .uri("/practice")
                 .header("X-AJA-Service-Token", String(serviceTokenBytes, Charsets.UTF_8))
                 .header(HttpHeaders.COOKIE, "aja_session=$cookie")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(mapOf("questionId" to questionId))
                 .exchange { _, response ->
                     when (response.statusCode.value()) {
-                        200 -> objectMapper.readValue(response.body, CorePracticeResponse::class.java).blocked
-                        401 -> throw InvalidQuestionSession()
-                        403 -> throw QuestionAccessForbidden()
+                        HttpStatus.OK.value() -> objectMapper.readValue(response.body, CorePracticeResponse::class.java).blocked
+                        HttpStatus.UNAUTHORIZED.value() -> throw InvalidQuestionSession()
+                        HttpStatus.FORBIDDEN.value() -> throw QuestionAccessForbidden()
                         else -> throw QuestionSessionUnavailable()
                     }
                 }
-        } catch (exception: InvalidQuestionSession) {
-            throw exception
-        } catch (exception: QuestionSessionUnavailable) {
-            throw exception
-        } catch (exception: QuestionAccessForbidden) {
-            throw exception
-        } catch (_: RestClientException) {
-            throw QuestionSessionUnavailable()
-        } catch (_: JacksonException) {
-            throw QuestionSessionUnavailable()
         }
+    }
+
+    private fun <T> callCore(block: () -> T): T = try {
+        block()
+    } catch (_: RestClientException) {
+        throw QuestionSessionUnavailable()
+    } catch (_: JacksonException) {
+        throw QuestionSessionUnavailable()
     }
 }
 
@@ -99,4 +102,8 @@ private data class CoreSessionResponse(
     val active: Boolean,
 )
 
-private data class CorePracticeResponse(val blocked: Boolean)
+private data class CorePracticeResponse(
+    val blocked: Boolean,
+)
+
+private const val MIN_SERVICE_TOKEN_BYTES = 32

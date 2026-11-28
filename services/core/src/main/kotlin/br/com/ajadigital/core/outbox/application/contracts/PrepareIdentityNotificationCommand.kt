@@ -9,6 +9,5 @@ class PrepareIdentityNotificationCommand(
     val userId: String,
     val purpose: String,
 ) {
-    override fun toString(): String =
-        "PrepareIdentityNotificationCommand(eventId=$eventId, eventType=$eventType, eventVersion=$eventVersion, email=$email, token=[redacted], userId=$userId, purpose=$purpose)"
+    override fun toString(): String = "PrepareIdentityNotificationCommand(eventId=$eventId, eventType=$eventType, eventVersion=$eventVersion, email=$email, token=[redacted], userId=$userId, purpose=$purpose)"
 }

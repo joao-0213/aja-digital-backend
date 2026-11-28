@@ -1,20 +1,20 @@
 package br.com.ajadigital.core.assessment.application.usecases
-import br.com.ajadigital.core.assessment.application.models.*
 
 import br.com.ajadigital.core.assessment.application.models.AttemptSubmitCommand
-import br.com.ajadigital.core.assessment.domain.models.AttemptResult
-
 import br.com.ajadigital.core.assessment.application.models.SubmitAttemptCommand
-
-import br.com.ajadigital.core.assessment.domain.policies.AttemptPolicy
 import br.com.ajadigital.core.assessment.application.ports.`in`.SubmitAttemptInputPort
 import br.com.ajadigital.core.assessment.application.ports.out.AttemptStoreOutputPort
 import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentNotFound
+import br.com.ajadigital.core.assessment.domain.models.AttemptResult
+import br.com.ajadigital.core.assessment.domain.policies.AttemptPolicy
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 class SubmitAttemptUseCase(private val store: AttemptStoreOutputPort) : SubmitAttemptInputPort {
     override fun submit(request: SubmitAttemptCommand): AttemptResult {
-                val (actor, id, key, body) = request
+        val actor = request.actor
+        val id = request.id
+        val key = request.key
+        val body = request.body
         AttemptPolicy.student(actor.role, actor.active, actor.emailConfirmedAt != null)
         AttemptPolicy.id(id)
         AttemptPolicy.validKey(key)

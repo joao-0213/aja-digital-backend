@@ -6,8 +6,16 @@ sealed interface AnnouncementOccurrenceProjection {
     val date: String
     val allDay: Boolean
 
-    data class WithTime(override val date: String, val time: String?, override val allDay: Boolean) : AnnouncementOccurrenceProjection
-    data class WithoutTime(override val date: String, override val allDay: Boolean) : AnnouncementOccurrenceProjection
+    data class WithTime(
+        override val date: String,
+        val time: String?,
+        override val allDay: Boolean,
+    ) : AnnouncementOccurrenceProjection
+
+    data class WithoutTime(
+        override val date: String,
+        override val allDay: Boolean,
+    ) : AnnouncementOccurrenceProjection
 
     fun value(): AnnouncementOccurrence = when (this) {
         is WithTime -> AnnouncementOccurrence(date, time, allDay)

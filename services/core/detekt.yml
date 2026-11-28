@@ -1,0 +1,38 @@
+complexity:
+  CyclomaticComplexMethod:
+    # Do not count scope functions or simple enum/string branches as nested control flow.
+    allowedComplexity: 16
+    ignoreNestingFunctions: true
+    ignoreSimpleWhenEntries: true
+  TooManyFunctions:
+    ignoreOverridden: true
+    ignorePrivate: true
+    ignoreAnnotatedFunctions: ['Bean', 'DeleteMapping', 'GetMapping', 'PatchMapping', 'PostMapping', 'PutMapping']
+    # Store ports list the persistence operations owned by a feature.
+    allowedFunctionsPerInterface: 25
+exceptions:
+  TooGenericExceptionCaught:
+    # These boundaries translate failures or persist them for retry.
+    excludes: ['**/HttpForumQuestionSnapshotProvider.kt', '**/PublishPendingEventsUseCase.kt']
+  ThrowingExceptionsWithoutMessageOrCause:
+    # Validation uses IllegalArgumentException and writes a fixed error body at the HTTP boundary.
+    exceptions:
+      - ArrayIndexOutOfBoundsException
+      - Exception
+      - IllegalMonitorStateException
+      - IllegalStateException
+      - IndexOutOfBoundsException
+      - NullPointerException
+      - RuntimeException
+      - Throwable
+style:
+  # Spotless owns formatting and applies the project's line-length convention.
+  MaxLineLength:
+    active: false
+  ReturnCount:
+    max: 6
+    excludeGuardClauses: true
+    excludeLabeled: true
+  ThrowsCount:
+    max: 5
+    excludeGuardClauses: true

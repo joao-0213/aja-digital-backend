@@ -8,7 +8,5 @@ import javax.sql.DataSource
 class DatabaseAndBrokerHealthProbe(
     private val dataSource: DataSource,
 ) : HealthProbe {
-    override fun dependenciesAvailable(): Boolean {
-        return runCatching { dataSource.connection.use { it.isValid(1) } }.getOrDefault(false)
-    }
+    override fun dependenciesAvailable(): Boolean = runCatching { dataSource.connection.use { it.isValid(1) } }.getOrDefault(false)
 }

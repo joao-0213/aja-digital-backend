@@ -6,13 +6,12 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import tools.jackson.databind.ObjectMapper
 import java.net.URI
+import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
-import java.net.http.HttpTimeoutException
-import java.time.Duration
-import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.time.Duration
 
 @Component
 class HttpEmailSender(
@@ -50,7 +49,8 @@ class HttpEmailSender(
         val action = if (confirming) "Confirmar e-mail" else "Redefinir senha"
         val intro = if (confirming) "Use o botão abaixo para confirmar seu endereço de e-mail." else "Use o botão abaixo para redefinir sua senha."
         val fallback = "$action:\n$actionUrl\n\nSe você não solicitou esta ação, ignore esta mensagem."
-        sendMessage(eventId, recipient, subject, actionUrl, fallback, action, actionUrl, "$intro Se você não solicitou esta ação, ignore esta mensagem.")
+        val displayBody = "$intro Se você não solicitou esta ação, ignore esta mensagem."
+        sendMessage(eventId, recipient, subject, actionUrl, fallback, action, actionUrl, displayBody)
     }
 
     override fun sendAnnouncement(eventId: String, recipient: String, title: String, body: String, announcementId: String) {
@@ -74,9 +74,18 @@ class HttpEmailSender(
             .apply { if (provider != "mailpit" && providerToken.isNotBlank()) header("Authorization", "Bearer $providerToken") }
             .POST(HttpRequest.BodyPublishers.ofByteArray(body))
             .build()
-        val response = try { client.send(request, HttpResponse.BodyHandlers.discarding()) }
-        catch (failure: HttpTimeoutException) { throw DeliveryFailure(ambiguous = true, failure) }
-        catch (failure: java.io.IOException) { throw DeliveryFailure(ambiguous = true, failure) }
-        if (response.statusCode() !in 200..299) throw DeliveryFailure(ambiguous = response.statusCode() >= 500)
+        val response = try {
+            client.send(request, HttpResponse.BodyHandlers.discarding())
+        } catch (failure: java.io.IOException) {
+            throw DeliveryFailure(ambiguous = true, failure)
+        }
+        val status = response.statusCode()
+        if (status !in FIRST_SUCCESS_STATUS until FIRST_REDIRECTION_STATUS) {
+            throw DeliveryFailure(ambiguous = status >= FIRST_SERVER_ERROR_STATUS)
+        }
     }
 }
+
+private const val FIRST_SUCCESS_STATUS = 200
+private const val FIRST_REDIRECTION_STATUS = 300
+private const val FIRST_SERVER_ERROR_STATUS = 500

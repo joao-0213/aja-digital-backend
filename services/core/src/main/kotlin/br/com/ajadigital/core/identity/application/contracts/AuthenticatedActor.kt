@@ -10,6 +10,5 @@ class AuthenticatedActor internal constructor(
     val emailConfirmedAt: Instant?,
     internal val sessionValidationReference: String,
 ) {
-    override fun toString(): String =
-        "AuthenticatedActor(id=$id, role=$role, active=$active, emailConfirmedAt=$emailConfirmedAt, sessionValidationReference=[redacted])"
+    override fun toString(): String = "AuthenticatedActor(id=$id, role=$role, active=$active, emailConfirmedAt=$emailConfirmedAt, sessionValidationReference=[redacted])"
 }

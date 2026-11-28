@@ -8,13 +8,24 @@ class AssessmentReceiptKey private constructor(
     val requestHash: String,
 ) {
     companion object {
-        fun create(actorId: String, key: String, hash: String) =
-            AssessmentReceiptKey(actorId, "createAssessment", "/assessments", key, hash)
+        fun create(
+            actorId: String,
+            key: String,
+            hash: String,
+        ) = AssessmentReceiptKey(actorId, "createAssessment", "/assessments", key, hash)
 
-        fun update(actorId: String, id: String, key: String, hash: String) =
-            AssessmentReceiptKey(actorId, "updateAssessment", "/assessments/$id", key, hash)
+        fun update(
+            actorId: String,
+            id: String,
+            key: String,
+            hash: String,
+        ) = AssessmentReceiptKey(actorId, "updateAssessment", "/assessments/$id", key, hash)
 
-        fun publish(actorId: String, id: String, key: String, hash: String) =
-            AssessmentReceiptKey(actorId, "publishAssessment", "/assessments/$id/publish", key, hash)
+        fun publish(
+            actorId: String,
+            id: String,
+            key: String,
+            hash: String,
+        ) = AssessmentReceiptKey(actorId, "publishAssessment", "/assessments/$id/publish", key, hash)
     }
 }

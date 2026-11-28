@@ -25,3 +25,6 @@ graphify-out/
 .vscode/
 .DS_Store
 Thumbs.db
+
+artigo.tex
+.agents/

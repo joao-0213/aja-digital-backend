@@ -2,7 +2,12 @@ package br.com.ajadigital.core.shared.application.contracts
 
 import java.util.Collections
 
-class Page<T>(items: List<T>, val page: Int, val pageSize: Int, val total: Int) {
+class Page<T>(
+    items: List<T>,
+    val page: Int,
+    val pageSize: Int,
+    val total: Int,
+) {
     val items: List<T> = Collections.unmodifiableList(items.toList())
 
     init {

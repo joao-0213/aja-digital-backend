@@ -1,9 +1,9 @@
 package br.com.ajadigital.core.outbox.adapters.out.messaging
 
+import br.com.ajadigital.core.outbox.application.ports.out.EventPublisherOutputPort
 import br.com.ajadigital.core.outbox.domain.models.PendingOutboxEvent
 import br.com.ajadigital.core.outbox.domain.models.PublishEventDto
 import br.com.ajadigital.core.outbox.domain.models.UnroutableOutboxEvent
-import br.com.ajadigital.core.outbox.application.ports.out.EventPublisherOutputPort
 import com.rabbitmq.client.AMQP
 import com.rabbitmq.client.ReturnListener
 import org.springframework.amqp.rabbit.core.RabbitTemplate
@@ -17,16 +17,17 @@ class RabbitEventPublisher(
 ) : EventPublisherOutputPort {
     override fun publish(request: PublishEventDto) {
         val event = request.event
-        val body = mapper.writeValueAsBytes(
-            mapOf(
-                "id" to event.id,
-                "eventType" to event.type,
-                "version" to event.version,
-                "keyId" to event.keyId,
-                "nonce" to Base64.getEncoder().encodeToString(event.nonce),
-                "ciphertext" to Base64.getEncoder().encodeToString(event.ciphertext),
-            ),
-        )
+        val body =
+            mapper.writeValueAsBytes(
+                mapOf(
+                    "id" to event.id,
+                    "eventType" to event.type,
+                    "version" to event.version,
+                    "keyId" to event.keyId,
+                    "nonce" to Base64.getEncoder().encodeToString(event.nonce),
+                    "ciphertext" to Base64.getEncoder().encodeToString(event.ciphertext),
+                ),
+            )
         rabbit.execute { channel ->
             channel.confirmSelect()
             val returned = AtomicBoolean(false)
@@ -37,10 +38,14 @@ class RabbitEventPublisher(
                     "aja.events",
                     event.type,
                     true,
-                    AMQP.BasicProperties.Builder().deliveryMode(2).contentType("application/json").build(),
+                    AMQP.BasicProperties
+                        .Builder()
+                        .deliveryMode(2)
+                        .contentType("application/json")
+                        .build(),
                     body,
                 )
-                channel.waitForConfirmsOrDie(5000)
+                channel.waitForConfirmsOrDie(PUBLISH_CONFIRM_TIMEOUT_MILLIS)
                 if (returned.get()) throw UnroutableOutboxEvent()
             } finally {
                 channel.removeReturnListener(returnListener)
@@ -48,3 +53,5 @@ class RabbitEventPublisher(
         }
     }
 }
+
+private const val PUBLISH_CONFIRM_TIMEOUT_MILLIS = 5_000L

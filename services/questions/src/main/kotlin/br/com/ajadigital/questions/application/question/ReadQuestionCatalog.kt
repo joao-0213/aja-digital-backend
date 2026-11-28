@@ -8,14 +8,23 @@ import br.com.ajadigital.questions.domain.question.toSnapshot
 import br.com.ajadigital.questions.ports.out.QuestionCatalog
 
 class QuestionNotFound : RuntimeException()
+
 class InvalidQuestionRequest : RuntimeException()
+
 class QuestionCatalogChanged : RuntimeException()
 
-class ReadQuestionCatalog(private val catalog: QuestionCatalog) {
+class ReadQuestionCatalog(
+    private val catalog: QuestionCatalog,
+) {
     private val validId = Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 
-    fun list(filters: QuestionFilters, page: Int, pageSize: Int, sort: String): QuestionPage {
-        if (page < 1 || pageSize !in 1..100 || sort !in setOf("id", "-id", "createdAt", "-createdAt")) {
+    fun list(
+        filters: QuestionFilters,
+        page: Int,
+        pageSize: Int,
+        sort: String,
+    ): QuestionPage {
+        if (page < 1 || pageSize !in 1..MAX_PAGE_SIZE || sort !in setOf("id", "-id", "createdAt", "-createdAt")) {
             throw InvalidQuestionRequest()
         }
         return catalog.findPage(filters, page, pageSize, sort)
@@ -27,7 +36,8 @@ class ReadQuestionCatalog(private val catalog: QuestionCatalog) {
     }
 
     fun snapshots(ids: List<String>): List<QuestionSnapshot> {
-        if (ids.isEmpty() || ids.size > 100 || ids.distinct().size != ids.size || ids.any { !validId.matches(it) }) {
+        if (ids.isEmpty() || ids.size > MAX_SNAPSHOT_IDS) throw InvalidQuestionRequest()
+        if (ids.distinct().size != ids.size || ids.any { !validId.matches(it) }) {
             throw InvalidQuestionRequest()
         }
         val questions = catalog.findAvailableBatch(ids).associateBy(Question::id)
@@ -36,3 +46,6 @@ class ReadQuestionCatalog(private val catalog: QuestionCatalog) {
         return ordered.map(Question::toSnapshot)
     }
 }
+
+private const val MAX_PAGE_SIZE = 100
+private const val MAX_SNAPSHOT_IDS = 100

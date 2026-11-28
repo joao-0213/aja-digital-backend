@@ -2,11 +2,11 @@ package br.com.ajadigital.questions
 
 import br.com.ajadigital.questions.adapter.out.core.InvalidQuestionSession
 import br.com.ajadigital.questions.adapter.out.core.QuestionAccessForbidden
-import br.com.ajadigital.questions.adapter.out.core.QuestionSessionUnavailable
 import br.com.ajadigital.questions.adapter.out.core.QuestionPracticeBlocked
+import br.com.ajadigital.questions.adapter.out.core.QuestionSessionUnavailable
 import br.com.ajadigital.questions.application.question.InvalidQuestionRequest
-import br.com.ajadigital.questions.application.question.QuestionNotFound
 import br.com.ajadigital.questions.application.question.QuestionCatalogChanged
+import br.com.ajadigital.questions.application.question.QuestionNotFound
 import br.com.ajadigital.questions.application.question.ReadQuestionCatalog
 import br.com.ajadigital.questions.domain.question.Question
 import br.com.ajadigital.questions.domain.question.QuestionFilters
@@ -28,13 +28,24 @@ import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import tools.jackson.databind.JsonNode
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.UUID
-import tools.jackson.databind.JsonNode
 
-data class QuestionPracticeImage(val src: String, val alt: String)
-data class QuestionPracticeResult(val questionId: String, val choice: Int, val correct: Int, val isCorrect: Boolean, val explanation: String)
+data class QuestionPracticeImage(
+    val src: String,
+    val alt: String,
+)
+
+data class QuestionPracticeResult(
+    val questionId: String,
+    val choice: Int,
+    val correct: Int,
+    val isCorrect: Boolean,
+    val explanation: String,
+)
+
 data class QuestionPractice(
     val id: String,
     val subject: String,
@@ -46,9 +57,21 @@ data class QuestionPractice(
     val options: List<String>,
     val image: QuestionPracticeImage?,
 )
-data class QuestionPracticePage(val items: List<QuestionPractice>, val page: Int, val pageSize: Int, val total: Long)
-data class QuestionSnapshotsRequest(val ids: List<String>)
-data class QuestionSnapshotsResponse(val snapshots: List<QuestionSnapshot>)
+
+data class QuestionPracticePage(
+    val items: List<QuestionPractice>,
+    val page: Int,
+    val pageSize: Int,
+    val total: Long,
+)
+
+data class QuestionSnapshotsRequest(
+    val ids: List<String>,
+)
+
+data class QuestionSnapshotsResponse(
+    val snapshots: List<QuestionSnapshot>,
+)
 
 @RestController
 class QuestionController(
@@ -78,7 +101,13 @@ class QuestionController(
         val size = integer(pageSize, 20, 1, 100)
         val yearNumber = year?.let { integer(it, 0, 0) }
         if (difficulty != null && difficulty !in setOf("easy", "medium", "hard")) throw InvalidQuestionRequest()
-        val result = readQuestionCatalog.list(QuestionFilters(q, subject, topic, difficulty, institution, yearNumber), pageNumber, size, sort ?: "id")
+        val result =
+            readQuestionCatalog.list(
+                QuestionFilters(q, subject, topic, difficulty, institution, yearNumber),
+                pageNumber,
+                size,
+                sort ?: "id",
+            )
         return QuestionPracticePage(result.items.map { it.toPractice() }, result.page, result.pageSize, result.total)
     }
 
@@ -104,7 +133,7 @@ class QuestionController(
         var question = readQuestionCatalog.get(id)
         if (request.parameterMap.isNotEmpty()) throw InvalidQuestionRequest()
         val choice = practiceChoice(body, question)
-        repeat(2) { attempt ->
+        repeat(2) {
             val blocked = coreSessionIntrospection.practiceBlocked(cookie, id)
             val current = readQuestionCatalog.get(id)
             if (current.revision == question.revision) {
@@ -113,23 +142,40 @@ class QuestionController(
             }
             question = current
             practiceChoice(body, current)
-            if (attempt == 1) throw QuestionCatalogChanged()
         }
         throw QuestionCatalogChanged()
     }
 
-    private fun practiceChoice(body: JsonNode, question: Question): Int {
+    private fun practiceChoice(
+        body: JsonNode,
+        question: Question,
+    ): Int {
         if (!body.isObject || body.properties().map { it.key }.toSet() != setOf("choice")) throw InvalidQuestionRequest()
-        return body.get("choice")?.takeIf { it.isIntegralNumber && it.canConvertToInt() }?.intValue()
+        return body
+            .get("choice")
+            ?.takeIf { it.isIntegralNumber && it.canConvertToInt() }
+            ?.intValue()
             ?.takeIf { it in question.options.indices } ?: throw InvalidQuestionRequest()
     }
 
     private fun Question.toPractice() = QuestionPractice(
-        id, subject, topic, difficulty, institution, year, statement, options,
+        id,
+        subject,
+        topic,
+        difficulty,
+        institution,
+        year,
+        statement,
+        options,
         image?.let { QuestionPracticeImage("$fileContentBaseUrl${it.fileId}/content", it.alt) },
     )
 
-    private fun integer(value: String?, default: Int, minimum: Int, maximum: Int = Int.MAX_VALUE): Int {
+    private fun integer(
+        value: String?,
+        default: Int,
+        minimum: Int,
+        maximum: Int = Int.MAX_VALUE,
+    ): Int {
         if (value == null) return default
         val parsed = value.toIntOrNull() ?: throw InvalidQuestionRequest()
         if (parsed < minimum || parsed > maximum) throw InvalidQuestionRequest()
@@ -149,7 +195,7 @@ class InternalQuestionSnapshotController(
     private val expectedToken = serviceToken.toByteArray(StandardCharsets.UTF_8)
 
     init {
-        require(expectedToken.size >= 32) { "Core service credential must contain at least 32 bytes" }
+        require(expectedToken.size >= MIN_SERVICE_TOKEN_BYTES) { "Core service credential must contain at least 32 bytes" }
     }
 
     @PostMapping("/internal/v1/snapshots")
@@ -191,7 +237,13 @@ class QuestionsExceptionHandler {
     @ExceptionHandler(DataAccessException::class)
     fun persistenceFailure() = error(HttpStatus.INTERNAL_SERVER_ERROR, "PERSISTENCE_FAILED", "Request could not be completed")
 
-    private fun error(status: HttpStatus, code: String, message: String) = ResponseEntity.status(status).body(
+    private fun error(
+        status: HttpStatus,
+        code: String,
+        message: String,
+    ) = ResponseEntity.status(status).body(
         mapOf("error" to mapOf("code" to code, "message" to message, "requestId" to UUID.randomUUID().toString())),
     )
 }
+
+private const val MIN_SERVICE_TOKEN_BYTES = 32

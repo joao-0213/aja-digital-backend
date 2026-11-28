@@ -3,18 +3,27 @@ package br.com.ajadigital.core.assessment.domain.policies
 import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentForbidden
 
 internal object AttemptPolicy {
-    fun student(role: String, active: Boolean, emailConfirmed: Boolean) {
+    fun student(
+        role: String,
+        active: Boolean,
+        emailConfirmed: Boolean,
+    ) {
         if (!active || role != "student" || !emailConfirmed) throw AssessmentForbidden()
     }
 
-    fun reader(role: String, active: Boolean, emailConfirmed: Boolean) {
-        if (!active || role !in setOf("student", "teacher", "admin") || role == "student" && !emailConfirmed) {
+    fun reader(
+        role: String,
+        active: Boolean,
+        emailConfirmed: Boolean,
+    ) {
+        val unconfirmedStudent = role == "student" && !emailConfirmed
+        if (!active || role !in setOf("student", "teacher", "admin") || unconfirmedStudent) {
             throw AssessmentForbidden()
         }
     }
 
     fun validKey(value: String) {
-        require(value.length in 8..128)
+        require(value.length in MIN_IDEMPOTENCY_KEY_LENGTH..MAX_IDEMPOTENCY_KEY_LENGTH)
     }
 
     fun id(value: String) {
@@ -22,5 +31,7 @@ internal object AttemptPolicy {
     }
 
     fun validId(value: String) = value.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"))
-
 }
+
+private const val MIN_IDEMPOTENCY_KEY_LENGTH = 8
+private const val MAX_IDEMPOTENCY_KEY_LENGTH = 128

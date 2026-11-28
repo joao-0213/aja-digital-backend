@@ -1,7 +1,7 @@
 package br.com.ajadigital.core.assessment.application.models
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentRecord
 import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestionView
+import br.com.ajadigital.core.assessment.domain.models.AssessmentRecord
 import java.util.Collections
 
 sealed interface AssessmentDetails {
@@ -20,5 +20,4 @@ sealed interface AssessmentDetails {
         val questionCount: Int,
         val assigned: Boolean,
     ) : AssessmentDetails
-
 }

@@ -15,12 +15,20 @@ import br.com.ajadigital.core.shared.application.contracts.Page
 
 interface AnnouncementStoreOutputPort {
     fun authorizeCreate(request: AuthorizeAnnouncementCreate)
+
     fun create(request: CreateAnnouncementRecord): Announcement
+
     fun update(request: UpdateAnnouncementRecord): Announcement?
+
     fun withdraw(request: WithdrawAnnouncementRecord): Announcement?
+
     fun announcement(request: GetStoredAnnouncementQuery): Announcement?
+
     fun announcements(request: ListAnnouncementsStoreQuery): Page<Announcement>
+
     fun calendar(request: ListAnnouncementCalendarQuery): Page<AnnouncementCalendarEvent>
+
     fun dashboardAnnouncements(request: ListDashboardAnnouncementStoreQuery): List<Announcement>
+
     fun dashboardUpcoming(request: ListDashboardUpcomingStoreQuery): List<AnnouncementCalendarEvent>
 }

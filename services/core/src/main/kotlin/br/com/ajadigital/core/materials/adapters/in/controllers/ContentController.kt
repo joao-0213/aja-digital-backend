@@ -39,7 +39,6 @@ import br.com.ajadigital.core.materials.domain.models.MaterialRevision
 import br.com.ajadigital.core.materials.domain.models.ProgressAction
 import br.com.ajadigital.core.shared.adapters.`in`.web.requests.OrderCommandRequest
 import br.com.ajadigital.core.shared.application.contracts.FieldChange
-import java.nio.charset.StandardCharsets
 import org.springframework.http.ContentDisposition
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
@@ -56,6 +55,7 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartHttpServletRequest
 import tools.jackson.databind.JsonNode
+import java.nio.charset.StandardCharsets
 
 @RestController
 class ContentController(
@@ -87,8 +87,11 @@ class ContentController(
         val file = request.fileMap.getValue("file")
         val response = provisionQuestionImage.provisionQuestionImage(
             ProvisionQuestionImageCommand(
-                id, request.getParameter("questionId"), file.originalFilename ?: throw IllegalArgumentException(),
-                file.contentType ?: throw IllegalArgumentException(), file.bytes,
+                id,
+                request.getParameter("questionId"),
+                file.originalFilename ?: throw IllegalArgumentException(),
+                file.contentType ?: throw IllegalArgumentException(),
+                file.bytes,
                 QuestionServiceCredential(request.getHeader("X-AJA-Service-Token")),
             ),
         )
@@ -112,7 +115,11 @@ class ContentController(
     }
 
     @PostMapping("/api/v1/files/{id}/discard")
-    fun discard(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody(required = false) body: Map<String, Any?>?) = run { require(body.isNullOrEmpty()); discardFile.discard(DiscardFileCommand(actor(cookie), id)); ResponseEntity.noContent().build<Void>() }
+    fun discard(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody(required = false) body: Map<String, Any?>?) = run {
+        require(body.isNullOrEmpty())
+        discardFile.discard(DiscardFileCommand(actor(cookie), id))
+        ResponseEntity.noContent().build<Void>()
+    }
 
     @GetMapping("/api/v1/materials")
     fun materials(@CookieValue(name = "aja_session", required = false) cookie: String?, @RequestParam(defaultValue = "1") page: Int, @RequestParam(defaultValue = "20") pageSize: Int, @RequestParam(defaultValue = "order") sort: String, @RequestParam(required = false) moduleId: String?, @RequestParam(required = false) subjectId: String?) = listMaterials.materials(ListMaterialsQuery(actor(cookie), page, pageSize, MaterialSort.parse(sort), moduleId, subjectId)).toResponse(Material::toResponse)
@@ -140,10 +147,16 @@ class ContentController(
 
     private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(cookie)
     private fun integer(value: JsonNode) = value.intValue().also { require(value.isIntegralNumber && value.canConvertToInt()) }
-    private fun decimal(value: JsonNode): FieldChange<Double> = if (value.isMissingNode) FieldChange.Unchanged
-        else FieldChange.Set(value.doubleValue().also { require(value.isNumber && it.isFinite()) })
-    private fun text(value: JsonNode): FieldChange<String> = if (value.isMissingNode) FieldChange.Unchanged
-        else FieldChange.Set(value.asString().also { require(value.isString) })
+    private fun decimal(value: JsonNode): FieldChange<Double> = if (value.isMissingNode) {
+        FieldChange.Unchanged
+    } else {
+        FieldChange.Set(value.doubleValue().also { require(value.isNumber && it.isFinite()) })
+    }
+    private fun text(value: JsonNode): FieldChange<String> = if (value.isMissingNode) {
+        FieldChange.Unchanged
+    } else {
+        FieldChange.Set(value.asString().also { require(value.isString) })
+    }
 
     private fun progressAction(value: JsonNode): ProgressAction? {
         if (value.isMissingNode) return ProgressAction.RECORD_ACCESS

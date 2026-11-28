@@ -1,51 +1,16 @@
 # Repository Guidelines
 
-## Scope and architecture
+## Scope and Architecture
+- **Contracts:** Strictly preserve `ARCHITECTURE.md`, `docs/backend/operation-ownership.md`, and OpenAPI specs (`aja_session` cookies, status codes, IDs, pagination, payloads). Generic skill examples never override these contracts (no JWT, CSRF disabling, Kafka, Redis, or Supabase auth).
 
-This repository contains the planned Kotlin/Spring Boot backend for AJA Digital. The 16 issues in `ISSUES-BACKEND.md` are open; do not infer that documentation, mock/frontend evidence, or the service README means an issue is implemented. Read `ARQUITETURA.md`, the relevant issue, `docs/backend/operation-ownership.md`, and applicable contract documents before changing a service.
+## Multi-Agent Roles & Workflow
+Only for backlog execution, TDD, checkpoints, and commit rules, read `docs/agents/backlog-workflow.md` first. Otherwise, follow user instructions.
 
-Keep Core, Questions, and Email as separate hexagonal services with separate PostgreSQL schemas/roles. No service reads or migrates another service's schema. Core owns identity and academic authorization. Questions calls Core only through authenticated private interfaces. Core uses a transactional outbox and RabbitMQ to Email; Email owns only its worker state. Do not introduce a public gateway, frontend integration, BFF, or cross-schema coupling in B-01–B-16. Preserve the OpenAPI contract, including `aja_session` cookie behavior, status codes, identifiers, pagination, schemas, and request/response shapes. Generic Java/Spring/JWT/Kafka/Redis examples in skills never override these contracts or the chosen Kotlin architecture.
+- **Coordinator:** `gpt-6.1-terra` (low reasoning). Escalate ambiguous architecture, auth, or concurrency decisions to Sol; user instructions take precedence.
+- **Executor:** One `gpt-6-luna` (medium reasoning) per issue for implementation, tests, validation, and fixes.
+- **ECC Reviewer:** Independent `gpt-6.1-terra` (medium reasoning, using `docs/agents/code-reviewer.md`) after a complete diff. Reuse the same reviewer for targeted rechecks.
+- **Database Reviewer:** Fixed to `gpt-6.1-terra` (medium reasoning, `.codex/database-reviewer.toml`) for any SQL, schema, migration, query, transaction, or concurrency change. Cannot be overridden.
+- **Git hygiene:** Start with `git status`/diff, preserve pre-existing edits, work one issue per commit (Conventional Commits with issue footer), and never push, rewrite history, or commit secrets, real data, or `graphify-out/`.
 
-The mandatory target architecture for Core, Questions, and Email is documented in [ARCHITECTURE.md](ARCHITECTURE.md). The staged Core refactoring plan in [docs/backend/core-refactoring-plan.md](docs/backend/core-refactoring-plan.md) is guidance for future authorized work, not evidence of implementation or authorization to start an issue.
-
-## Backlog coordination and review workflow
-
-Use `gpt-6-sol` with medium reasoning for routine coordination. Assign each issue implementation, tests, API/worker validation, and review fixes to one `gpt-6-luna` executor with medium reasoning. Use an independent `gpt-6.1-sol` reviewer at medium reasoning for ECC review, and a different independent `gpt-6.1-sol` reviewer at medium reasoning with the `ponytail-review` skill. Keep each reviewer assigned for rechecks after fixes. Escalate ambiguous architecture, authorization, or concurrency decisions to Sol; reserve xhigh for a concrete difficult problem and record why. User instructions take precedence. Skipping reviews for this repository preparation does not remove the default workflow for future issues.
-
-For future issue reviews, use the user's latest reviewer-model preference when host controls allow it: `gpt-6.1-terra` with medium reasoning for ECC and database reviews, and `gpt-6-luna` with high reasoning for Ponytail review. The registered `database-reviewer` role is fixed to `gpt-6.1-sol` with medium reasoning and cannot be overridden; record that constraint when it applies. Follow the user's latest reviewer-model preference for subsequent issues.
-
-Apply to every issue, including docs-only issues:
-
-Start with `git status`, relevant history and diffs. Preserve pre-existing edits and staged files; never include unrelated changes. A request for one issue authorizes only that issue. When the whole backlog is explicitly requested, create or reuse a dedicated local branch (`codex/` prefix for a new task branch), respect dependencies, and continue with the next eligible issue. Repository preparation alone does not authorize implementation. Model/effort settings of the coordinator are selected through host controls, not changed by this file.
-
-### Execution gates and cost control
-
-Before editing an issue, do a short preflight: identify its acceptance criteria and dependencies, the required toolchain and real services, and whether those checks are available. For the first infrastructure issue, choose the actual test/build tools before dependent work starts. If an acceptance check requires an unavailable tool or service, record the blocker and hold that issue; do not proceed with speculative implementation that cannot be verified. Recheck readiness when the environment changes.
-
-Work one issue at a time and keep a compact acceptance checklist with each criterion marked pending, verified, or blocked. Each implementation step must satisfy a criterion or address a specific observed failure. Keep the diff within the issue's authorized scope. At each stable checkpoint, report only new evidence, remaining criteria, and the next concrete action; avoid repeating status summaries that have not changed.
-
-Use one executor for the issue implementation, tests, API/worker validation, and review fixes. Start the independent ECC and Ponytail reviews only after the executor has a stable complete issue diff and its acceptance evidence. For database changes, include the required database reviewer in that same review phase. Do not start duplicate reviewers or parallel implementation agents for the same issue. Keep the same reviewers for targeted rechecks after confirmed fixes; recheck only the affected criteria while ensuring they can still inspect the complete diff. If a required review identifies an unresolved blocker, stop issue closure and report it rather than cycling through broad reviews.
-
-Batch independent file inspection and validation commands where practical. Before rerunning a failed check, state what changed since its last run or what hypothesis the rerun tests. Do not repeat broad builds or tests when the failure is known to be an unavailable external dependency. After a blocker is resolved, run the previously blocked acceptance checks and record their exact commands and outcomes.
-
-For Kotlin package moves and import cleanup, batch related file moves and caller updates before compiling. Use incremental `compileKotlin compileTestKotlin` during intermediate cleanup; reserve `--rerun-tasks` for stable checkpoints that require forced recompilation. Run focused architecture and issue tests after each stable batch, then run the full test suite and build at the final issue gate. Do not run database-backed test suites in parallel against shared PostgreSQL/RabbitMQ/Testcontainers services; serialize them to avoid resource contention and ambiguous failures.
-
-1. Record starting Git revision, acceptance criteria, affected operations/entry points, and Graphify query results. Use graph query before source searches/reads whenever `graphify-out/graph.json` exists; read only located source context.
-2. For behavior changes, use ECC TDD: add focused regression/contract test, run and record valid RED with command/test/failure, implement minimal fix, rerun same test for GREEN, then refactor green. Do not claim a RED based only on an unrun test.
-3. At stable checkpoints, run the backend's actual test suite, type/static/architecture checks, and build as defined by B-01. B-01 must choose real tools first; do not assume Kotlin frameworks, Gradle tasks, coverage thresholds, Docker commands, or frontend `npm` scripts. Test service boundaries with real PostgreSQL/RabbitMQ or equivalent real processes; record exact commands and results. Exercise changed API operations against real processes and relevant failures. Docs-only changes verify claims, links and commands.
-4. Obtain a read-only ECC review from an independent agent using `docs/agents/code-reviewer.md`, then a separate read-only Ponytail review using `.agents/skills/ponytail-review/SKILL.md`. Both inspect the complete issue diff and acceptance evidence. Reproduce confirmed findings, add regression tests where applicable, rerun affected checks, then have the same reviewers recheck. Record dismissed findings and any blocker.
-5. Close only verified criteria. Stage only issue files, create a local Conventional Commit per cohesive issue with issue footer, and report hash, actual validation/review outcomes, and remaining changes. Never push, rewrite history, commit secrets, or include local graph artifacts.
-
-## Skills and Graphify
-
-For changes involving SQL, migrations, schemas, indexes, persistence queries, transactions, concurrency, or database privileges, delegate an additional read-only review to the project Codex agent `database-reviewer`, registered in `.codex/config.toml` with instructions in `.codex/database-reviewer.toml`. It uses `gpt-6.1-sol` with medium reasoning and an ECC-derived checklist adapted to AJA contracts. This specialist review supplements the independent ECC and Ponytail reviews; it does not replace them or authorize implementation.
-
-Use the installed ECC TDD and verification guides at `.agents/skills/tdd-workflow/SKILL.md` and `.agents/skills/verification-loop/SKILL.md`; use `.agents/skills/ponytail/SKILL.md` and `.agents/skills/ponytail-review/SKILL.md` for Ponytail review. Domain skills available for approved backend work are `.agents/skills/{kotlin-patterns,kotlin-testing,springboot-patterns,springboot-security,hexagonal-architecture,jpa-patterns,postgres-patterns,database-migrations,docker-patterns}/SKILL.md`. These provide guidance, not authorization to execute backlog issues or decide B-01 tools. Check contract and architecture before applying generic advice.
-
-Graphify output `graphify-out/` is local and ignored. If its graph exists, run `graphify query` before source search/read; use `graphify path`/`explain` for focused relations. After code changes run `graphify update .`. Keep local hooks enabled; generated graph artifacts are never committed. If graph output is absent, use normal source navigation.
-
-See `docs/agents/skills.md` for skill provenance, approved additions and precedence, and `docs/graphify.md` for local installation and document-index commands. The current graph describes planned contracts, not running services. No skill example authorizes changing authentication to JWT, disabling CSRF, cross-schema SQL, importing Supabase-specific authorization, adding infrastructure, or performing destructive resets. Choose test/coverage/migration tools only in the relevant implementation issue.
-
-## References and security
-
-`docs/http/` is a behavior contract copied from frontend reference commit `2257d2af4950983f067f7f20b4d2e6b021f365e8`; examples of JSON Server, `npm` commands, local files, and simulator storage are not backend implementation requirements. See `docs/reference/frontend-sources.md`. Use fictitious data only. Never commit secrets, tokens, personal data, or runtime state.
+## Skills & Graphify
+- **Graphify:** If `graphify-out/graph.json` exists, run `graphify query` before searching/reading source files, and `graphify update .` after code changes. See `docs/graphify.md`.

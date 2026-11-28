@@ -12,12 +12,21 @@ class ListModulesUseCase(
     private val store: SubjectStoreOutputPort,
 ) : ListModulesInputPort {
     override fun modules(request: ListModulesQuery): Page<Module> {
-        val (actor, page, size, sort, subjectId) = request
+        val actor = request.actor
+        val page = request.page
+        val size = request.size
+        val sort = request.sort
+        val subjectId = request.subjectId
         CurriculumPolicy.requireReader(actor.active, actor.role, actor.emailConfirmedAt != null)
-        return store.modules(StoreModulesQuery(
-            actor.id, actor.role,
-            CurriculumPolicy.checkedPage(page), CurriculumPolicy.checkedSize(size),
-            CurriculumPolicy.checkedModuleSort(sort), subjectId,
-        ))
+        return store.modules(
+            StoreModulesQuery(
+                actor.id,
+                actor.role,
+                CurriculumPolicy.checkedPage(page),
+                CurriculumPolicy.checkedSize(size),
+                CurriculumPolicy.checkedModuleSort(sort),
+                subjectId,
+            ),
+        )
     }
 }

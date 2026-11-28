@@ -5,6 +5,8 @@ import br.com.ajadigital.core.attendance.application.ports.`in`.ListAttendanceSe
 import br.com.ajadigital.core.attendance.application.ports.`in`.ListEligibleAttendanceStudentsInputPort
 import br.com.ajadigital.core.attendance.application.ports.`in`.RecordAttendanceInputPort
 import br.com.ajadigital.core.attendance.application.ports.`in`.UpdateAttendanceInputPort
+import br.com.ajadigital.core.attendance.application.ports.out.AttendanceReceiptStoreOutputPort
+import br.com.ajadigital.core.attendance.application.ports.out.AttendanceRequestFingerprintOutputPort
 import br.com.ajadigital.core.attendance.application.ports.out.AttendanceStoreOutputPort
 import br.com.ajadigital.core.attendance.application.usecases.GetAttendanceSessionUseCase
 import br.com.ajadigital.core.attendance.application.usecases.ListAttendanceSessionsUseCase
@@ -14,22 +16,17 @@ import br.com.ajadigital.core.attendance.application.usecases.UpdateAttendanceUs
 import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import br.com.ajadigital.core.attendance.application.ports.out.AttendanceRequestFingerprintOutputPort
-import br.com.ajadigital.core.attendance.application.ports.out.AttendanceReceiptStoreOutputPort
 
 @Configuration
 class AttendanceConfiguration {
     @Bean
-    fun listAttendanceSessions(store: AttendanceStoreOutputPort): ListAttendanceSessionsInputPort =
-        ListAttendanceSessionsUseCase(store)
+    fun listAttendanceSessions(store: AttendanceStoreOutputPort): ListAttendanceSessionsInputPort = ListAttendanceSessionsUseCase(store)
 
     @Bean
-    fun listEligibleAttendanceStudents(store: AttendanceStoreOutputPort): ListEligibleAttendanceStudentsInputPort =
-        ListEligibleAttendanceStudentsUseCase(store)
+    fun listEligibleAttendanceStudents(store: AttendanceStoreOutputPort): ListEligibleAttendanceStudentsInputPort = ListEligibleAttendanceStudentsUseCase(store)
 
     @Bean
-    fun getAttendanceSession(store: AttendanceStoreOutputPort): GetAttendanceSessionInputPort =
-        GetAttendanceSessionUseCase(store)
+    fun getAttendanceSession(store: AttendanceStoreOutputPort): GetAttendanceSessionInputPort = GetAttendanceSessionUseCase(store)
 
     @Bean
     fun recordAttendance(

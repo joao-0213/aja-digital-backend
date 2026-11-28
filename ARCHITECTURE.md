@@ -1,20 +1,24 @@
 # Target architecture
 
-**Status:** required target for future implementation; this document does not describe current compliance or authorize backlog work. The sixteen backend issues remain open. [ARQUITETURA.md](ARQUITETURA.md), the issue acceptance criteria, service contracts, and [docs/backend/operation-ownership.md](docs/backend/operation-ownership.md) remain authoritative for service and data ownership. This document supplies the target code organization and implementation principles; if a conflict appears, those existing contracts win and the discrepancy must be resolved before implementation.
+**Status:** required target for future implementation; this document does not describe current compliance or authorize backlog work. The sixteen backend issues remain open. This document defines service boundaries, data ownership, target code organization, and implementation principles. The issue acceptance criteria, public API contract, private service contracts, and [docs/backend/operation-ownership.md](docs/backend/operation-ownership.md) remain authoritative for operation-level behavior and ownership; resolve any discrepancy before implementation.
 
 ## Service boundaries
 
 | Service | Owns | Persistence and communication |
 | --- | --- | --- |
-| Core | Identity, sessions, academic authorization and academic capabilities | PostgreSQL `core` schema and role; authenticated private interfaces; transactional outbox publisher to RabbitMQ |
-| Questions | Question catalogue and versioned snapshot provider | PostgreSQL `questions` schema and role; calls Core only through authenticated private interfaces |
+| Core | Identity, sessions, academic authorization, academic capabilities, files, and persisted snapshots | PostgreSQL `core` schema and role; authenticated private interfaces; transactional outbox publisher to RabbitMQ |
+| Questions | Question catalogue and private, versioned snapshot provider | PostgreSQL `questions` schema and role; calls Core only through authenticated private interfaces |
 | Email | Asynchronous delivery worker and its delivery state | PostgreSQL `email` schema and role; consumes Core events from RabbitMQ |
 
-Services run as separate processes. Each service accesses and migrates only its own schema. There is no public gateway, BFF, frontend integration, shared identity schema, cross-schema SQL, or distributed transaction in B-01–B-16. Core is the source of identity and academic authorization. Questions receives only the minimum decision or identity facts required by an authenticated interface. Email does not own identity or public browser endpoints. Existing private operations, event guarantees, credentials, and public routes are defined by `ARQUITETURA.md` and `docs/backend/operation-ownership.md`.
+The schemas may share one PostgreSQL instance, but each service role can access and migrate only its own schema. Services run as separate processes. There is no public gateway, proxy, BFF, frontend integration, administrative UI, shared identity schema, cross-schema SQL, snapshot global store, dual-write, or distributed transaction in B-01–B-16. Core is the source of identity and academic authorization. Questions receives only the minimum decision or identity facts required by an authenticated interface. Email does not own identity or public browser endpoints. Core writes outbox events in the same transaction as the business change and publishes them through RabbitMQ; Email consumes events and deduplicates its own delivery state.
+
+The public API is fixed by [`docs/http/openapi.json`](docs/http/openapi.json) (OpenAPI 3.1, version 1.0.8). Preserve the `aja_session` HttpOnly cookie and its contract attributes, routes, schemas, identifiers, pagination, status codes, response shapes, and error behavior. Do not invent a CSRF header, JWT, or contract changes from generic examples. Authenticated Core↔Questions interfaces and Core→RabbitMQ→Email events are private and are not part of `/api/v1`. The complete operation and ownership matrix is in [docs/backend/operation-ownership.md](docs/backend/operation-ownership.md).
+
+Test services directly against real PostgreSQL and RabbitMQ test instances or equivalent real processes. HTTP mocks alone do not establish service contracts.
 
 ## Code organization
 
-Use feature-oriented packages, with separate domain and application layers, and explicit adapters. This is the required target for Core and a reference for future service work; it does not claim Questions or Email have migrated. The shape below is a target vocabulary, not a requirement to create empty packages or classes:
+Use feature-oriented packages, with separate domain and application layers, and explicit adapters. This is the required target for Core and a reference for future service work; it does not claim Questions or Email have migrated. The shape below is a target vocabulary, not a requirement to create empty packages or classes. B-01 determines the concrete project structure and tools without anticipating undecided conventions:
 
 ```text
 <service-root>/<feature>/
@@ -90,3 +94,10 @@ Core runs its production architecture checks through `test` and `check`. `archit
 Architecture checks should verify that domain and application packages cannot depend on framework, transport, persistence, or broker implementations; adapters depend inward on ports; and adapters do not depend on one another. The recommended tool for these dependency checks is ArchUnit as a test dependency, which verifies real class and package dependencies including cycles. Use bounded Kotlin PSI source checks for the primary declaration, filename, and allowed related declarations; do not require every helper or subtype to be split into its own file. Keep public contract checks against the normative OpenAPI and exercise any enabled runtime docs routes for accidental exposure.
 
 Choose implementation tools and verification commands only within the authorized issue and B-01 decisions. This target does not imply that any proposed library, package, architecture check, dependency, or runtime docs route exists today.
+
+## Documentation sources and limits
+
+- [`ISSUES-BACKEND.md`](ISSUES-BACKEND.md) is the implementation backlog; all sixteen issues remain open.
+- [`docs/http/`](docs/http/) records observable contract behavior and its provenance. JSON Server and local-storage examples are evidence, not requirements to reproduce the frontend simulator's storage.
+- [`docs/reference/frontend-sources.md`](docs/reference/frontend-sources.md) identifies historical external sources. Frontend suites are references, never evidence of backend implementation.
+- `services/*/README.md` describes planned scope only; it does not prove a service or feature is implemented.

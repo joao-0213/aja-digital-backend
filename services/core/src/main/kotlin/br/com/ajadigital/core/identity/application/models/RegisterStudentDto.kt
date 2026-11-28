@@ -1,3 +1,5 @@
 package br.com.ajadigital.core.identity.application.models
 
-data class RegisterStudentDto(val command: RegistrationCommand)
+data class RegisterStudentDto(
+    val command: RegistrationCommand,
+)

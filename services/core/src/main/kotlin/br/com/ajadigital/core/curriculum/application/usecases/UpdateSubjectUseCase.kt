@@ -24,9 +24,20 @@ class UpdateSubjectUseCase(
         val icon = request.icon.valueOrNull()
         val description = request.description.valueOrNull()
         CurriculumPolicy.validateSubjectFields(name, teacherIds, color, icon, description)
-        store.updateSubject(StoreUpdateSubjectCommand(
-            request.id, actor.id, actor.sessionValidationReference, request.revision,
-            request.classId.valueOrNull(), name?.trim(), teacherIds, color, icon, description,
-        )).valueOrThrow()
+        store
+            .updateSubject(
+                StoreUpdateSubjectCommand(
+                    request.id,
+                    actor.id,
+                    actor.sessionValidationReference,
+                    request.revision,
+                    request.classId.valueOrNull(),
+                    name?.trim(),
+                    teacherIds,
+                    color,
+                    icon,
+                    description,
+                ),
+            ).valueOrThrow()
     }
 }

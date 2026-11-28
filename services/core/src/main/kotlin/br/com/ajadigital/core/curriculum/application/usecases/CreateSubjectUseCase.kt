@@ -9,9 +9,8 @@ import br.com.ajadigital.core.curriculum.application.ports.out.CurriculumReceipt
 import br.com.ajadigital.core.curriculum.application.ports.out.SubjectStoreOutputPort
 import br.com.ajadigital.core.curriculum.domain.policies.CurriculumPolicy
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
-import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
 import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
-
+import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
 
 class CreateSubjectUseCase(
     private val store: SubjectStoreOutputPort,
@@ -19,20 +18,31 @@ class CreateSubjectUseCase(
     private val idempotency: EncodedIdempotencyStoreOutputPort,
     private val transactionRunner: TransactionRunnerOutputPort,
 ) : CreateSubjectInputPort {
-    override fun createSubject(request: CreateSubjectCommand): Subject =
-        transactionRunner.run {
-            val actor = request.actor
-            CurriculumPolicy.requireAdmin(actor.active, actor.role)
-            store.authorize(StoreAuthorizeSubjectCommand(actor.id, actor.role, actor.sessionValidationReference, null))
-            require(request.key.length in 8..128)
-            val receipt = FindIdempotencyDto(actor.id, "createSubject", "/subjects", request.key, codec.fingerprint(request))
-            idempotency.receipt(receipt)?.let { return@run codec.decodeSubject(it) }
-            CurriculumPolicy.validateSubjectFields(request.name, request.teacherIds, request.color, request.icon, request.description)
-            val result = store.createSubject(StoreCreateSubjectCommand(
-                actor.id, actor.sessionValidationReference, request.classId, request.name.trim(),
-                request.teacherIds, request.color, request.icon, request.description,
-            ))
-            idempotency.saveEncoded(receipt, codec.encode(result))
-            result
-        }
+    override fun createSubject(request: CreateSubjectCommand): Subject = transactionRunner.run {
+        val actor = request.actor
+        CurriculumPolicy.requireAdmin(actor.active, actor.role)
+        store.authorize(StoreAuthorizeSubjectCommand(actor.id, actor.role, actor.sessionValidationReference, null))
+        require(request.key.length in MIN_IDEMPOTENCY_KEY_LENGTH..MAX_IDEMPOTENCY_KEY_LENGTH)
+        val receipt = FindIdempotencyDto(actor.id, "createSubject", "/subjects", request.key, codec.fingerprint(request))
+        idempotency.receipt(receipt)?.let { return@run codec.decodeSubject(it) }
+        CurriculumPolicy.validateSubjectFields(request.name, request.teacherIds, request.color, request.icon, request.description)
+        val result =
+            store.createSubject(
+                StoreCreateSubjectCommand(
+                    actor.id,
+                    actor.sessionValidationReference,
+                    request.classId,
+                    request.name.trim(),
+                    request.teacherIds,
+                    request.color,
+                    request.icon,
+                    request.description,
+                ),
+            )
+        idempotency.saveEncoded(receipt, codec.encode(result))
+        result
+    }
 }
+
+private const val MIN_IDEMPOTENCY_KEY_LENGTH = 8
+private const val MAX_IDEMPOTENCY_KEY_LENGTH = 128

@@ -14,12 +14,12 @@ import br.com.ajadigital.core.materials.application.ports.`in`.ReorderMaterialsI
 import br.com.ajadigital.core.materials.application.ports.`in`.UpdateMaterialInputPort
 import br.com.ajadigital.core.materials.application.ports.`in`.UploadFileInputPort
 import br.com.ajadigital.core.materials.application.ports.out.FileStoreOutputPort
-import br.com.ajadigital.core.materials.application.ports.out.QuestionImageOutputPort
-import br.com.ajadigital.core.materials.application.ports.out.QuestionServiceAccessOutputPort
-import br.com.ajadigital.core.materials.application.ports.out.MaterialReadOutputPort
-import br.com.ajadigital.core.materials.application.ports.out.MaterialWriteOutputPort
 import br.com.ajadigital.core.materials.application.ports.out.LearningProgressOutputPort
 import br.com.ajadigital.core.materials.application.ports.out.MaterialPublicationReceiptOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.MaterialReadOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.MaterialWriteOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.QuestionImageOutputPort
+import br.com.ajadigital.core.materials.application.ports.out.QuestionServiceAccessOutputPort
 import br.com.ajadigital.core.materials.application.usecases.DiscardFileUseCase
 import br.com.ajadigital.core.materials.application.usecases.DownloadFileUseCase
 import br.com.ajadigital.core.materials.application.usecases.GetDashboardContentUseCase
@@ -44,8 +44,10 @@ class MaterialsConfiguration {
     fun uploadFile(store: FileStoreOutputPort): UploadFileInputPort = UploadFileUseCase(store)
 
     @Bean
-    fun provisionQuestionImage(store: QuestionImageOutputPort, serviceAccess: QuestionServiceAccessOutputPort): ProvisionQuestionImageInputPort =
-        ProvisionQuestionImageUseCase(store, serviceAccess)
+    fun provisionQuestionImage(
+        store: QuestionImageOutputPort,
+        serviceAccess: QuestionServiceAccessOutputPort,
+    ): ProvisionQuestionImageInputPort = ProvisionQuestionImageUseCase(store, serviceAccess)
 
     @Bean
     fun getFileMetadata(store: FileStoreOutputPort): GetFileMetadataInputPort = GetFileMetadataUseCase(store)

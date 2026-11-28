@@ -14,7 +14,10 @@ internal object AttemptRepresentation {
     private val questionFields = setOf("id", "subject", "topic", "difficulty", "institution", "year", "statement", "options", "image", "correct", "explanation")
 
     fun page(page: AttemptPage): Map<String, Any?> = linkedMapOf(
-        "items" to page.items.map(::attempt), "page" to page.page, "pageSize" to page.pageSize, "total" to page.total,
+        "items" to page.items.map(::attempt),
+        "page" to page.page,
+        "pageSize" to page.pageSize,
+        "total" to page.total,
     )
 
     fun attempt(attempt: AttemptRecord): Map<String, Any?> = linkedMapOf(
@@ -66,7 +69,9 @@ internal object AttemptRepresentation {
         return AttemptResult(
             attempt = readAttempt(document["attempt"] as Map<String, Any?>),
             receipt = br.com.ajadigital.core.assessment.domain.models.AttemptReceipt(
-                receipt["id"] as String, receipt["resourceId"] as String, receipt["submittedAt"] as String,
+                receipt["id"] as String,
+                receipt["resourceId"] as String,
+                receipt["submittedAt"] as String,
             ),
             score = (document["score"] as Number).toDouble(),
             maxScore = (document["maxScore"] as Number).toDouble(),
@@ -102,36 +107,42 @@ internal object AttemptRepresentation {
 
     private fun prompt(question: AttemptPrompt): Map<String, Any?> = LinkedHashMap<String, Any?>().apply {
         question.fields.forEach { field ->
-            put(field.key, when (field) {
-                AttemptQuestionField.ID -> question.id
-                AttemptQuestionField.YEAR -> question.year
-                AttemptQuestionField.IMAGE -> question.image?.let(::image)
-                AttemptQuestionField.TOPIC -> question.topic
-                AttemptQuestionField.CORRECT, AttemptQuestionField.EXPLANATION -> error("Private answer fields are not part of an attempt prompt")
-                AttemptQuestionField.OPTIONS -> question.options
-                AttemptQuestionField.SUBJECT -> question.subject
-                AttemptQuestionField.STATEMENT -> question.statement
-                AttemptQuestionField.DIFFICULTY -> question.difficulty
-                AttemptQuestionField.INSTITUTION -> question.institution
-            })
+            put(
+                field.key,
+                when (field) {
+                    AttemptQuestionField.ID -> question.id
+                    AttemptQuestionField.YEAR -> question.year
+                    AttemptQuestionField.IMAGE -> question.image?.let(::image)
+                    AttemptQuestionField.TOPIC -> question.topic
+                    AttemptQuestionField.CORRECT, AttemptQuestionField.EXPLANATION -> error("Private answer fields are not part of an attempt prompt")
+                    AttemptQuestionField.OPTIONS -> question.options
+                    AttemptQuestionField.SUBJECT -> question.subject
+                    AttemptQuestionField.STATEMENT -> question.statement
+                    AttemptQuestionField.DIFFICULTY -> question.difficulty
+                    AttemptQuestionField.INSTITUTION -> question.institution
+                },
+            )
         }
     }
 
     private fun question(question: AttemptQuestion): Map<String, Any?> = LinkedHashMap<String, Any?>().apply {
         question.fields.forEach { field ->
-            put(field.key, when (field) {
-                AttemptQuestionField.ID -> question.id
-                AttemptQuestionField.YEAR -> question.year
-                AttemptQuestionField.IMAGE -> question.image?.let(::image)
-                AttemptQuestionField.TOPIC -> question.topic
-                AttemptQuestionField.CORRECT -> question.correct
-                AttemptQuestionField.OPTIONS -> question.options
-                AttemptQuestionField.SUBJECT -> question.subject
-                AttemptQuestionField.STATEMENT -> question.statement
-                AttemptQuestionField.DIFFICULTY -> question.difficulty
-                AttemptQuestionField.EXPLANATION -> question.explanation
-                AttemptQuestionField.INSTITUTION -> question.institution
-            })
+            put(
+                field.key,
+                when (field) {
+                    AttemptQuestionField.ID -> question.id
+                    AttemptQuestionField.YEAR -> question.year
+                    AttemptQuestionField.IMAGE -> question.image?.let(::image)
+                    AttemptQuestionField.TOPIC -> question.topic
+                    AttemptQuestionField.CORRECT -> question.correct
+                    AttemptQuestionField.OPTIONS -> question.options
+                    AttemptQuestionField.SUBJECT -> question.subject
+                    AttemptQuestionField.STATEMENT -> question.statement
+                    AttemptQuestionField.DIFFICULTY -> question.difficulty
+                    AttemptQuestionField.EXPLANATION -> question.explanation
+                    AttemptQuestionField.INSTITUTION -> question.institution
+                },
+            )
         }
     }
 

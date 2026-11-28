@@ -1,11 +1,11 @@
 package br.com.ajadigital.core.dashboard.configuration
 
+import br.com.ajadigital.core.academic.application.ports.`in`.GetDashboardAcademicInputPort
 import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardAnnouncementsInputPort
 import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardUpcomingEventsInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingFeedbackInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingStudentAssessmentsInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.ListDashboardAssessmentsInputPort
-import br.com.ajadigital.core.academic.application.ports.`in`.GetDashboardAcademicInputPort
 import br.com.ajadigital.core.curriculum.application.ports.`in`.ListSubjectsInputPort
 import br.com.ajadigital.core.dashboard.application.ports.`in`.GetDashboardInputPort
 import br.com.ajadigital.core.dashboard.application.usecases.GetDashboardUseCase

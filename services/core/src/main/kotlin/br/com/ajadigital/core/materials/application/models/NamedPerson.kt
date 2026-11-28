@@ -1,3 +1,6 @@
 package br.com.ajadigital.core.materials.application.models
 
-data class NamedPerson(val id: String, val name: String)
+data class NamedPerson(
+    val id: String,
+    val name: String,
+)

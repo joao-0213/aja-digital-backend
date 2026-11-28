@@ -4,7 +4,10 @@ import java.time.Instant
 
 sealed interface AttemptState {
     data object InProgress : AttemptState
-    data class Submitted(val submittedAt: Instant) : AttemptState
+
+    data class Submitted(
+        val submittedAt: Instant,
+    ) : AttemptState
 
     companion object {
         fun from(submittedAt: String?): AttemptState = submittedAt

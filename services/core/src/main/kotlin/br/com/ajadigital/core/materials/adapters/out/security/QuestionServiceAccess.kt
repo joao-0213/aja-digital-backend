@@ -7,9 +7,10 @@ import org.springframework.stereotype.Component
 import java.security.MessageDigest
 
 @Component
-class QuestionServiceAccess(@Value("\${core.internal.questions-token}") token: String) : QuestionServiceAccessOutputPort {
+class QuestionServiceAccess(
+    @Value("\${core.internal.questions-token}") token: String,
+) : QuestionServiceAccessOutputPort {
     private val expected = token.toByteArray()
 
-    override fun allows(credential: QuestionServiceCredential): Boolean =
-        MessageDigest.isEqual(expected, credential.value.orEmpty().toByteArray())
+    override fun allows(credential: QuestionServiceCredential): Boolean = MessageDigest.isEqual(expected, credential.value.orEmpty().toByteArray())
 }

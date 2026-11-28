@@ -1,7 +1,35 @@
 package br.com.ajadigital.core.academic.application.ports.out
 
-import br.com.ajadigital.core.academic.application.models.*
 import br.com.ajadigital.core.academic.application.contracts.DashboardClassProjection
+import br.com.ajadigital.core.academic.application.models.AcademicClassView
+import br.com.ajadigital.core.academic.application.models.AcademicEnrollmentPreview
+import br.com.ajadigital.core.academic.application.models.AcademicEnrollmentView
+import br.com.ajadigital.core.academic.application.models.AcademicStoreChangeRoleDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreCreateClassDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreCreateEnrollmentDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreCreateUserDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreDashboardClassesDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreDeactivateUserDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreEnrollmentPreviewDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreFindClassDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreFindEnrollmentDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreFindStudentDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreIsCurrentAdminSessionDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreListClassesDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreListEnrollmentsDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreListStudentsDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreListUsersDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreMyEnrollmentsDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreSetClassActiveDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreTransitionEnrollmentDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreUpdateClassDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreUpdateUserDto
+import br.com.ajadigital.core.academic.application.models.AcademicStoreWithdrawUserDto
+import br.com.ajadigital.core.academic.application.models.AcademicStudentSummaryView
+import br.com.ajadigital.core.academic.application.models.AcademicStudentView
+import br.com.ajadigital.core.academic.application.models.AcademicUserView
+import br.com.ajadigital.core.academic.application.models.CountPendingEnrollmentsForStudentDto
+import br.com.ajadigital.core.academic.application.models.FindUserDto
 import br.com.ajadigital.core.shared.application.contracts.Page
 
 interface AcademicStoreOutputPort {

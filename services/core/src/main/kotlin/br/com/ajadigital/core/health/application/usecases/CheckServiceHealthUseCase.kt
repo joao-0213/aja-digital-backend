@@ -4,6 +4,8 @@ import br.com.ajadigital.core.health.application.ports.`in`.CheckServiceHealthIn
 import br.com.ajadigital.core.health.application.ports.out.HealthProbeOutputPort
 import br.com.ajadigital.core.health.domain.models.ServiceReadiness
 
-class CheckServiceHealthUseCase(private val probe: HealthProbeOutputPort) : CheckServiceHealthInputPort {
+class CheckServiceHealthUseCase(
+    private val probe: HealthProbeOutputPort,
+) : CheckServiceHealthInputPort {
     override operator fun invoke() = ServiceReadiness(probe.dependenciesAvailable())
 }

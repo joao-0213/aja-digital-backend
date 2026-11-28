@@ -1,7 +1,7 @@
 package br.com.ajadigital.core.assessment.application.models
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentKind
 import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
+import br.com.ajadigital.core.assessment.domain.models.AssessmentKind
 import br.com.ajadigital.core.shared.application.contracts.FieldChange
 import java.time.Instant
 

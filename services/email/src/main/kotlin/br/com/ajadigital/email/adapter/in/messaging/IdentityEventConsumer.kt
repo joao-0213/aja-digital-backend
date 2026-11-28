@@ -1,12 +1,12 @@
 package br.com.ajadigital.email.adapter.`in`.messaging
 
-import br.com.ajadigital.email.application.delivery.IdentityEmail
 import br.com.ajadigital.email.application.delivery.AnnouncementEmail
+import br.com.ajadigital.email.application.delivery.IdentityEmail
 import br.com.ajadigital.email.application.delivery.ProcessIdentityEmail
 import br.com.ajadigital.email.ports.out.DeliveryOutcome
 import br.com.ajadigital.email.ports.out.EmailDeliveryStore
-import com.rabbitmq.client.Channel
 import com.rabbitmq.client.AMQP
+import com.rabbitmq.client.Channel
 import org.springframework.amqp.core.BindingBuilder
 import org.springframework.amqp.core.Message
 import org.springframework.amqp.core.QueueBuilder
@@ -31,20 +31,26 @@ private const val EMAIL_DEAD_LETTER_QUEUE = "email.identity.dlq"
 @Configuration
 class IdentityEventTopology(@Value("\${email.retry.delay-ms:5000}") private val retryDelayMs: Int) {
     @Bean fun identityEventsExchange() = TopicExchange("aja.events", true, false)
+
     @Bean fun identityEventsQueue() = QueueBuilder.durable(EMAIL_EVENTS_QUEUE)
         .withArgument("x-dead-letter-exchange", "")
         .withArgument("x-dead-letter-routing-key", EMAIL_DEAD_LETTER_QUEUE)
         .build()
+
     @Bean fun identityRetryQueue() = QueueBuilder.durable(EMAIL_RETRY_QUEUE)
         .withArgument("x-message-ttl", retryDelayMs)
         .withArgument("x-dead-letter-exchange", "")
         .withArgument("x-dead-letter-routing-key", EMAIL_EVENTS_QUEUE)
         .build()
+
     @Bean fun identityDeadLetterQueue() = QueueBuilder.durable(EMAIL_DEAD_LETTER_QUEUE).build()
+
     @Bean fun confirmationBinding(exchange: TopicExchange) = BindingBuilder.bind(identityEventsQueue()).to(exchange)
         .with("identity.email-confirmation-requested")
+
     @Bean fun resetBinding(exchange: TopicExchange) = BindingBuilder.bind(identityEventsQueue()).to(exchange)
         .with("identity.password-reset-requested")
+
     @Bean fun announcementBinding(exchange: TopicExchange) = BindingBuilder.bind(identityEventsQueue()).to(exchange)
         .with("academic.announcement-notification-requested")
 }
@@ -63,7 +69,9 @@ class IdentityEventConsumer(
     @RabbitListener(queues = [EMAIL_EVENTS_QUEUE], ackMode = "MANUAL")
     fun consume(message: Message, channel: Channel) {
         val tag = message.messageProperties.deliveryTag
-        val email = try { decode(message.body) } catch (_: Exception) {
+        val email = try {
+            decode(message.body)
+        } catch (_: Exception) {
             runCatching {
                 val envelope = mapper.readTree(message.body)
                 val id = envelope.path("id").asText().takeIf(String::isNotBlank)
@@ -83,11 +91,13 @@ class IdentityEventConsumer(
                 rabbit.execute { retryChannel ->
                     retryChannel.confirmSelect()
                     retryChannel.basicPublish(
-                        "", EMAIL_RETRY_QUEUE, false,
+                        "",
+                        EMAIL_RETRY_QUEUE,
+                        false,
                         AMQP.BasicProperties.Builder().deliveryMode(2).contentType("application/json").build(),
                         message.body,
                     )
-                    retryChannel.waitForConfirmsOrDie(5000)
+                    retryChannel.waitForConfirmsOrDie(PUBLISH_CONFIRM_TIMEOUT_MILLIS)
                 }
                 channel.basicAck(tag, false)
             }
@@ -103,7 +113,7 @@ class IdentityEventConsumer(
         val nonce = Base64.getDecoder().decode(envelope.path("nonce").asText())
         val ciphertext = Base64.getDecoder().decode(envelope.path("ciphertext").asText())
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce))
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(GCM_TAG_BITS, nonce))
         cipher.updateAAD("$id|$type|1".toByteArray())
         val payload = mapper.readTree(cipher.doFinal(ciphertext))
         val recipient = payload.path("recipient").asText().takeIf(String::isNotBlank) ?: error("missing recipient")
@@ -123,3 +133,6 @@ class IdentityEventConsumer(
 private sealed interface EmailWork
 private data class IdentityWork(val value: IdentityEmail) : EmailWork
 private data class AnnouncementWork(val value: AnnouncementEmail) : EmailWork
+
+private const val PUBLISH_CONFIRM_TIMEOUT_MILLIS = 5_000L
+private const val GCM_TAG_BITS = 128

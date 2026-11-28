@@ -4,5 +4,9 @@ import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import java.math.BigDecimal
 
 data class SubmissionSaveFeedbackRecord(
-    val actor: AuthenticatedActor, val id: String, val expectedRevision: Int, val comment: String, val grade: BigDecimal?,
+    val actor: AuthenticatedActor,
+    val id: String,
+    val expectedRevision: Int,
+    val comment: String,
+    val grade: BigDecimal?,
 )

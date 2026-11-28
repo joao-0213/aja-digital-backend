@@ -9,6 +9,11 @@ import br.com.ajadigital.core.shared.application.contracts.Page
 
 interface LearningProgressOutputPort {
     fun progress(request: StoreProgressQuery): Page<LearningProgress>
-    fun dashboard(actor: AuthenticatedActor, progressLimit: Int): DashboardContent
+
+    fun dashboard(
+        actor: AuthenticatedActor,
+        progressLimit: Int,
+    ): DashboardContent
+
     fun recordProgress(request: StoreRecordProgressCommand): LearningProgress?
 }

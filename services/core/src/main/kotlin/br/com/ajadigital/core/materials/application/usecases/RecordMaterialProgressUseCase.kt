@@ -8,7 +8,9 @@ import br.com.ajadigital.core.materials.application.ports.out.LearningProgressOu
 import br.com.ajadigital.core.materials.domain.exceptions.MaterialsNotFound
 import br.com.ajadigital.core.materials.domain.policies.MaterialRules
 
-class RecordMaterialProgressUseCase(private val store: LearningProgressOutputPort) : RecordMaterialProgressInputPort {
+class RecordMaterialProgressUseCase(
+    private val store: LearningProgressOutputPort,
+) : RecordMaterialProgressInputPort {
     override fun recordProgress(request: RecordMaterialProgressCommand): LearningProgress {
         val (actor, materialId, action) = request
         actor.requireReader()

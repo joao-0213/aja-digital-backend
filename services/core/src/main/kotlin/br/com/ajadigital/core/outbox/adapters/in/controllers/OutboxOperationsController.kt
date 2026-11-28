@@ -1,9 +1,8 @@
 package br.com.ajadigital.core.outbox.adapters.`in`.controllers
 import br.com.ajadigital.core.outbox.application.ports.`in`.RedriveOutboxEventInputPort
 import br.com.ajadigital.core.outbox.domain.models.RedriveOutboxEventDto
-
+import org.springframework.http.HttpStatus
 import java.util.UUID
-
 
 @org.springframework.web.bind.annotation.RestController
 @org.springframework.web.bind.annotation.RequestMapping("/internal/ops/outbox")
@@ -21,7 +20,7 @@ class OutboxOperationsController(
         @org.springframework.web.bind.annotation.RequestHeader("X-AJA-Operator-Token", required = false) suppliedToken: String?,
     ): org.springframework.http.ResponseEntity<Void> {
         if (suppliedToken.isNullOrBlank() || !java.security.MessageDigest.isEqual(operatorToken.toByteArray(), suppliedToken.toByteArray())) {
-            return org.springframework.http.ResponseEntity.status(401).build()
+            return org.springframework.http.ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         }
         if (!runCatching { UUID.fromString(id) }.isSuccess || !redrive.redrive(RedriveOutboxEventDto(id))) return org.springframework.http.ResponseEntity.notFound().build()
         return org.springframework.http.ResponseEntity.accepted().build()

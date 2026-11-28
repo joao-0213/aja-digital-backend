@@ -1,3 +1,3 @@
 package br.com.ajadigital.core.assessment.domain.exceptions
 
-class AssessmentIdempotencyConflict() : RuntimeException()
+class AssessmentIdempotencyConflict : RuntimeException()

@@ -1,14 +1,12 @@
 package br.com.ajadigital.core.forum.application.usecases
-import br.com.ajadigital.core.forum.application.models.*
-
-import br.com.ajadigital.core.forum.domain.policies.ForumPolicy
-
-import br.com.ajadigital.core.forum.domain.exceptions.ForumNotFound
-import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
-import br.com.ajadigital.core.forum.application.ports.`in`.MarkTopicReadInputPort
-import br.com.ajadigital.core.forum.application.ports.out.TopicStoreOutputPort
+import br.com.ajadigital.core.forum.application.models.ForumTopicView
 import br.com.ajadigital.core.forum.application.models.MarkTopicReadCommand
 import br.com.ajadigital.core.forum.application.models.MarkTopicReadRecord
+import br.com.ajadigital.core.forum.application.ports.`in`.MarkTopicReadInputPort
+import br.com.ajadigital.core.forum.application.ports.out.TopicStoreOutputPort
+import br.com.ajadigital.core.forum.domain.exceptions.ForumNotFound
+import br.com.ajadigital.core.forum.domain.policies.ForumPolicy
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 
 class MarkTopicReadUseCase(
@@ -17,6 +15,6 @@ class MarkTopicReadUseCase(
 ) : MarkTopicReadInputPort {
     override fun read(request: MarkTopicReadCommand): ForumTopicView = transactionRunner.run {
         val (actor, id) = request
-                ForumPolicy.readable(actor.role, actor.active, actor.emailConfirmedAt != null).let { store.read(MarkTopicReadRecord(actor.id, actor.role, actor.sessionValidationReference, ForumPolicy.checkedId(id))) ?: throw ForumNotFound() }
+        ForumPolicy.readable(actor.role, actor.active, actor.emailConfirmedAt != null).let { store.read(MarkTopicReadRecord(actor.id, actor.role, actor.sessionValidationReference, ForumPolicy.checkedId(id))) ?: throw ForumNotFound() }
     }
 }

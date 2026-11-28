@@ -7,10 +7,15 @@ import tools.jackson.databind.ObjectMapper
 import java.security.MessageDigest
 
 @Component
-class JacksonForumRequestFingerprint(private val mapper: ObjectMapper) : ForumRequestFingerprintOutputPort {
+class JacksonForumRequestFingerprint(
+    private val mapper: ObjectMapper,
+) : ForumRequestFingerprintOutputPort {
     override fun createTopic(draft: TopicDraft): String = fingerprint(mapper.writeValueAsBytes(draft))
+
     override fun reply(body: String): String = fingerprint(mapper.writeValueAsBytes(mapOf("body" to body)))
 
-    private fun fingerprint(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes)
+    private fun fingerprint(bytes: ByteArray) = MessageDigest
+        .getInstance("SHA-256")
+        .digest(bytes)
         .joinToString("") { "%02x".format(it) }
 }

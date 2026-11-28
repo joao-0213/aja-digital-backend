@@ -1,21 +1,21 @@
 package br.com.ajadigital.core.assessment.application.usecases
 
-import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Conflict
-import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Forbidden
-import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.NotFound
 import br.com.ajadigital.core.assessment.application.models.AssessmentDetails
-import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentCommand
-import br.com.ajadigital.core.assessment.application.ports.`in`.UpdateAssessmentInputPort
+import br.com.ajadigital.core.assessment.application.models.AssessmentReceiptKey
 import br.com.ajadigital.core.assessment.application.models.GetAssessmentQuery
+import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentCommand
 import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentRecord
-import br.com.ajadigital.core.assessment.domain.policies.AssessmentEditPolicy
-import br.com.ajadigital.core.assessment.domain.policies.AssessmentPolicy
+import br.com.ajadigital.core.assessment.application.ports.`in`.UpdateAssessmentInputPort
 import br.com.ajadigital.core.assessment.application.ports.out.AssessmentReadOutputPort
 import br.com.ajadigital.core.assessment.application.ports.out.AssessmentWriteOutputPort
 import br.com.ajadigital.core.assessment.application.ports.out.QuestionSnapshotProviderOutputPort
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Conflict
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Forbidden
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.NotFound
+import br.com.ajadigital.core.assessment.domain.policies.AssessmentEditPolicy
+import br.com.ajadigital.core.assessment.domain.policies.AssessmentPolicy
 import br.com.ajadigital.core.shared.application.contracts.FieldChange
 import br.com.ajadigital.core.shared.application.contracts.valueOrNull
-import br.com.ajadigital.core.assessment.application.models.AssessmentReceiptKey
 
 class UpdateAssessmentUseCase(
     private val store: AssessmentWriteOutputPort,
@@ -25,16 +25,24 @@ class UpdateAssessmentUseCase(
     private val prepare = PrepareAssessmentQuestions(snapshots)
 
     override fun update(request: UpdateAssessmentCommand): AssessmentDetails.Staff {
-        val (actor, id, key, hash, expectedRevision, changes, selection, confirmation) = request
+        val actor = request.actor
+        val id = request.id
+        val key = request.key
+        val hash = request.fingerprint
+        val expectedRevision = request.expectedRevision
+        val changes = request.changes
+        val selection = request.questions
+        val confirmation = request.confirmResetDrafts
         AssessmentPolicy.writer(actor.role, actor.active)
         AssessmentPolicy.id(id)
         AssessmentPolicy.validateCommand(key, hash)
         require(expectedRevision > 0)
-        val current = when (val found = read.assessment(GetAssessmentQuery(actor, id))) {
-            null -> throw NotFound()
-            is AssessmentDetails.Student -> throw Forbidden()
-            is AssessmentDetails.Staff -> found
-        }
+        val current =
+            when (val found = read.assessment(GetAssessmentQuery(actor, id))) {
+                null -> throw NotFound()
+                is AssessmentDetails.Student -> throw Forbidden()
+                is AssessmentDetails.Staff -> found
+            }
         store.replay(AssessmentReceiptKey.update(actor.id, id, key, hash))?.let { return it }
 
         val edit = requireNotNull(changes)
@@ -48,14 +56,15 @@ class UpdateAssessmentUseCase(
         if (draft.moduleId != prior.moduleId) {
             store.authorizeWrite(actor, draft.moduleId)
         }
-        val questions = when (selection) {
-            FieldChange.Unchanged -> null
-            is FieldChange.Set -> {
-                val selected = requireNotNull(selection.value)
-                require(AssessmentEditPolicy.isValidKindQuestionCount(draft.kind, selected.items.size))
-                prepare.identify(selected, current.questions)
+        val questions =
+            when (selection) {
+                FieldChange.Unchanged -> null
+                is FieldChange.Set -> {
+                    val selected = requireNotNull(selection.value)
+                    require(AssessmentEditPolicy.isValidKindQuestionCount(draft.kind, selected.items.size))
+                    prepare.identify(selected, current.questions)
+                }
             }
-        }
         val revision = current.record.revision
         if (!AssessmentEditPolicy.isValidKindQuestionCount(draft.kind, questions?.size ?: current.questions.size)) {
             throw Conflict(revision)

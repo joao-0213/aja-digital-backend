@@ -8,6 +8,8 @@ import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboard
 import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardUpcomingEventsInputPort
 import br.com.ajadigital.core.announcements.application.ports.`in`.UpdateAnnouncementInputPort
 import br.com.ajadigital.core.announcements.application.ports.`in`.WithdrawAnnouncementInputPort
+import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementReceiptCodecOutputPort
+import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementRequestFingerprintOutputPort
 import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementStoreOutputPort
 import br.com.ajadigital.core.announcements.application.usecases.CreateAnnouncementUseCase
 import br.com.ajadigital.core.announcements.application.usecases.GetAnnouncementUseCase
@@ -18,11 +20,9 @@ import br.com.ajadigital.core.announcements.application.usecases.ListDashboardUp
 import br.com.ajadigital.core.announcements.application.usecases.UpdateAnnouncementUseCase
 import br.com.ajadigital.core.announcements.application.usecases.WithdrawAnnouncementUseCase
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
-import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementReceiptCodecOutputPort
 import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementRequestFingerprintOutputPort
 
 @Configuration
 class AnnouncementsConfiguration {
@@ -57,10 +57,8 @@ class AnnouncementsConfiguration {
     fun listCalendarEvents(store: AnnouncementStoreOutputPort): ListCalendarEventsInputPort = ListCalendarEventsUseCase(store)
 
     @Bean
-    fun listDashboardAnnouncements(store: AnnouncementStoreOutputPort): ListDashboardAnnouncementsInputPort =
-        ListDashboardAnnouncementsUseCase(store)
+    fun listDashboardAnnouncements(store: AnnouncementStoreOutputPort): ListDashboardAnnouncementsInputPort = ListDashboardAnnouncementsUseCase(store)
 
     @Bean
-    fun listDashboardUpcomingEvents(store: AnnouncementStoreOutputPort): ListDashboardUpcomingEventsInputPort =
-        ListDashboardUpcomingEventsUseCase(store)
+    fun listDashboardUpcomingEvents(store: AnnouncementStoreOutputPort): ListDashboardUpcomingEventsInputPort = ListDashboardUpcomingEventsUseCase(store)
 }

@@ -7,7 +7,9 @@ import br.com.ajadigital.core.materials.application.ports.out.FileStoreOutputPor
 import br.com.ajadigital.core.materials.domain.exceptions.MaterialsNotFound
 import br.com.ajadigital.core.materials.domain.policies.MaterialRules
 
-class GetFileMetadataUseCase(private val store: FileStoreOutputPort) : GetFileMetadataInputPort {
+class GetFileMetadataUseCase(
+    private val store: FileStoreOutputPort,
+) : GetFileMetadataInputPort {
     override fun file(request: GetFileMetadataQuery): FileMetadata {
         MaterialRules.id(request.id)
         request.actor.requireSessionRole()

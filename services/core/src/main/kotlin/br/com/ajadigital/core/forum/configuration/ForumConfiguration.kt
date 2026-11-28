@@ -1,6 +1,5 @@
 package br.com.ajadigital.core.forum.configuration
 
-import br.com.ajadigital.core.forum.application.ports.out.ForumQuestionSnapshotProviderOutputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.CreateTopicInputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.GetTopicInputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.ListDashboardTopicsInputPort
@@ -9,8 +8,10 @@ import br.com.ajadigital.core.forum.application.ports.`in`.MarkTopicReadInputPor
 import br.com.ajadigital.core.forum.application.ports.`in`.MarkTopicSolutionInputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.ReplyToTopicInputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.VoteTopicReplyInputPort
-import br.com.ajadigital.core.forum.application.ports.`in`.WithdrawTopicReplyInputPort
 import br.com.ajadigital.core.forum.application.ports.`in`.WithdrawTopicInputPort
+import br.com.ajadigital.core.forum.application.ports.`in`.WithdrawTopicReplyInputPort
+import br.com.ajadigital.core.forum.application.ports.out.ForumQuestionSnapshotProviderOutputPort
+import br.com.ajadigital.core.forum.application.ports.out.ForumRequestFingerprintOutputPort
 import br.com.ajadigital.core.forum.application.ports.out.TopicStoreOutputPort
 import br.com.ajadigital.core.forum.application.usecases.CreateTopicUseCase
 import br.com.ajadigital.core.forum.application.usecases.GetTopicUseCase
@@ -20,12 +21,11 @@ import br.com.ajadigital.core.forum.application.usecases.MarkTopicReadUseCase
 import br.com.ajadigital.core.forum.application.usecases.MarkTopicSolutionUseCase
 import br.com.ajadigital.core.forum.application.usecases.ReplyToTopicUseCase
 import br.com.ajadigital.core.forum.application.usecases.VoteTopicReplyUseCase
-import br.com.ajadigital.core.forum.application.usecases.WithdrawTopicUseCase
 import br.com.ajadigital.core.forum.application.usecases.WithdrawTopicReplyUseCase
+import br.com.ajadigital.core.forum.application.usecases.WithdrawTopicUseCase
 import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import br.com.ajadigital.core.forum.application.ports.out.ForumRequestFingerprintOutputPort
 
 @Configuration
 class ForumConfiguration {

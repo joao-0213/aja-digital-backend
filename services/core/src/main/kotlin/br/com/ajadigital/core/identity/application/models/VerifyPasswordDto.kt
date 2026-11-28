@@ -1,3 +1,6 @@
 package br.com.ajadigital.core.identity.application.models
 
-data class VerifyPasswordDto(val plaintext: String, val encoded: String)
+data class VerifyPasswordDto(
+    val plaintext: String,
+    val encoded: String,
+)

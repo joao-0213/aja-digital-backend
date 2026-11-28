@@ -5,11 +5,19 @@ import java.time.LocalDate
 import java.time.format.DateTimeParseException
 
 internal object AttendancePolicy {
-    fun readable(role: String, active: Boolean, emailConfirmed: Boolean) {
+    fun readable(
+        role: String,
+        active: Boolean,
+        emailConfirmed: Boolean,
+    ) {
         if (!active || !emailConfirmed || role !in setOf("admin", "teacher", "student")) throw AttendanceForbidden()
     }
 
-    fun writable(role: String, active: Boolean, emailConfirmed: Boolean) {
+    fun writable(
+        role: String,
+        active: Boolean,
+        emailConfirmed: Boolean,
+    ) {
         if (!active || !emailConfirmed || role !in setOf("admin", "teacher")) throw AttendanceForbidden()
     }
 
@@ -22,5 +30,4 @@ internal object AttendancePolicy {
     } catch (_: DateTimeParseException) {
         throw IllegalArgumentException()
     }
-
 }

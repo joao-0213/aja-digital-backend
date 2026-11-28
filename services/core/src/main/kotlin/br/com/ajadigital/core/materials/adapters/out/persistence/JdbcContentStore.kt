@@ -44,19 +44,23 @@ import br.com.ajadigital.core.materials.domain.models.ProgressAction
 import br.com.ajadigital.core.materials.domain.models.QuestionImageIdentity
 import br.com.ajadigital.core.materials.domain.policies.MaterialRules
 import br.com.ajadigital.core.shared.application.contracts.Page
+import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.scheduling.annotation.Scheduled
+import org.springframework.stereotype.Repository
+import org.springframework.transaction.annotation.Transactional
 import java.security.MessageDigest
 import java.sql.ResultSet
 import java.sql.Timestamp
 import java.time.Clock
 import java.util.UUID
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.scheduling.annotation.Scheduled
-import org.springframework.stereotype.Repository
-import org.springframework.transaction.annotation.Transactional
 
 @Repository
-class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock) : FileStoreOutputPort, QuestionImageOutputPort,
-    MaterialReadOutputPort, MaterialWriteOutputPort, LearningProgressOutputPort {
+class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock) :
+    FileStoreOutputPort,
+    QuestionImageOutputPort,
+    MaterialReadOutputPort,
+    MaterialWriteOutputPort,
+    LearningProgressOutputPort {
     private val materialProjection = "SELECT mt.*,u.name author_name,f.id file_meta_id,f.name file_name,f.size file_size,f.mime file_mime,f.purpose file_purpose,f.parent_id file_parent_id,f.status file_status FROM core.materials mt JOIN core.users u ON u.id=mt.author_id LEFT JOIN core.files f ON f.id=mt.file_id"
 
     @Transactional
@@ -72,11 +76,12 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         val bytes = request.content.copy()
         lockAuthInvariant()
         val currentRole = requireSession(actorId, sessionHash)
-        when (purpose) {
-            UploadPurpose.MATERIAL -> if (lockModuleForWrite(parentId, actorId, sessionHash) == null) throw MaterialsNotFound()
-            UploadPurpose.FORUM -> if (!canWriteForum(parentId, actorId, currentRole)) throw MaterialsNotFound()
-            UploadPurpose.WORK -> if (currentRole != "student" || !canPrepareWork(parentId, actorId, currentRole)) throw MaterialsNotFound()
+        val canUpload = when (purpose) {
+            UploadPurpose.MATERIAL -> lockModuleForWrite(parentId, actorId, sessionHash) != null
+            UploadPurpose.FORUM -> canWriteForum(parentId, actorId, currentRole)
+            UploadPurpose.WORK -> currentRole == "student" && canPrepareWork(parentId, actorId, currentRole)
         }
+        if (!canUpload) throw MaterialsNotFound()
         val hash = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
         jdbc.queryForObject("SELECT pg_advisory_xact_lock(hashtextextended(?,0)) IS NULL", Boolean::class.java, "$actorId|file|$key")
         val requestHash = digest("${purpose.value}|$parentId|$name|$declaredMime|$hash")
@@ -87,7 +92,7 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         }
         val now = Timestamp.from(clock.instant())
         val id = UUID.randomUUID().toString()
-        jdbc.update("INSERT INTO core.files(id,owner_id,purpose,parent_id,name,mime,size,sha256,status,expires_at,content,created_at) VALUES(?,?,?,?,?,?,?,?, 'staged',?,?,?)", id, actorId, purpose.value, parentId, name, declaredMime, bytes.size, hash, Timestamp.from(clock.instant().plusSeconds(86400)), bytes, now)
+        jdbc.update("INSERT INTO core.files(id,owner_id,purpose,parent_id,name,mime,size,sha256,status,expires_at,content,created_at) VALUES(?,?,?,?,?,?,?,?, 'staged',?,?,?)", id, actorId, purpose.value, parentId, name, declaredMime, bytes.size, hash, Timestamp.from(clock.instant().plusSeconds(STAGED_FILE_TTL_SECONDS)), bytes, now)
         jdbc.update("INSERT INTO core.file_upload_keys(owner_id,idempotency_key,request_hash,file_id,created_at) VALUES(?,?,?,?,?)", actorId, key, requestHash, id, now)
         return file(GetFileMetadataQuery(actor, id)) ?: throw MaterialsNotFound()
     }
@@ -117,7 +122,9 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         val file = jdbc.query("SELECT id,purpose,parent_id,name,mime,size,sha256,status,expires_at,owner_id FROM core.files WHERE id=?", { rs, _ -> fileRow(rs) }, id).firstOrNull() ?: return null
         if (file.preparation != null) {
             if (!file.preparation.isOwnedBy(actorId, clock.instant()) || !canUseStaged(file.metadata, actorId, role)) return null
-        } else if (!canReadFile(id, actorId, role)) return null
+        } else if (!canReadFile(id, actorId, role)) {
+            return null
+        }
         return file.metadata
     }
 
@@ -128,7 +135,9 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         val file = jdbc.query("SELECT id,purpose,parent_id,name,mime,size,sha256,status,expires_at,owner_id FROM core.files WHERE id=?", { rs, _ -> fileRow(rs) }, id).firstOrNull() ?: return null
         if (file.preparation != null) {
             if (!file.preparation.isOwnedBy(actorId, clock.instant()) || !canUseStaged(file.metadata, actorId, role)) return null
-        } else if (!canReadFile(id, actorId, role)) return null
+        } else if (!canReadFile(id, actorId, role)) {
+            return null
+        }
         val bytes = jdbc.query("SELECT content FROM core.files WHERE id=?", { rs, _ -> rs.getBytes(1) }, id).firstOrNull() ?: return null
         val metadata = file.metadata
         val mime = metadata.mime
@@ -150,7 +159,12 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
     }
 
     override fun materials(request: StoreMaterialsQuery): Page<Material> {
-        val (actor, page, size, sort, moduleId, subjectId) = request
+        val actor = request.actor
+        val page = request.page
+        val size = request.size
+        val sort = request.sort
+        val moduleId = request.moduleId
+        val subjectId = request.subjectId
         val actorId = actor.id
         val role = requireSession(actorId, actor.sessionValidationReference)
         val where = buildList {
@@ -158,7 +172,11 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
             if (moduleId != null) add("mt.module_id=?")
             if (subjectId != null) add("EXISTS(SELECT 1 FROM core.modules m WHERE m.id=mt.module_id AND m.subject_id=?)")
         }.joinToString(" AND ")
-        val args = mutableListOf<Any>().apply { if (role == "teacher" || role == "student") add(actorId); moduleId?.let(::add); subjectId?.let(::add) }
+        val args = mutableListOf<Any>().apply {
+            if (role == "teacher" || role == "student") add(actorId)
+            moduleId?.let(::add)
+            subjectId?.let(::add)
+        }
         val count = jdbc.queryForObject("SELECT count(*) FROM core.materials mt WHERE $where", Int::class.java, *args.toTypedArray()) ?: 0
         val rows = jdbc.query("$materialProjection WHERE $where ORDER BY mt.order_index${if (sort.value.startsWith("-")) " DESC" else " ASC"},mt.id LIMIT ? OFFSET ?", { rs, _ -> materialRow(rs) }, *(args + listOf(size, pageOffset(page, size))).toTypedArray())
         return Page(rows, page, size, count)
@@ -172,9 +190,11 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
             val material = materialRow(rs)
             MaterialDetail(
                 material,
-                MaterialModule(rs.getString("module_key"), rs.getInt("module_revision"), rs.getTimestamp("module_created").toInstant().toString(),
+                MaterialModule(
+                    rs.getString("module_key"), rs.getInt("module_revision"), rs.getTimestamp("module_created").toInstant().toString(),
                     rs.getTimestamp("module_updated").toInstant().toString(), rs.getString("module_updated_by"), rs.getString("subject_id"),
-                    rs.getString("module_title"), rs.getString("module_description"), rs.getInt("module_order")),
+                    rs.getString("module_title"), rs.getString("module_description"), rs.getInt("module_order"),
+                ),
                 subjectSummary(rs, actorId, role),
                 rs.getBoolean("class_active") && (role == "admin" || role == "teacher" && canWriteSubject(rs.getString("subject_id"), actorId)),
             )
@@ -208,7 +228,8 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         val now = Timestamp.from(clock.instant())
         val ids = mutableListOf<String>()
         items.forEachIndexed { index, item ->
-            val id = UUID.randomUUID().toString(); ids += id
+            val id = UUID.randomUUID().toString()
+            ids += id
             val kind = when (item.source) {
                 NewMaterial.Source.Lesson -> MaterialKind.LESSON
                 is NewMaterial.Source.Pdf -> MaterialKind.PDF
@@ -229,7 +250,13 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
 
     @Transactional
     override fun updateMaterial(request: StoreUpdateMaterialCommand): Material {
-        val (actor, id, expectedRevision, title, duration, content, videoUrl) = request
+        val actor = request.actor
+        val id = request.id
+        val expectedRevision = request.expectedRevision
+        val title = request.title
+        val duration = request.duration
+        val content = request.content
+        val videoUrl = request.videoUrl
         val actorId = actor.id
         val sessionHash = actor.sessionValidationReference
         lockAuthInvariant()
@@ -269,7 +296,12 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
     }
 
     override fun progress(request: StoreProgressQuery): Page<LearningProgress> {
-        val (actor, page, size, sort, subjectId, materialId) = request
+        val actor = request.actor
+        val page = request.page
+        val size = request.size
+        val sort = request.sort
+        val subjectId = request.subjectId
+        val materialId = request.materialId
         val actorId = actor.id
         val role = requireSession(actorId, actor.sessionValidationReference)
         val where = buildString {
@@ -277,7 +309,11 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
             if (subjectId != null) append(" AND EXISTS(SELECT 1 FROM core.materials mt JOIN core.modules m ON m.id=mt.module_id WHERE mt.id=p.material_id AND m.subject_id=?)")
             if (materialId != null) append(" AND p.material_id=?")
         }
-        val args = mutableListOf<Any>(actorId).apply { if (role == "teacher" || role == "student") add(actorId); subjectId?.let(::add); materialId?.let(::add) }
+        val args = mutableListOf<Any>(actorId).apply {
+            if (role == "teacher" || role == "student") add(actorId)
+            subjectId?.let(::add)
+            materialId?.let(::add)
+        }
         val count = jdbc.queryForObject("SELECT count(*) FROM core.material_progress p WHERE $where", Int::class.java, *args.toTypedArray()) ?: 0
         val rows = jdbc.query("SELECT p.* FROM core.material_progress p WHERE $where ORDER BY p.id${if (sort.value.startsWith("-")) " DESC" else " ASC"} LIMIT ? OFFSET ?", { rs, _ -> progressRow(rs) }, *(args + listOf(size, pageOffset(page, size))).toTypedArray())
         return Page(rows, page, size, count)
@@ -288,27 +324,39 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
     @Transactional(readOnly = true)
     override fun dashboard(actor: AuthenticatedActor, progressLimit: Int): DashboardContent {
         val actorId = actor.id
-        require(progressLimit in 1..100)
+        require(progressLimit in 1..MAX_PAGE_SIZE)
         val role = requireSession(actorId, actor.sessionValidationReference, "student")
         val scope = "md.withdrawn_at IS NULL AND ${subjectAccess("s", role)}"
         val scopeArgs = if (role == "student" || role == "teacher") listOf(actorId) else emptyList()
-        val totals = jdbc.query("""SELECT count(DISTINCT m.id),count(DISTINCT m.id) FILTER (WHERE p.completed)
+        val totals = jdbc.query(
+            """SELECT count(DISTINCT m.id),count(DISTINCT m.id) FILTER (WHERE p.completed)
             FROM core.materials m JOIN core.modules md ON md.id=m.module_id AND md.withdrawn_at IS NULL
             JOIN core.subjects s ON s.id=md.subject_id
             LEFT JOIN core.material_progress p ON p.material_id=m.id AND p.user_id=?
-            WHERE $scope""", { rs, _ -> rs.getInt(1) to rs.getInt(2) }, *(listOf(actorId) + scopeArgs).toTypedArray()).single()
-        val progress = jdbc.query("""SELECT p.* FROM core.material_progress p
+            WHERE $scope""",
+            { rs, _ -> rs.getInt(1) to rs.getInt(2) },
+            *(listOf(actorId) + scopeArgs).toTypedArray(),
+        ).single()
+        val progress = jdbc.query(
+            """SELECT p.* FROM core.material_progress p
             JOIN core.materials m ON m.id=p.material_id
             JOIN core.modules md ON md.id=m.module_id AND md.withdrawn_at IS NULL
             JOIN core.subjects s ON s.id=md.subject_id
-            WHERE p.user_id=? AND $scope ORDER BY p.id DESC LIMIT ?""", { rs, _ -> progressRow(rs) }, *(listOf<Any>(actorId) + scopeArgs + progressLimit).toTypedArray())
-        val resume = jdbc.query("""SELECT m.id,m.title,m.module_id,m.kind FROM core.material_progress p
+            WHERE p.user_id=? AND $scope ORDER BY p.id DESC LIMIT ?""",
+            { rs, _ -> progressRow(rs) },
+            *(listOf<Any>(actorId) + scopeArgs + progressLimit).toTypedArray(),
+        )
+        val resume = jdbc.query(
+            """SELECT m.id,m.title,m.module_id,m.kind FROM core.material_progress p
             JOIN core.materials m ON m.id=p.material_id
             JOIN core.modules md ON md.id=m.module_id AND md.withdrawn_at IS NULL
             JOIN core.subjects s ON s.id=md.subject_id
-            WHERE p.user_id=? AND NOT p.completed AND $scope ORDER BY p.last_access DESC,p.id DESC LIMIT 1""", { rs, _ ->
-            ResumeMaterial(rs.getString("id"), rs.getString("title"), rs.getString("module_id"), storedKind(rs.getString("kind")))
-        }, *(listOf(actorId) + scopeArgs).toTypedArray()).firstOrNull()
+            WHERE p.user_id=? AND NOT p.completed AND $scope ORDER BY p.last_access DESC,p.id DESC LIMIT 1""",
+            { rs, _ ->
+                ResumeMaterial(rs.getString("id"), rs.getString("title"), rs.getString("module_id"), storedKind(rs.getString("kind")))
+            },
+            *(listOf(actorId) + scopeArgs).toTypedArray(),
+        ).firstOrNull()
         return DashboardContent(progress, totals.second, totals.first, resume)
     }
 
@@ -323,14 +371,19 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         val existing = jdbc.query("SELECT * FROM core.material_progress WHERE user_id=? AND material_id=? FOR UPDATE", { rs, _ -> progressRow(rs) }, actorId, materialId).firstOrNull()
         val now = Timestamp.from(clock.instant())
         val id = existing?.id ?: UUID.randomUUID().toString()
-        jdbc.update("""INSERT INTO core.material_progress(id,revision,created_at,updated_at,updated_by,user_id,material_id,completed,last_access)
-            VALUES(?,1,?,?,?,?,?,?,?) ON CONFLICT(user_id,material_id) DO UPDATE SET revision=core.material_progress.revision+1,updated_at=EXCLUDED.updated_at,updated_by=EXCLUDED.updated_by,completed=core.material_progress.completed OR EXCLUDED.completed,last_access=EXCLUDED.last_access""", id, now, now, actorId, actorId, materialId, action == ProgressAction.COMPLETE, now)
+        jdbc.update(
+            """INSERT INTO core.material_progress(id,revision,created_at,updated_at,updated_by,user_id,material_id,completed,last_access)
+            VALUES(?,1,?,?,?,?,?,?,?) ON CONFLICT(user_id,material_id) DO UPDATE SET revision=core.material_progress.revision+1,updated_at=EXCLUDED.updated_at,updated_by=EXCLUDED.updated_by,completed=core.material_progress.completed OR EXCLUDED.completed,last_access=EXCLUDED.last_access""",
+            id, now, now, actorId, actorId, materialId, action == ProgressAction.COMPLETE, now,
+        )
         return jdbc.query("SELECT * FROM core.material_progress WHERE user_id=? AND material_id=?", { rs, _ -> progressRow(rs) }, actorId, materialId).first()
     }
 
     @Scheduled(fixedDelay = 3_600_000)
     @Transactional
-    fun cleanExpiredPreparations() { jdbc.update("DELETE FROM core.files WHERE status='staged' AND expires_at<=?", Timestamp.from(clock.instant())) }
+    fun cleanExpiredPreparations() {
+        jdbc.update("DELETE FROM core.files WHERE status='staged' AND expires_at<=?", Timestamp.from(clock.instant()))
+    }
 
     private fun lockModuleForWrite(moduleId: String, actorId: String, sessionHash: String): LockedModule? {
         val roleNow = requireSession(actorId, sessionHash, "admin", "teacher")
@@ -374,7 +427,8 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
     }
     private fun canPrepareWork(assessmentId: String, actorId: String, role: String): Boolean {
         if (role != "student") return false
-        return jdbc.queryForObject("""SELECT EXISTS(
+        return jdbc.queryForObject(
+            """SELECT EXISTS(
             SELECT 1 FROM core.assessments a
             JOIN core.modules m ON m.id=a.module_id AND m.withdrawn_at IS NULL
             JOIN core.subjects s ON s.id=m.subject_id
@@ -385,7 +439,13 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
               AND NOT jsonb_exists(e.unassigned_assessment_ids,a.id)
               AND (a.deadline IS NULL OR a.allow_late OR ?<a.deadline)
               AND (a.deadline IS NULL OR e.enrolled_at IS NULL OR e.enrolled_at<=a.deadline)
-        )""", Boolean::class.java, actorId, assessmentId, Timestamp.from(clock.instant()), Timestamp.from(clock.instant())) == true
+        )""",
+            Boolean::class.java,
+            actorId,
+            assessmentId,
+            Timestamp.from(clock.instant()),
+            Timestamp.from(clock.instant()),
+        ) == true
     }
     private fun canReadFile(id: String, actorId: String, role: String): Boolean {
         val assessmentAccess = when (role) {
@@ -407,7 +467,8 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
             else -> "false"
         }
         val args = listOf(id) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList()) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList()) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList()) + (if (role == "teacher" || role == "student") listOf(actorId) else emptyList())
-        return jdbc.queryForObject("""SELECT EXISTS(
+        return jdbc.queryForObject(
+            """SELECT EXISTS(
             SELECT 1 FROM core.files f WHERE f.id=? AND f.status='attached' AND (
                 f.purpose='question'
                 OR (f.purpose='assessment' AND EXISTS(
@@ -422,13 +483,21 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
                 ))
                 OR EXISTS(SELECT 1 FROM core.materials mt JOIN core.modules m ON m.id=mt.module_id AND m.withdrawn_at IS NULL JOIN core.subjects s ON s.id=m.subject_id WHERE mt.file_id=f.id AND ${subjectAccess("s", role)})
                 OR EXISTS(SELECT 1 FROM core.topics t JOIN core.classes c ON c.id=t.class_id WHERE t.attachment_id=f.id AND t.withdrawn_at IS NULL AND $forumAccess)
-            ))""", Boolean::class.java, *args.toTypedArray()) == true
+            ))""",
+            Boolean::class.java,
+            *args.toTypedArray(),
+        ) == true
     }
 
     private fun fileRow(rs: ResultSet): StoredFile {
         val metadata = FileMetadata(
-            rs.getString("id"), rs.getString("name"), rs.getLong("size"), rs.getString("mime"),
-            storedPurpose(rs.getString("purpose")), rs.getString("parent_id"), storedStatus(rs.getString("status")),
+            rs.getString("id"),
+            rs.getString("name"),
+            rs.getLong("size"),
+            rs.getString("mime"),
+            storedPurpose(rs.getString("purpose")),
+            rs.getString("parent_id"),
+            storedStatus(rs.getString("status")),
         )
         val preparation = when (metadata.status) {
             FileStatus.STAGED -> FilePreparation(rs.getString("owner_id"), rs.getTimestamp("expires_at").toInstant())
@@ -441,8 +510,13 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         val fileId = rs.getString("file_id")
         val file = fileId?.let {
             FileMetadata(
-                rs.getString("file_meta_id"), rs.getString("file_name"), rs.getLong("file_size"), rs.getString("file_mime"),
-                storedPurpose(rs.getString("file_purpose")), rs.getString("file_parent_id"), storedStatus(rs.getString("file_status")),
+                rs.getString("file_meta_id"),
+                rs.getString("file_name"),
+                rs.getLong("file_size"),
+                rs.getString("file_mime"),
+                storedPurpose(rs.getString("file_purpose")),
+                rs.getString("file_parent_id"),
+                storedStatus(rs.getString("file_status")),
             )
         }
         return Material(
@@ -489,12 +563,20 @@ class JdbcContentStore(private val jdbc: JdbcTemplate, private val clock: Clock)
         }
     }
 
-    private fun audit(actorId: String, type: String, targetId: String) { jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), type, targetId, actorId) }
+    private fun audit(actorId: String, type: String, targetId: String) {
+        jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), type, targetId, actorId)
+    }
     private fun requireSession(actorId: String, hash: String, vararg roles: String): String {
         val accepted = if (roles.isEmpty()) listOf("admin", "teacher", "student") else roles.toList()
         val placeholders = accepted.joinToString(",") { "?" }
         return jdbc.query("SELECT u.role FROM core.users u JOIN core.sessions s ON s.user_id=u.id WHERE u.id=? AND u.active AND u.role IN ($placeholders) AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?", { rs, _ -> rs.getString(1) }, *(listOf(actorId) + accepted + listOf(hash, Timestamp.from(clock.instant()))).toTypedArray()).firstOrNull() ?: throw MaterialsForbidden()
     }
-    private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }
+    private fun lockAuthInvariant() {
+        jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java)
+    }
     private fun digest(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
 }
+
+private const val MAX_PAGE_SIZE = 100
+
+private const val STAGED_FILE_TTL_SECONDS = 86_400L

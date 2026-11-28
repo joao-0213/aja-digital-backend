@@ -1,20 +1,13 @@
 package br.com.ajadigital.core.assessment.adapters.`in`.controllers
-import br.com.ajadigital.core.assessment.application.models.*
-
-import br.com.ajadigital.core.assessment.application.models.UpdateSubmissionCommand
-
-import br.com.ajadigital.core.assessment.application.models.SubmitSubmissionCommand
-
-import br.com.ajadigital.core.assessment.application.models.SaveSubmissionFeedbackCommand
-
-import br.com.ajadigital.core.assessment.application.models.PublishSubmissionFeedbackCommand
-
-import br.com.ajadigital.core.assessment.application.models.ListSubmissionsQuery
-
-import br.com.ajadigital.core.assessment.application.models.GetSubmissionQuery
 
 import br.com.ajadigital.core.assessment.application.models.CreateSubmissionCommand
-
+import br.com.ajadigital.core.assessment.application.models.GetSubmissionQuery
+import br.com.ajadigital.core.assessment.application.models.ListSubmissionsQuery
+import br.com.ajadigital.core.assessment.application.models.PublishSubmissionFeedbackCommand
+import br.com.ajadigital.core.assessment.application.models.SaveSubmissionFeedbackCommand
+import br.com.ajadigital.core.assessment.application.models.SubmissionContracts
+import br.com.ajadigital.core.assessment.application.models.SubmitSubmissionCommand
+import br.com.ajadigital.core.assessment.application.models.UpdateSubmissionCommand
 import br.com.ajadigital.core.assessment.application.ports.`in`.CreateSubmissionInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.GetSubmissionInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.ListSubmissionsInputPort
@@ -24,6 +17,7 @@ import br.com.ajadigital.core.assessment.application.ports.`in`.SubmitSubmission
 import br.com.ajadigital.core.assessment.application.ports.`in`.UpdateSubmissionInputPort
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
+import br.com.ajadigital.core.shared.adapters.`in`.web.requests.toRequestValue
 import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -38,8 +32,6 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
-import br.com.ajadigital.core.assessment.application.models.*
-import br.com.ajadigital.core.shared.adapters.`in`.web.requests.toRequestValue
 import java.security.MessageDigest
 
 @RestController
@@ -133,7 +125,9 @@ class SubmissionController(
         val grade = gradeNode?.takeIf { it.isNumber }?.numberValue()?.toString()?.toBigDecimalOrNull()
         val gradeValid = gradeNode?.isNull == true || grade != null
         return SubmissionContracts.SaveFeedbackBody(
-            revision, comment, grade,
+            revision,
+            comment,
+            grade,
             shapeValid(node, setOf("expectedRevision", "comment", "grade")) && revision != null && comment != null && gradeValid,
         )
     }
@@ -169,16 +163,20 @@ class SubmissionController(
         is Long -> value.takeIf { it in Int.MIN_VALUE..Int.MAX_VALUE }?.toInt()
         else -> null
     }
-    private fun shapeValid(node: JsonNode, allowed: Set<String>, required: Set<String> = allowed): Boolean =
-        node.isObject && fields(node).all { it in allowed } && required.all(node::has)
+    private fun shapeValid(node: JsonNode, allowed: Set<String>, required: Set<String> = allowed): Boolean = node.isObject && fields(node).all { it in allowed } && required.all(node::has)
     private fun fields(node: JsonNode) = if (node.isObject) node.propertyNames().asSequence().toSet() else emptySet()
 
     private fun br.com.ajadigital.core.assessment.domain.models.SubmissionView.toWireMap(): Map<String, Any?> = linkedMapOf<String, Any?>(
         "id" to id, "revision" to revision, "createdAt" to createdAt, "updatedAt" to updatedAt, "updatedBy" to updatedBy,
-        "assessmentId" to assessmentId, "userId" to userId, "attachments" to attachments.map { attachment ->
-            if (attachment.kind == "file") linkedMapOf("kind" to attachment.kind, "name" to attachment.name, "fileId" to attachment.fileId)
-            else linkedMapOf("url" to attachment.url, "kind" to attachment.kind, "name" to attachment.name)
-        }, "submittedAt" to submittedAt, "receipt" to receipt?.let { mapOf("id" to it.id, "resourceId" to it.resourceId, "submittedAt" to it.submittedAt) },
+        "assessmentId" to assessmentId, "userId" to userId,
+        "attachments" to attachments.map { attachment ->
+            if (attachment.kind == "file") {
+                linkedMapOf("kind" to attachment.kind, "name" to attachment.name, "fileId" to attachment.fileId)
+            } else {
+                linkedMapOf("url" to attachment.url, "kind" to attachment.kind, "name" to attachment.name)
+            }
+        },
+        "submittedAt" to submittedAt, "receipt" to receipt?.let { mapOf("id" to it.id, "resourceId" to it.resourceId, "submittedAt" to it.submittedAt) },
         "feedbackPublished" to feedbackPublished?.toWireMap(), "feedbackUpdated" to feedbackUpdated,
     ).also { result ->
         if (this is br.com.ajadigital.core.assessment.domain.models.SubmissionView.StaffSubmitted) {
@@ -189,6 +187,9 @@ class SubmissionController(
     }
 
     private fun br.com.ajadigital.core.assessment.domain.models.SubmissionView.Feedback.toWireMap() = linkedMapOf(
-        "grade" to grade?.toNumber(), "author" to linkedMapOf("id" to author.id, "name" to author.name), "comment" to comment, "createdAt" to createdAt,
+        "grade" to grade?.toNumber(),
+        "author" to linkedMapOf("id" to author.id, "name" to author.name),
+        "comment" to comment,
+        "createdAt" to createdAt,
     )
 }

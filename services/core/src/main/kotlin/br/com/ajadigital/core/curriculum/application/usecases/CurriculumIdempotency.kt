@@ -5,7 +5,6 @@ import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencySto
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
 
-
 internal fun EncodedIdempotencyStoreOutputPort.receipt(request: FindIdempotencyDto): String? = try {
     findEncoded(request)
 } catch (_: IdempotencyKeyReuse) {

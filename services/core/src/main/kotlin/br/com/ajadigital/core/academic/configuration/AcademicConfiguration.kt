@@ -2,12 +2,12 @@ package br.com.ajadigital.core.academic.configuration
 
 import br.com.ajadigital.core.academic.application.ports.`in`.CloseClassInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.CountMyPendingEnrollmentsInputPort
-import br.com.ajadigital.core.academic.application.ports.`in`.GetDashboardAcademicInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.CreateClassInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.CreateEnrollmentInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.CreateUserInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.DeactivateUserInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.GetClassInputPort
+import br.com.ajadigital.core.academic.application.ports.`in`.GetDashboardAcademicInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.GetEnrollmentInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.GetStudentInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.GetUserInputPort
@@ -24,15 +24,17 @@ import br.com.ajadigital.core.academic.application.ports.`in`.TransitionEnrollme
 import br.com.ajadigital.core.academic.application.ports.`in`.UpdateClassInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.UpdateUserInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.WithdrawUserInputPort
+import br.com.ajadigital.core.academic.application.ports.out.AcademicReceiptCodecOutputPort
+import br.com.ajadigital.core.academic.application.ports.out.AcademicRequestFingerprintOutputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
 import br.com.ajadigital.core.academic.application.usecases.CloseClassUseCase
 import br.com.ajadigital.core.academic.application.usecases.CountMyPendingEnrollmentsUseCase
-import br.com.ajadigital.core.academic.application.usecases.GetDashboardAcademicUseCase
 import br.com.ajadigital.core.academic.application.usecases.CreateClassUseCase
 import br.com.ajadigital.core.academic.application.usecases.CreateEnrollmentUseCase
 import br.com.ajadigital.core.academic.application.usecases.CreateUserUseCase
 import br.com.ajadigital.core.academic.application.usecases.DeactivateUserUseCase
 import br.com.ajadigital.core.academic.application.usecases.GetClassUseCase
+import br.com.ajadigital.core.academic.application.usecases.GetDashboardAcademicUseCase
 import br.com.ajadigital.core.academic.application.usecases.GetEnrollmentUseCase
 import br.com.ajadigital.core.academic.application.usecases.GetStudentUseCase
 import br.com.ajadigital.core.academic.application.usecases.GetUserUseCase
@@ -49,11 +51,9 @@ import br.com.ajadigital.core.academic.application.usecases.TransitionEnrollment
 import br.com.ajadigital.core.academic.application.usecases.UpdateClassUseCase
 import br.com.ajadigital.core.academic.application.usecases.UpdateUserUseCase
 import br.com.ajadigital.core.academic.application.usecases.WithdrawUserUseCase
-import br.com.ajadigital.core.outbox.application.ports.`in`.OutboxEventProducerInputPort
 import br.com.ajadigital.core.identity.application.ports.`in`.HashPasswordInputPort
-import br.com.ajadigital.core.academic.application.ports.out.AcademicRequestFingerprintOutputPort
+import br.com.ajadigital.core.outbox.application.ports.`in`.OutboxEventProducerInputPort
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
-import br.com.ajadigital.core.academic.application.ports.out.AcademicReceiptCodecOutputPort
 import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -68,6 +68,7 @@ class AcademicConfiguration {
         students: ListStudentsInputPort,
         myPendingEnrollments: CountMyPendingEnrollmentsInputPort,
     ): GetDashboardAcademicInputPort = GetDashboardAcademicUseCase(classes, enrollments, students, myPendingEnrollments)
+
     @Bean
     fun listUsers(store: AcademicStoreOutputPort): ListUsersInputPort = ListUsersUseCase(store)
 
@@ -87,16 +88,28 @@ class AcademicConfiguration {
     ): CreateUserInputPort = CreateUserUseCase(store, fingerprints, clock, encryption, hasher, idempotency, receiptCodec, transactionRunner)
 
     @Bean
-    fun updateUser(store: AcademicStoreOutputPort, transactionRunner: TransactionRunnerOutputPort): UpdateUserInputPort = UpdateUserUseCase(store, transactionRunner)
+    fun updateUser(
+        store: AcademicStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): UpdateUserInputPort = UpdateUserUseCase(store, transactionRunner)
 
     @Bean
-    fun setUserRole(store: AcademicStoreOutputPort, transactionRunner: TransactionRunnerOutputPort): SetUserRoleInputPort = SetUserRoleUseCase(store, transactionRunner)
+    fun setUserRole(
+        store: AcademicStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): SetUserRoleInputPort = SetUserRoleUseCase(store, transactionRunner)
 
     @Bean
-    fun deactivateUser(store: AcademicStoreOutputPort, transactionRunner: TransactionRunnerOutputPort): DeactivateUserInputPort = DeactivateUserUseCase(store, transactionRunner)
+    fun deactivateUser(
+        store: AcademicStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): DeactivateUserInputPort = DeactivateUserUseCase(store, transactionRunner)
 
     @Bean
-    fun withdrawUser(store: AcademicStoreOutputPort, transactionRunner: TransactionRunnerOutputPort): WithdrawUserInputPort = WithdrawUserUseCase(store, transactionRunner)
+    fun withdrawUser(
+        store: AcademicStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): WithdrawUserInputPort = WithdrawUserUseCase(store, transactionRunner)
 
     @Bean
     fun listClasses(store: AcademicStoreOutputPort): ListClassesInputPort = ListClassesUseCase(store)
@@ -111,19 +124,22 @@ class AcademicConfiguration {
     fun createClass(
         store: AcademicStoreOutputPort,
         fingerprints: AcademicRequestFingerprintOutputPort,
-                idempotency: EncodedIdempotencyStoreOutputPort,
+        idempotency: EncodedIdempotencyStoreOutputPort,
         receiptCodec: AcademicReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
     ): CreateClassInputPort = CreateClassUseCase(store, fingerprints, idempotency, receiptCodec, transactionRunner)
 
     @Bean
-    fun updateClass(store: AcademicStoreOutputPort, transactionRunner: TransactionRunnerOutputPort): UpdateClassInputPort = UpdateClassUseCase(store, transactionRunner)
+    fun updateClass(
+        store: AcademicStoreOutputPort,
+        transactionRunner: TransactionRunnerOutputPort,
+    ): UpdateClassInputPort = UpdateClassUseCase(store, transactionRunner)
 
     @Bean
     fun closeClass(
         store: AcademicStoreOutputPort,
         fingerprints: AcademicRequestFingerprintOutputPort,
-                idempotency: EncodedIdempotencyStoreOutputPort,
+        idempotency: EncodedIdempotencyStoreOutputPort,
         receiptCodec: AcademicReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
     ): CloseClassInputPort = CloseClassUseCase(store, fingerprints, idempotency, receiptCodec, transactionRunner)
@@ -132,7 +148,7 @@ class AcademicConfiguration {
     fun reopenClass(
         store: AcademicStoreOutputPort,
         fingerprints: AcademicRequestFingerprintOutputPort,
-                idempotency: EncodedIdempotencyStoreOutputPort,
+        idempotency: EncodedIdempotencyStoreOutputPort,
         receiptCodec: AcademicReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
     ): ReopenClassInputPort = ReopenClassUseCase(store, fingerprints, idempotency, receiptCodec, transactionRunner)
@@ -150,7 +166,7 @@ class AcademicConfiguration {
     fun createEnrollment(
         store: AcademicStoreOutputPort,
         fingerprints: AcademicRequestFingerprintOutputPort,
-                idempotency: EncodedIdempotencyStoreOutputPort,
+        idempotency: EncodedIdempotencyStoreOutputPort,
         receiptCodec: AcademicReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
     ): CreateEnrollmentInputPort = CreateEnrollmentUseCase(store, fingerprints, idempotency, receiptCodec, transactionRunner)
@@ -159,7 +175,7 @@ class AcademicConfiguration {
     fun transitionEnrollment(
         store: AcademicStoreOutputPort,
         fingerprints: AcademicRequestFingerprintOutputPort,
-                idempotency: EncodedIdempotencyStoreOutputPort,
+        idempotency: EncodedIdempotencyStoreOutputPort,
         receiptCodec: AcademicReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
     ): TransitionEnrollmentInputPort = TransitionEnrollmentUseCase(store, fingerprints, idempotency, receiptCodec, transactionRunner)

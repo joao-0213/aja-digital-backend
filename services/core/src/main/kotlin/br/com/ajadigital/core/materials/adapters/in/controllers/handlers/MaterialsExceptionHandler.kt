@@ -1,7 +1,7 @@
 package br.com.ajadigital.core.materials.adapters.`in`.controllers.handlers
 
-import br.com.ajadigital.core.materials.domain.exceptions.InvalidQuestionServiceCredential
 import br.com.ajadigital.core.materials.domain.exceptions.InvalidMaterialEdit
+import br.com.ajadigital.core.materials.domain.exceptions.InvalidQuestionServiceCredential
 import br.com.ajadigital.core.materials.domain.exceptions.MaterialsConflict
 import br.com.ajadigital.core.materials.domain.exceptions.MaterialsForbidden
 import br.com.ajadigital.core.materials.domain.exceptions.MaterialsIdempotencyConflict

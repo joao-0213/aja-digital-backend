@@ -1,6 +1,5 @@
 package br.com.ajadigital.core.assessment.adapters.`in`.controllers
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentKind
 import br.com.ajadigital.core.assessment.application.models.AssessmentChanges
 import br.com.ajadigital.core.assessment.application.models.AssessmentQuestionSelections
 import br.com.ajadigital.core.assessment.application.models.AssessmentQuestionSelections.Selection
@@ -8,6 +7,7 @@ import br.com.ajadigital.core.assessment.application.models.CreateAssessmentComm
 import br.com.ajadigital.core.assessment.application.models.PublishAssessmentCommand
 import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentCommand
 import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
+import br.com.ajadigital.core.assessment.domain.models.AssessmentKind
 import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestionContent
 import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestionImage
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
@@ -30,8 +30,14 @@ class AssessmentRequestReader(private val mapper: ObjectMapper) {
         val body = json.toRequestValue().asObject()
         require(body.keys == createFields)
         val draft = AssessmentDraft(
-            body.text("moduleId"), body.text("title").trim(), body.text("description"), AssessmentKind.parse(body.text("kind")),
-            number(body["maxGrade"]), timestamp(body["deadline"]), body.boolean("required"), body.boolean("allowLate"),
+            body.text("moduleId"),
+            body.text("title").trim(),
+            body.text("description"),
+            AssessmentKind.parse(body.text("kind")),
+            number(body["maxGrade"]),
+            timestamp(body["deadline"]),
+            body.boolean("required"),
+            body.boolean("allowLate"),
         )
         return CreateAssessmentCommand(actor, key, fingerprint(body), draft, questions(body["questions"]))
     }
@@ -66,29 +72,31 @@ class AssessmentRequestReader(private val mapper: ObjectMapper) {
 
     private fun questions(value: Any?): AssessmentQuestionSelections {
         val list = value as? List<*> ?: throw IllegalArgumentException()
-        require(list.size <= 100)
-        return AssessmentQuestionSelections(list.map { item ->
-            val entry = item.asObject()
-            when (entry.text("source")) {
-                "bank" -> {
-                    require(entry.keys == setOf("source", "questionId"))
-                    Selection.Bank(entry.text("questionId"))
+        require(list.size <= MAX_ASSESSMENT_QUESTIONS)
+        return AssessmentQuestionSelections(
+            list.map { item ->
+                val entry = item.asObject()
+                when (entry.text("source")) {
+                    "bank" -> {
+                        require(entry.keys == setOf("source", "questionId"))
+                        Selection.Bank(entry.text("questionId"))
+                    }
+                    "authored" -> {
+                        require(entry.keys == setOf("source", "clientKey", "questionId", "question"))
+                        val questionId = entry["questionId"]?.let { it as? String ?: throw IllegalArgumentException() }
+                        Selection.Authored(entry.text("clientKey"), questionId, authored(entry["question"]))
+                    }
+                    else -> throw IllegalArgumentException()
                 }
-                "authored" -> {
-                    require(entry.keys == setOf("source", "clientKey", "questionId", "question"))
-                    val questionId = entry["questionId"]?.let { it as? String ?: throw IllegalArgumentException() }
-                    Selection.Authored(entry.text("clientKey"), questionId, authored(entry["question"]))
-                }
-                else -> throw IllegalArgumentException()
-            }
-        })
+            },
+        )
     }
 
     private fun authored(value: Any?): AssessmentQuestionContent {
         val question = value.asObject()
         require(question.keys == authoredFields)
         val options = question["options"] as? List<*> ?: throw IllegalArgumentException()
-        require(options.size in 2..20 && options.all { it is String })
+        require(options.size in 2..MAX_ANSWER_OPTIONS && options.all { it is String })
         val image = question["image"]?.asObject()?.let {
             require(it.keys == setOf("src", "alt"))
             AssessmentQuestionImage(it.text("src"), it.text("alt"))
@@ -129,8 +137,7 @@ class AssessmentRequestReader(private val mapper: ObjectMapper) {
         else -> throw IllegalArgumentException()
     }
 
-    private fun <T> Map<*, *>.change(key: String, parse: () -> T): FieldChange<T> =
-        if (containsKey(key)) FieldChange.Set(parse()) else FieldChange.Unchanged
+    private fun <T> Map<*, *>.change(key: String, parse: () -> T): FieldChange<T> = if (containsKey(key)) FieldChange.Set(parse()) else FieldChange.Unchanged
 
     private fun <T> parseOrNull(parse: () -> T): T? = try {
         parse()
@@ -138,3 +145,6 @@ class AssessmentRequestReader(private val mapper: ObjectMapper) {
         null
     }
 }
+
+private const val MAX_ANSWER_OPTIONS = 20
+private const val MAX_ASSESSMENT_QUESTIONS = 100

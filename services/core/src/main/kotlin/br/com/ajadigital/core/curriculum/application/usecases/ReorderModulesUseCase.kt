@@ -18,9 +18,18 @@ class ReorderModulesUseCase(
         val actor = request.actor
         CurriculumPolicy.requireWriterRole(actor.active, actor.role)
         CurriculumPolicy.validateOrder(request.revision, request.items)
-        store.reorderModules(StoreReorderModulesCommand(
-            request.subjectId, actor.id, actor.role, actor.sessionValidationReference, request.revision, request.items,
-            CurriculumPolicy.checkedPage(request.page), CurriculumPolicy.checkedSize(request.pageSize),
-        )).valueOrThrow()
+        store
+            .reorderModules(
+                StoreReorderModulesCommand(
+                    request.subjectId,
+                    actor.id,
+                    actor.role,
+                    actor.sessionValidationReference,
+                    request.revision,
+                    request.items,
+                    CurriculumPolicy.checkedPage(request.page),
+                    CurriculumPolicy.checkedSize(request.pageSize),
+                ),
+            ).valueOrThrow()
     }
 }

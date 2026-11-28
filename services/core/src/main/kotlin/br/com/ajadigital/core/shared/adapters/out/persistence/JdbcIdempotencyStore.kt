@@ -1,8 +1,8 @@
 package br.com.ajadigital.core.shared.adapters.out.persistence
 
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
-import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
+import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import java.sql.Timestamp
@@ -19,9 +19,13 @@ class JdbcIdempotencyStore(private val jdbc: JdbcTemplate, private val clock: Cl
 
     override fun saveEncoded(request: FindIdempotencyDto, response: String) {
         val now = Timestamp.from(clock.instant())
-        jdbc.update("""INSERT INTO core.command_idempotency(actor_id,operation,target,idempotency_key,request_hash,response_body,created_at,expires_at)
+        jdbc.update(
+            """INSERT INTO core.command_idempotency(actor_id,operation,target,idempotency_key,request_hash,response_body,created_at,expires_at)
             VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(actor_id,operation,target,idempotency_key) DO UPDATE SET request_hash=EXCLUDED.request_hash,response_body=EXCLUDED.response_body,created_at=EXCLUDED.created_at,expires_at=EXCLUDED.expires_at
             WHERE core.command_idempotency.expires_at<=EXCLUDED.created_at""",
-            request.actorId, request.operation, request.target, request.key, request.requestHash, response, now, Timestamp.from(clock.instant().plusSeconds(86400)))
+            request.actorId, request.operation, request.target, request.key, request.requestHash, response, now, Timestamp.from(clock.instant().plusSeconds(RECEIPT_TTL_SECONDS)),
+        )
     }
 }
+
+private const val RECEIPT_TTL_SECONDS = 86_400L

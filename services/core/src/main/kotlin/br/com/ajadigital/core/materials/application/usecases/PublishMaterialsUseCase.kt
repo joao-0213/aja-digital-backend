@@ -13,9 +13,9 @@ import br.com.ajadigital.core.materials.domain.models.NewMaterial
 import br.com.ajadigital.core.materials.domain.policies.MaterialRules
 import br.com.ajadigital.core.shared.application.contracts.Page
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
-import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 
 class PublishMaterialsUseCase(
     private val store: MaterialWriteOutputPort,
@@ -26,7 +26,7 @@ class PublishMaterialsUseCase(
     override fun publish(request: PublishMaterialsCommand): Page<Material> = transactionRunner.run {
         val actor = request.actor
         actor.requireWriter()
-        require(request.key.length in 8..128 && MaterialRules.validId(request.moduleId) && request.revision > 0 && request.items.size in 1..10)
+        require(request.key.length in MIN_IDEMPOTENCY_KEY_LENGTH..MAX_IDEMPOTENCY_KEY_LENGTH && MaterialRules.validId(request.moduleId) && request.revision > 0 && request.items.size in 1..MAX_BATCH_ITEMS)
         val items = request.items.map {
             require(it.moduleId == request.moduleId)
             it.toNewMaterial()
@@ -66,3 +66,7 @@ class PublishMaterialsUseCase(
         return NewMaterial(moduleId, title, duration, content, source)
     }
 }
+
+private const val MIN_IDEMPOTENCY_KEY_LENGTH = 8
+private const val MAX_IDEMPOTENCY_KEY_LENGTH = 128
+private const val MAX_BATCH_ITEMS = 10

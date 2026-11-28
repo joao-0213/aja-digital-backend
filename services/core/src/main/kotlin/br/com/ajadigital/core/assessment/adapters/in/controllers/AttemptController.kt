@@ -1,27 +1,23 @@
 package br.com.ajadigital.core.assessment.adapters.`in`.controllers
-import br.com.ajadigital.core.assessment.application.models.*
 import br.com.ajadigital.core.assessment.adapters.serialization.AttemptRepresentation
-
-import br.com.ajadigital.core.assessment.application.models.SubmitAttemptCommand
-
-import br.com.ajadigital.core.assessment.application.models.StartAttemptCommand
-
-import br.com.ajadigital.core.assessment.application.models.SaveAttemptAnswersCommand
-
-import br.com.ajadigital.core.assessment.application.models.ListAttemptsQuery
-
-import br.com.ajadigital.core.assessment.application.models.GetAttemptResultQuery
-
 import br.com.ajadigital.core.assessment.application.models.GetAttemptQuery
-
-import br.com.ajadigital.core.assessment.application.ports.`in`.GetAttemptResultInputPort
+import br.com.ajadigital.core.assessment.application.models.GetAttemptResultQuery
+import br.com.ajadigital.core.assessment.application.models.ListAttemptsQuery
+import br.com.ajadigital.core.assessment.application.models.SaveAttemptAnswersBody
+import br.com.ajadigital.core.assessment.application.models.SaveAttemptAnswersCommand
+import br.com.ajadigital.core.assessment.application.models.StartAttemptBody
+import br.com.ajadigital.core.assessment.application.models.StartAttemptCommand
+import br.com.ajadigital.core.assessment.application.models.SubmitAttemptBody
+import br.com.ajadigital.core.assessment.application.models.SubmitAttemptCommand
 import br.com.ajadigital.core.assessment.application.ports.`in`.GetAttemptInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.GetAttemptResultInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.ListAttemptsInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.SaveAttemptAnswersInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.StartAttemptInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.SubmitAttemptInputPort
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
+import br.com.ajadigital.core.shared.adapters.`in`.web.requests.toRequestValue
 import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -36,7 +32,6 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
-import br.com.ajadigital.core.shared.adapters.`in`.web.requests.toRequestValue
 import java.security.MessageDigest
 
 @RestController
@@ -96,8 +91,11 @@ class AttemptController(
             rawAnswers?.forEach { (rawId, rawAnswer) ->
                 val questionId = rawId as? String
                 val answer = if (rawAnswer == null) null else integerValue(rawAnswer)?.takeIf { index -> index >= 0 }
-                if (questionId == null || rawAnswer != null && answer == null) answersValid = false
-                else answers[questionId] = answer
+                if (questionId == null || rawAnswer != null && answer == null) {
+                    answersValid = false
+                } else {
+                    answers[questionId] = answer
+                }
             }
             SaveAttemptAnswersBody(
                 expectedRevision = integerValue(it["expectedRevision"]),
@@ -137,5 +135,4 @@ class AttemptController(
     }
 
     private fun fieldsMatch(fields: Map<*, *>, expected: Set<String>) = fields.keys.filterIsInstance<String>().toSet() == expected
-
 }

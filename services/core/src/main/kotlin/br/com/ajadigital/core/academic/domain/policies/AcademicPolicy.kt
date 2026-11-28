@@ -9,23 +9,36 @@ internal object AcademicPolicy {
     val shifts = setOf("Manhã", "Tarde", "Noite")
     val statuses = setOf("pending", "active", "ended", "cancelled")
 
-    fun requireAdmin(role: String, active: Boolean) {
+    fun requireAdmin(
+        role: String,
+        active: Boolean,
+    ) {
         if (!active || role != "admin") throw AcademicForbidden()
     }
 
-    fun requireReader(role: String, active: Boolean, emailConfirmed: Boolean) {
-        if (!active || !(role == "admin" || role == "teacher" || role == "student" && emailConfirmed)) throw AcademicForbidden()
+    fun requireReader(
+        role: String,
+        active: Boolean,
+        emailConfirmed: Boolean,
+    ) {
+        val canRead = role in setOf("admin", "teacher") || role == "student" && emailConfirmed
+        if (!active || !canRead) throw AcademicForbidden()
     }
 
-    fun requireStaffReader(role: String, active: Boolean) {
+    fun requireStaffReader(
+        role: String,
+        active: Boolean,
+    ) {
         if (!active || !(role == "admin" || role == "teacher")) throw AcademicForbidden()
     }
 
-    fun conflict(revision: Int?): Nothing =
-        revision?.let { throw AcademicConflict(it) } ?: throw AcademicNotFound()
+    fun conflict(revision: Int?): Nothing = revision?.let { throw AcademicConflict(it) } ?: throw AcademicNotFound()
 
     fun checkedPage(page: Int) = page.also { require(it > 0) }
-    fun checkedSize(size: Int) = size.also { require(it in 1..100) }
-    fun checkedSort(sort: String) = sort.also { require(it == "id" || it == "-id") }
 
+    fun checkedSize(size: Int) = size.also { require(it in 1..MAX_PAGE_SIZE) }
+
+    fun checkedSort(sort: String) = sort.also { require(it == "id" || it == "-id") }
 }
+
+private const val MAX_PAGE_SIZE = 100

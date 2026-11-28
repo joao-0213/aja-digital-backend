@@ -1,11 +1,16 @@
 package br.com.ajadigital.core.announcements.adapters.`in`.controllers
-import br.com.ajadigital.core.announcements.application.models.*
-import br.com.ajadigital.core.shared.application.contracts.Page
 import br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.requests.AnnouncementCreateRequest
 import br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.requests.AnnouncementEditRequest
 import br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.requests.AnnouncementRevisionRequest
-
-import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
+import br.com.ajadigital.core.announcements.application.contracts.Announcement
+import br.com.ajadigital.core.announcements.application.contracts.AnnouncementCalendarEvent
+import br.com.ajadigital.core.announcements.application.contracts.AnnouncementOccurrenceProjection
+import br.com.ajadigital.core.announcements.application.models.CreateAnnouncementCommand
+import br.com.ajadigital.core.announcements.application.models.GetAnnouncementQuery
+import br.com.ajadigital.core.announcements.application.models.ListAnnouncementsQuery
+import br.com.ajadigital.core.announcements.application.models.ListCalendarEventsQuery
+import br.com.ajadigital.core.announcements.application.models.UpdateAnnouncementCommand
+import br.com.ajadigital.core.announcements.application.models.WithdrawAnnouncementCommand
 import br.com.ajadigital.core.announcements.application.ports.`in`.CreateAnnouncementInputPort
 import br.com.ajadigital.core.announcements.application.ports.`in`.GetAnnouncementInputPort
 import br.com.ajadigital.core.announcements.application.ports.`in`.ListAnnouncementsInputPort
@@ -14,16 +19,9 @@ import br.com.ajadigital.core.announcements.application.ports.`in`.UpdateAnnounc
 import br.com.ajadigital.core.announcements.application.ports.`in`.WithdrawAnnouncementInputPort
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementDraft
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementOccurrence
-import br.com.ajadigital.core.announcements.application.models.CreateAnnouncementCommand
-import br.com.ajadigital.core.announcements.application.models.GetAnnouncementQuery
-import br.com.ajadigital.core.announcements.application.models.ListAnnouncementsQuery
-import br.com.ajadigital.core.announcements.application.models.ListCalendarEventsQuery
-import br.com.ajadigital.core.announcements.application.models.UpdateAnnouncementCommand
-import br.com.ajadigital.core.announcements.application.models.WithdrawAnnouncementCommand
-import br.com.ajadigital.core.announcements.application.contracts.Announcement
-import br.com.ajadigital.core.announcements.application.contracts.AnnouncementCalendarEvent
-import br.com.ajadigital.core.announcements.application.contracts.AnnouncementOccurrenceProjection
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
+import br.com.ajadigital.core.shared.application.contracts.Page
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.CookieValue
@@ -36,7 +34,6 @@ import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.JsonNode
-
 
 @RestController
 class AnnouncementController(
@@ -77,10 +74,14 @@ class AnnouncementController(
         val principal = actor(cookie)
         val announcementId = id(id)
         val current = getAnnouncement.announcement(GetAnnouncementQuery(principal, announcementId))
-        val occurrence = if (body.occurrence.isMissingNode) current.occurrence?.let {
-            require(it is AnnouncementOccurrenceProjection.WithTime)
-            AnnouncementOccurrence(it.date, it.time, it.allDay)
-        } else occurrence(body.occurrence)
+        val occurrence = if (body.occurrence.isMissingNode) {
+            current.occurrence?.let {
+                require(it is AnnouncementOccurrenceProjection.WithTime)
+                AnnouncementOccurrence(it.date, it.time, it.allDay)
+            }
+        } else {
+            occurrence(body.occurrence)
+        }
         val draft = AnnouncementDraft(
             if (body.classId.isMissingNode) current.classId else text(body.classId).let(::id),
             if (body.subjectId.isMissingNode) current.subjectId else nullableId(body.subjectId),
@@ -93,8 +94,7 @@ class AnnouncementController(
     }
 
     @PostMapping("/api/v1/announcements/{id}/withdraw")
-    fun withdraw(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: AnnouncementRevisionRequest): Map<String, Any?> =
-        withdrawAnnouncement.withdraw(WithdrawAnnouncementCommand(actor(cookie), id(id), revision(body.expectedRevision))).response()
+    fun withdraw(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: AnnouncementRevisionRequest): Map<String, Any?> = withdrawAnnouncement.withdraw(WithdrawAnnouncementCommand(actor(cookie), id(id), revision(body.expectedRevision))).response()
 
     @GetMapping("/api/v1/calendar")
     fun calendar(

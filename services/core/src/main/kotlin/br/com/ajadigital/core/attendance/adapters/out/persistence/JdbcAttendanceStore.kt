@@ -1,25 +1,25 @@
 package br.com.ajadigital.core.attendance.adapters.out.persistence
 
+import br.com.ajadigital.core.attendance.application.models.AttendanceCreateAuthorizationCommand
+import br.com.ajadigital.core.attendance.application.models.AttendanceRecordCommand
+import br.com.ajadigital.core.attendance.application.models.GetAttendanceSessionRecordQuery
+import br.com.ajadigital.core.attendance.application.models.ListAttendanceSessionsRecordQuery
+import br.com.ajadigital.core.attendance.application.models.ListEligibleAttendanceStudentsRecordQuery
+import br.com.ajadigital.core.attendance.application.models.UpdateAttendanceRecordCommand
+import br.com.ajadigital.core.attendance.application.ports.out.AttendanceStoreOutputPort
 import br.com.ajadigital.core.attendance.domain.exceptions.AttendanceConflict
 import br.com.ajadigital.core.attendance.domain.exceptions.AttendanceForbidden
 import br.com.ajadigital.core.attendance.domain.exceptions.AttendanceNotFound
 import br.com.ajadigital.core.attendance.domain.exceptions.InvalidAttendanceRecords
 import br.com.ajadigital.core.attendance.domain.models.AttendanceDraft
-import br.com.ajadigital.core.attendance.application.models.AttendanceCreateAuthorizationCommand
-import br.com.ajadigital.core.attendance.application.models.ListAttendanceSessionsRecordQuery
-import br.com.ajadigital.core.attendance.application.models.ListEligibleAttendanceStudentsRecordQuery
-import br.com.ajadigital.core.attendance.application.models.GetAttendanceSessionRecordQuery
-import br.com.ajadigital.core.attendance.application.models.AttendanceRecordCommand
-import br.com.ajadigital.core.attendance.application.models.UpdateAttendanceRecordCommand
-import br.com.ajadigital.core.attendance.domain.models.AttendanceSessionRecord
 import br.com.ajadigital.core.attendance.domain.models.AttendanceSessionPageRecord
-import br.com.ajadigital.core.attendance.domain.models.EligibleAttendanceStudentRecord
+import br.com.ajadigital.core.attendance.domain.models.AttendanceSessionRecord
 import br.com.ajadigital.core.attendance.domain.models.EligibleAttendanceStudentPageRecord
-import br.com.ajadigital.core.attendance.application.ports.out.AttendanceStoreOutputPort
+import br.com.ajadigital.core.attendance.domain.models.EligibleAttendanceStudentRecord
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
-import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.annotation.Isolation
+import org.springframework.transaction.annotation.Transactional
 import tools.jackson.databind.ObjectMapper
 import java.sql.ResultSet
 import java.sql.Timestamp
@@ -32,33 +32,64 @@ import java.util.UUID
 class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val clock: Clock) : AttendanceStoreOutputPort {
     @Transactional
     override fun authorizeCreate(request: AttendanceCreateAuthorizationCommand) {
-        val (actorId, _, sessionHash, subjectId) = request
+        val actorId = request.actorId
+        val sessionHash = request.sessionHash
+        val subjectId = request.subjectId
         val classId = subjectClass(subjectId) ?: throw AttendanceNotFound()
         requireWriter(actorId, sessionHash, classId, subjectId, activeClass = true, lock = true)
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     override fun list(request: ListAttendanceSessionsRecordQuery): AttendanceSessionPageRecord {
-        val (actorId, _, sessionHash, page, size, sort, subjectId, studentId, from, to) = request
+        val actorId = request.actorId
+        val sessionHash = request.sessionHash
+        val page = request.page
+        val size = request.size
+        val sort = request.sort
+        val subjectId = request.subjectId
+        val studentId = request.studentId
+        val from = request.from
+        val to = request.to
         val currentRole = requireSession(actorId, sessionHash, "admin", "teacher", "student")
         if (currentRole == "student" && studentId != null && studentId != actorId) return AttendanceSessionPageRecord(emptyList(), page, size, 0)
         val historyScope = "(${datedEnrollment("a.class_date")} OR ${legacyEnrollment("a.class_date", "jsonb_exists(a.records,e.student_id)")})"
         val filters = mutableListOf("(?='admin' OR (?='teacher' AND EXISTS(SELECT 1 FROM core.subject_teachers st JOIN core.users tu ON tu.id=st.teacher_id WHERE st.subject_id=a.subject_id AND st.teacher_id=? AND tu.active AND tu.role='teacher')) OR (?='student' AND EXISTS(SELECT 1 FROM core.enrollments e JOIN core.users su ON su.id=e.student_id WHERE e.class_id=s.class_id AND e.student_id=? AND e.status IN ('active','ended') AND su.active AND su.email_confirmed_at IS NOT NULL AND $historyScope)))")
         val args = mutableListOf<Any>(currentRole, currentRole, actorId, currentRole, actorId)
-        subjectId?.let { filters += "a.subject_id=?"; args += it }
-        if (studentId != null) { filters += "((?='student' AND ?=?) OR (?<>'student' AND EXISTS(SELECT 1 FROM core.enrollments e JOIN core.users su ON su.id=e.student_id WHERE e.class_id=s.class_id AND e.student_id=? AND e.status IN ('active','ended') AND su.active AND su.email_confirmed_at IS NOT NULL AND $historyScope)))"; args += currentRole; args += studentId; args += actorId; args += currentRole; args += studentId }
-        from?.let { filters += "a.class_date>=?"; args += it }
-        to?.let { filters += "a.class_date<=?"; args += it }
+        subjectId?.let {
+            filters += "a.subject_id=?"
+            args += it
+        }
+        if (studentId != null) {
+            filters += "((?='student' AND ?=?) OR (?<>'student' AND EXISTS(SELECT 1 FROM core.enrollments e JOIN core.users su ON su.id=e.student_id WHERE e.class_id=s.class_id AND e.student_id=? AND e.status IN ('active','ended') AND su.active AND su.email_confirmed_at IS NOT NULL AND $historyScope)))"
+            args += currentRole
+            args += studentId
+            args += actorId
+            args += currentRole
+            args += studentId
+        }
+        from?.let {
+            filters += "a.class_date>=?"
+            args += it
+        }
+        to?.let {
+            filters += "a.class_date<=?"
+            args += it
+        }
         val where = filters.joinToString(" AND ")
         val total = jdbc.queryForObject("SELECT count(*) FROM core.attendance a JOIN core.subjects s ON s.id=a.subject_id WHERE $where", Int::class.java, *args.toTypedArray()) ?: 0
         val direction = if (sort == "-date") "DESC" else "ASC"
         val rows = jdbc.query("SELECT a.*,s.class_id FROM core.attendance a JOIN core.subjects s ON s.id=a.subject_id WHERE $where ORDER BY a.class_date $direction,a.id LIMIT ? OFFSET ?", { rs, _ -> row(rs) }, *(args + listOf(size, (page - 1) * size)).toTypedArray())
-        return AttendanceSessionPageRecord(projectPage(rows, actorId, currentRole, sessionHash, studentId), page, size, total)
+        return AttendanceSessionPageRecord(projectPage(rows, actorId, currentRole, studentId), page, size, total)
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     override fun eligible(request: ListEligibleAttendanceStudentsRecordQuery): EligibleAttendanceStudentPageRecord {
-        val (actorId, _, sessionHash, subjectId, date, _, page, size) = request
+        val actorId = request.actorId
+        val sessionHash = request.sessionHash
+        val subjectId = request.subjectId
+        val date = request.date
+        val page = request.page
+        val size = request.size
         requireSession(actorId, sessionHash, "admin", "teacher")
         val classId = subjectClass(subjectId) ?: throw AttendanceNotFound()
         requireWriter(actorId, sessionHash, classId, subjectId, activeClass = true)
@@ -70,13 +101,27 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
             FROM core.enrollments e JOIN core.users u ON u.id=e.student_id
             WHERE e.class_id=? AND e.status IN ('active','ended') AND u.role='student' AND u.active AND u.email_confirmed_at IS NOT NULL
             GROUP BY u.id,u.name ORDER BY u.id LIMIT ? OFFSET ?"""
-        val values = jdbc.query(query, { rs, _ -> EligibleAttendanceStudentRecord(rs.getString("id"), rs.getString("name"), rs.getBoolean("eligible"), when { !rs.getBoolean("eligible") && rs.getBoolean("legacy") -> "legacy"; !rs.getBoolean("eligible") && rs.getBoolean("before_enrollment") -> "beforeEnrollment"; !rs.getBoolean("eligible") && rs.getBoolean("after_exit") -> "afterExit"; else -> null }) }, date, date, date, date, classId, size, (page - 1) * size)
+        val values = jdbc.query(query, { rs, _ ->
+            EligibleAttendanceStudentRecord(
+                rs.getString("id"),
+                rs.getString("name"),
+                rs.getBoolean("eligible"),
+                when {
+                    !rs.getBoolean("eligible") && rs.getBoolean("legacy") -> "legacy"
+                    !rs.getBoolean("eligible") && rs.getBoolean("before_enrollment") -> "beforeEnrollment"
+                    !rs.getBoolean("eligible") && rs.getBoolean("after_exit") -> "afterExit"
+                    else -> null
+                },
+            )
+        }, date, date, date, date, classId, size, (page - 1) * size)
         val total = jdbc.queryForObject("SELECT count(DISTINCT e.student_id) FROM core.enrollments e JOIN core.users u ON u.id=e.student_id WHERE e.class_id=? AND e.status IN ('active','ended') AND u.role='student' AND u.active AND u.email_confirmed_at IS NOT NULL", Int::class.java, classId) ?: 0
         return EligibleAttendanceStudentPageRecord(values, page, size, total)
     }
 
     override fun attendance(request: GetAttendanceSessionRecordQuery): AttendanceSessionRecord? {
-        val (actorId, _, sessionHash, id) = request
+        val actorId = request.actorId
+        val sessionHash = request.sessionHash
+        val id = request.id
         requireSession(actorId, sessionHash, "admin", "teacher", "student")
         val current = jdbc.query("SELECT a.*,s.class_id FROM core.attendance a JOIN core.subjects s ON s.id=a.subject_id WHERE a.id=?", { rs, _ -> row(rs) }, id).firstOrNull() ?: return null
         requireSession(actorId, sessionHash, "admin", "teacher", "student")
@@ -85,7 +130,9 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
 
     @Transactional
     override fun create(request: AttendanceRecordCommand): AttendanceSessionRecord {
-        val (actorId, _, sessionHash, draft) = request
+        val actorId = request.actorId
+        val sessionHash = request.sessionHash
+        val draft = request.draft
         val classId = subjectClass(draft.subjectId) ?: throw AttendanceNotFound()
         requireWriter(actorId, sessionHash, classId, draft.subjectId, activeClass = true, lock = true)
         val eligible = markableIds(classId, draft.date)
@@ -119,7 +166,7 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         return staffRow(id)?.let { project(it, actorId, sessionHash, null) }
     }
 
-    private fun projectPage(rows: List<AttendanceSessionRecord>, actorId: String, role: String, hash: String, studentFilter: String?): List<AttendanceSessionRecord> {
+    private fun projectPage(rows: List<AttendanceSessionRecord>, actorId: String, role: String, studentFilter: String?): List<AttendanceSessionRecord> {
         if (rows.isEmpty()) return emptyList()
         if (role == "student") return rows.map { it.viewed(it.records[actorId]?.let { mark -> mapOf(actorId to mark) } ?: emptyMap(), true) }
         val assignments = if (role == "teacher") assignedSubjects(actorId, rows.map { it.subjectId }.distinct()) else emptySet()
@@ -171,7 +218,9 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         return jdbc.query("SELECT u.role FROM core.users u JOIN core.sessions s ON s.user_id=u.id WHERE u.id=? AND u.active AND u.role IN ($roleList) AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?", { rs, _ -> rs.getString(1) }, *args.toTypedArray()).firstOrNull() ?: throw AttendanceForbidden()
     }
 
-    private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }
+    private fun lockAuthInvariant() {
+        jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java)
+    }
     private fun assigned(actorId: String, subjectId: String) = jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM core.subject_teachers st JOIN core.users u ON u.id=st.teacher_id WHERE st.subject_id=? AND st.teacher_id=? AND u.active AND u.role='teacher')", Boolean::class.java, subjectId, actorId) == true
     private fun subjectClass(subjectId: String) = jdbc.query("SELECT class_id FROM core.subjects WHERE id=?", { rs, _ -> rs.getString(1) }, subjectId).firstOrNull()
     private fun datedEnrollment(date: String) = "(e.enrolled_at IS NOT NULL AND (e.enrolled_at AT TIME ZONE 'America/Sao_Paulo')::date<=$date AND (e.ended_at IS NULL OR (e.ended_at AT TIME ZONE 'America/Sao_Paulo')::date>=$date))"
@@ -205,5 +254,7 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         require(json.isObject)
         return json.properties().associate { (id, mark) -> id to mark.booleanValue().also { require(mark.isBoolean) } }
     }
-    private fun audit(actorId: String, eventType: String, id: String) { jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), eventType, id, actorId) }
+    private fun audit(actorId: String, eventType: String, id: String) {
+        jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), eventType, id, actorId)
+    }
 }

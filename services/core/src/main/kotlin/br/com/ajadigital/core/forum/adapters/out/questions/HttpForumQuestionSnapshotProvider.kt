@@ -7,6 +7,7 @@ import br.com.ajadigital.core.forum.domain.exceptions.ForumQuestionSnapshotNotFo
 import br.com.ajadigital.core.forum.domain.exceptions.ForumQuestionsUnavailable
 import br.com.ajadigital.core.shared.adapters.out.questions.QuestionsSnapshotHttpClient
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClientResponseException
 
@@ -21,9 +22,11 @@ class HttpForumQuestionSnapshotProvider(
         client.fetch(request.ids).map { ForumQuestionSnapshot(it.questionId) }
     } catch (error: RestClientResponseException) {
         when (error.statusCode.value()) {
-            404 -> throw ForumQuestionSnapshotNotFound()
-            422 -> throw IllegalArgumentException()
+            HttpStatus.NOT_FOUND.value() -> throw ForumQuestionSnapshotNotFound()
+            HttpStatus.UNPROCESSABLE_ENTITY.value() -> throw IllegalArgumentException()
             else -> throw ForumQuestionsUnavailable()
         }
-    } catch (error: Exception) { throw ForumQuestionsUnavailable().also { it.initCause(error) } }
+    } catch (error: Exception) {
+        throw ForumQuestionsUnavailable().also { it.initCause(error) }
+    }
 }

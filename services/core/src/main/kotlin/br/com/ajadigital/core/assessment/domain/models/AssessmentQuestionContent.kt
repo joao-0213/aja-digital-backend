@@ -17,7 +17,16 @@ class AssessmentQuestionContent(
     val options: List<String> = Collections.unmodifiableList(options.toList())
 
     fun withImage(image: AssessmentQuestionImage) = AssessmentQuestionContent(
-        subject, topic, difficulty, institution, year, statement, options, image, correct, explanation,
+        subject,
+        topic,
+        difficulty,
+        institution,
+        year,
+        statement,
+        options,
+        image,
+        correct,
+        explanation,
     )
 
     override fun equals(other: Any?) = other is AssessmentQuestionContent &&

@@ -3,10 +3,15 @@ package br.com.ajadigital.core.curriculum.application.models
 import br.com.ajadigital.core.curriculum.domain.exceptions.CurriculumConflict
 import br.com.ajadigital.core.curriculum.domain.exceptions.CurriculumNotFound
 
-
 sealed interface RevisionWrite<out T> {
-    data class Applied<T>(val value: T) : RevisionWrite<T>
-    data class Conflict(val currentRevision: Int) : RevisionWrite<Nothing>
+    data class Applied<T>(
+        val value: T,
+    ) : RevisionWrite<T>
+
+    data class Conflict(
+        val currentRevision: Int,
+    ) : RevisionWrite<Nothing>
+
     data object Missing : RevisionWrite<Nothing>
 }
 

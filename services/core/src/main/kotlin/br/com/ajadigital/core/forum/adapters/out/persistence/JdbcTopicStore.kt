@@ -1,17 +1,33 @@
 package br.com.ajadigital.core.forum.adapters.out.persistence
-import br.com.ajadigital.core.forum.application.models.*
-import br.com.ajadigital.core.forum.domain.models.TopicDraft
-
-import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
+import br.com.ajadigital.core.forum.application.contracts.ForumDashboardTopic
+import br.com.ajadigital.core.forum.application.models.AuthorizeTopicReplyCommand
+import br.com.ajadigital.core.forum.application.models.CreateTopicRecord
+import br.com.ajadigital.core.forum.application.models.CreateTopicReplyRecord
+import br.com.ajadigital.core.forum.application.models.FindForumReplyReceiptQuery
+import br.com.ajadigital.core.forum.application.models.FindTopicReplayQuery
+import br.com.ajadigital.core.forum.application.models.ForumAttachmentView
+import br.com.ajadigital.core.forum.application.models.ForumAuthorView
+import br.com.ajadigital.core.forum.application.models.ForumReplyView
+import br.com.ajadigital.core.forum.application.models.ForumTargetView
+import br.com.ajadigital.core.forum.application.models.ForumTopicPage
+import br.com.ajadigital.core.forum.application.models.ForumTopicView
+import br.com.ajadigital.core.forum.application.models.GetStoredTopicQuery
+import br.com.ajadigital.core.forum.application.models.ListDashboardStoredTopicsQuery
+import br.com.ajadigital.core.forum.application.models.ListStoredTopicsQuery
+import br.com.ajadigital.core.forum.application.models.MarkTopicReadRecord
+import br.com.ajadigital.core.forum.application.models.MarkTopicSolutionRecord
+import br.com.ajadigital.core.forum.application.models.SaveForumReplyReceiptCommand
+import br.com.ajadigital.core.forum.application.models.VoteTopicReplyRecord
+import br.com.ajadigital.core.forum.application.models.WithdrawTopicRecord
+import br.com.ajadigital.core.forum.application.models.WithdrawTopicReplyRecord
+import br.com.ajadigital.core.forum.application.ports.out.TopicStoreOutputPort
 import br.com.ajadigital.core.forum.domain.exceptions.ForumForbidden
 import br.com.ajadigital.core.forum.domain.exceptions.ForumIdempotencyConflict
 import br.com.ajadigital.core.forum.domain.exceptions.ForumNotFound
-import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
+import br.com.ajadigital.core.forum.domain.models.TopicDraft
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
-import br.com.ajadigital.core.forum.application.contracts.ForumDashboardTopic
-import br.com.ajadigital.core.forum.application.models.ForumTopicPage
-import br.com.ajadigital.core.forum.application.models.ForumTopicView
-import br.com.ajadigital.core.forum.application.ports.out.TopicStoreOutputPort
+import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
+import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
@@ -27,10 +43,17 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
 
     @Suppress("UNCHECKED_CAST")
     private fun readReceipt(value: String): Map<String, Any?> = mapper.readValue(value, Map::class.java) as Map<String, Any?>
+
     @Transactional
     override fun authorizeAndFindReplay(request: FindTopicReplayQuery): ForumTopicView? {
-        val (actorId, role, sessionHash, draft, idempotencyKey, requestHash) = request
-        lockAuthInvariant(); requireSession(actorId, role, sessionHash)
+        val actorId = request.actorId
+        val role = request.role
+        val sessionHash = request.sessionHash
+        val draft = request.draft
+        val idempotencyKey = request.idempotencyKey
+        val requestHash = request.requestHash
+        lockAuthInvariant()
+        requireSession(actorId, role, sessionHash)
         requireWritable(draft.classId, draft.subjectId, actorId, role)
         val replay = try {
             idempotency.findEncoded(FindIdempotencyDto(actorId, "createTopic", "/topics", idempotencyKey, requestHash))?.let(::readReceipt)
@@ -46,16 +69,21 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
 
     @Transactional
     override fun authorizeReply(request: AuthorizeTopicReplyCommand) {
-        val (actorId, role, sessionHash, id) = request
-        lockAuthInvariant(); requireSession(actorId, role, sessionHash)
+        val actorId = request.actorId
+        val role = request.role
+        val sessionHash = request.sessionHash
+        val id = request.id
+        lockAuthInvariant()
+        requireSession(actorId, role, sessionHash)
         val topic = lockTopic(id, actorId, role) ?: throw ForumNotFound()
         requireWritable(topic.classId, topic.subjectId, actorId, role)
     }
 
-    override fun findReplyReceipt(request: br.com.ajadigital.core.forum.application.models.FindForumReplyReceiptQuery): ForumTopicView? =
-        try {
-            idempotency.findEncoded(FindIdempotencyDto(request.actorId, "replyToTopic", "/topics/${request.topicId}", request.key, request.requestHash))?.let(topicCodec::decodeJson)
-        } catch (_: IdempotencyKeyReuse) { throw ForumIdempotencyConflict() }
+    override fun findReplyReceipt(request: br.com.ajadigital.core.forum.application.models.FindForumReplyReceiptQuery): ForumTopicView? = try {
+        idempotency.findEncoded(FindIdempotencyDto(request.actorId, "replyToTopic", "/topics/${request.topicId}", request.key, request.requestHash))?.let(topicCodec::decodeJson)
+    } catch (_: IdempotencyKeyReuse) {
+        throw ForumIdempotencyConflict()
+    }
 
     override fun saveReplyReceipt(request: br.com.ajadigital.core.forum.application.models.SaveForumReplyReceiptCommand) {
         idempotency.saveEncoded(FindIdempotencyDto(request.actorId, "replyToTopic", "/topics/${request.topicId}", request.key, request.requestHash), topicCodec.encode(request.response))
@@ -63,8 +91,15 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
 
     @Transactional
     override fun create(request: CreateTopicRecord): ForumTopicView {
-        val (actorId, role, sessionHash, draft, idempotencyKey, requestHash) = request
-        lockAuthInvariant(); requireSession(actorId, role, sessionHash); requireWritable(draft.classId, draft.subjectId, actorId, role)
+        val actorId = request.actorId
+        val role = request.role
+        val sessionHash = request.sessionHash
+        val draft = request.draft
+        val idempotencyKey = request.idempotencyKey
+        val requestHash = request.requestHash
+        lockAuthInvariant()
+        requireSession(actorId, role, sessionHash)
+        requireWritable(draft.classId, draft.subjectId, actorId, role)
         try {
             idempotency.findEncoded(FindIdempotencyDto(actorId, "createTopic", "/topics", idempotencyKey, requestHash))?.let { return topicCodec.decodeJson(it) }
         } catch (_: IdempotencyKeyReuse) {
@@ -72,9 +107,13 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         }
         if (draft.targetType == "material" && draft.targetId?.let { visibleMaterial(it, draft.classId, draft.subjectId, actorId, role) } != true) throw br.com.ajadigital.core.forum.domain.exceptions.InvalidTopicReference()
         val file = draft.attachmentId?.let { stagedForumFile(it, actorId, draft.subjectId) }
-        val now = Timestamp.from(clock.instant()); val id = UUID.randomUUID().toString()
-        jdbc.update("""INSERT INTO core.topics(id,revision,created_at,updated_at,last_activity_at,updated_by,author_id,class_id,subject_id,title,body,tags,target_type,target_id,attachment_id)
-            VALUES(?,1,?,?,?,?,?,?,?,?,?,?::jsonb,?,?,?)""", id, now, now, now, actorId, actorId, draft.classId, draft.subjectId, draft.title.trim(), draft.body, mapper.writeValueAsString(draft.tags), draft.targetType, draft.targetId, draft.attachmentId)
+        val now = Timestamp.from(clock.instant())
+        val id = UUID.randomUUID().toString()
+        jdbc.update(
+            """INSERT INTO core.topics(id,revision,created_at,updated_at,last_activity_at,updated_by,author_id,class_id,subject_id,title,body,tags,target_type,target_id,attachment_id)
+            VALUES(?,1,?,?,?,?,?,?,?,?,?,?::jsonb,?,?,?)""",
+            id, now, now, now, actorId, actorId, draft.classId, draft.subjectId, draft.title.trim(), draft.body, mapper.writeValueAsString(draft.tags), draft.targetType, draft.targetId, draft.attachmentId,
+        )
         file?.let { jdbc.update("UPDATE core.files SET status='attached',expires_at=NULL WHERE id=?", draft.attachmentId) }
         jdbc.update("INSERT INTO core.topic_reads(topic_id,user_id,read_at) VALUES(?,?,?)", id, actorId, now)
         audit(actorId, "academic.topic_created", id)
@@ -84,16 +123,34 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
     }
 
     override fun topics(request: ListStoredTopicsQuery): ForumTopicPage {
-        val (actorId, role, sessionHash, page, size, sort, classId, subjectId, query, unread, solved) = request
+        val actorId = request.actorId
+        val role = request.role
+        val sessionHash = request.sessionHash
+        val page = request.page
+        val size = request.size
+        val sort = request.sort
+        val classId = request.classId
+        val subjectId = request.subjectId
+        val query = request.query
+        val unread = request.unread
+        val solved = request.solved
         requireSession(actorId, role, sessionHash)
         val access = access("t", role, actorId)
         val clauses = mutableListOf("t.withdrawn_at IS NULL", access.first)
         val args = mutableListOf<Any>().apply { addAll(access.second) }
-        classId?.let { clauses += "t.class_id=?"; args += it }
-        subjectId?.let { clauses += "t.subject_id=?"; args += it }
+        classId?.let {
+            clauses += "t.class_id=?"
+            args += it
+        }
+        subjectId?.let {
+            clauses += "t.subject_id=?"
+            args += it
+        }
         query?.let { q ->
             clauses += "(position(core.fold_forum(?) in core.fold_forum(t.title))>0 OR position(core.fold_forum(?) in core.fold_forum(t.body))>0 OR EXISTS(SELECT 1 FROM core.topic_replies r WHERE r.topic_id=t.id AND r.withdrawn_at IS NULL AND position(core.fold_forum(?) in core.fold_forum(r.body))>0))"
-            args += q; args += q; args += q
+            args += q
+            args += q
+            args += q
         }
         if (unread != null) clauses += if (unread) "NOT EXISTS(SELECT 1 FROM core.topic_reads tr WHERE tr.topic_id=t.id AND tr.user_id=? AND tr.read_at>=t.last_activity_at)" else "EXISTS(SELECT 1 FROM core.topic_reads tr WHERE tr.topic_id=t.id AND tr.user_id=? AND tr.read_at>=t.last_activity_at)"
         if (unread != null) args += actorId
@@ -106,22 +163,32 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
     }
 
     override fun dashboardTopics(request: ListDashboardStoredTopicsQuery): List<ForumDashboardTopic> {
-        val (actorId, role, sessionHash, size) = request
-        require(size in 1..10)
+        val actorId = request.actorId
+        val role = request.role
+        val sessionHash = request.sessionHash
+        val size = request.size
+        require(size in 1..MAX_PAGE_SIZE)
         requireSession(actorId, role, sessionHash)
         val scope = access("t", role, actorId)
-        return jdbc.query("""SELECT t.id,t.title,s.name subject_name,
+        return jdbc.query(
+            """SELECT t.id,t.title,s.name subject_name,
             (SELECT count(*) FROM core.topic_replies r WHERE r.topic_id=t.id AND r.withdrawn_at IS NULL) reply_count
             FROM core.topics t JOIN core.subjects s ON s.id=t.subject_id
             WHERE t.withdrawn_at IS NULL AND ${scope.first}
-            ORDER BY t.last_activity_at DESC,t.id LIMIT ?""", { rs, _ ->
-            val id = rs.getString("id")
-            ForumDashboardTopic(id, rs.getString("title"), rs.getString("subject_name"), rs.getInt("reply_count"), "/forum/topico?id=$id")
-        }, *(scope.second + size).toTypedArray())
+            ORDER BY t.last_activity_at DESC,t.id LIMIT ?""",
+            { rs, _ ->
+                val id = rs.getString("id")
+                ForumDashboardTopic(id, rs.getString("title"), rs.getString("subject_name"), rs.getInt("reply_count"), "/forum/topico?id=$id")
+            },
+            *(scope.second + size).toTypedArray(),
+        )
     }
 
     override fun topic(request: GetStoredTopicQuery): ForumTopicView? {
-        val (actorId, role, sessionHash, id) = request
+        val actorId = request.actorId
+        val role = request.role
+        val sessionHash = request.sessionHash
+        val id = request.id
         requireSession(actorId, role, sessionHash)
         val (row, activity) = jdbc.query("SELECT t.*,u.name author_name FROM core.topics t JOIN core.users u ON u.id=t.author_id WHERE t.id=? AND t.withdrawn_at IS NULL AND ${access("t", role, actorId).first}", { rs, _ -> topicRow(rs) }, *(listOf(id) + access("t", role, actorId).second).toTypedArray()).firstOrNull() ?: return null
         val replies = jdbc.query("SELECT r.*,u.name author_name,(SELECT count(*) FROM core.topic_votes v WHERE v.reply_id=r.id) vote_count,EXISTS(SELECT 1 FROM core.topic_votes v WHERE v.reply_id=r.id AND v.user_id=?) voted_by_me,(t.solution_reply_id=r.id) accepted FROM core.topic_replies r JOIN core.users u ON u.id=r.author_id JOIN core.topics t ON t.id=r.topic_id WHERE r.topic_id=? AND r.withdrawn_at IS NULL ORDER BY r.created_at,r.id", { rs, _ -> replyRow(rs) }, actorId, id)
@@ -132,11 +199,17 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
 
     @Transactional
     override fun reply(request: CreateTopicReplyRecord): ForumTopicView? {
-        val (actorId, role, sessionHash, id, body) = request
-        lockAuthInvariant(); requireSession(actorId, role, sessionHash)
+        val actorId = request.actorId
+        val role = request.role
+        val sessionHash = request.sessionHash
+        val id = request.id
+        val body = request.body
+        lockAuthInvariant()
+        requireSession(actorId, role, sessionHash)
         val topic = lockTopic(id, actorId, role) ?: return null
         requireWritable(topic.classId, topic.subjectId, actorId, role)
-        val now = Timestamp.from(nextActivity(topic.lastActivityAt)); val replyId = UUID.randomUUID().toString()
+        val now = Timestamp.from(nextActivity(topic.lastActivityAt))
+        val replyId = UUID.randomUUID().toString()
         jdbc.update("INSERT INTO core.topic_replies(id,topic_id,revision,created_at,updated_at,updated_by,author_id,body) VALUES(?,?,1,?,?,?,?,?)", replyId, id, now, now, actorId, actorId, body)
         jdbc.update("UPDATE core.topics SET updated_at=?,last_activity_at=?,updated_by=? WHERE id=?", now, now, actorId, id)
         jdbc.update("INSERT INTO core.topic_reads(topic_id,user_id,read_at) VALUES(?,?,?) ON CONFLICT(topic_id,user_id) DO UPDATE SET read_at=EXCLUDED.read_at", id, actorId, now)
@@ -146,8 +219,12 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
 
     @Transactional
     override fun read(request: MarkTopicReadRecord): ForumTopicView? {
-        val (actorId, role, sessionHash, id) = request
-        lockAuthInvariant(); requireSession(actorId, role, sessionHash)
+        val actorId = request.actorId
+        val role = request.role
+        val sessionHash = request.sessionHash
+        val id = request.id
+        lockAuthInvariant()
+        requireSession(actorId, role, sessionHash)
         val locked = lockTopic(id, actorId, role) ?: return null
         val activity = locked.lastActivityAt
         val watermark = Timestamp.from(activity)
@@ -158,8 +235,14 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
 
     @Transactional
     override fun solution(request: MarkTopicSolutionRecord): ForumTopicView? {
-        val (actorId, role, sessionHash, id, revision, replyId) = request
-        lockAuthInvariant(); requireSession(actorId, role, sessionHash)
+        val actorId = request.actorId
+        val role = request.role
+        val sessionHash = request.sessionHash
+        val id = request.id
+        val revision = request.revision
+        val replyId = request.replyId
+        lockAuthInvariant()
+        requireSession(actorId, role, sessionHash)
         val current = lockTopic(id, actorId, role) ?: return null
         requireWritable(current.classId, current.subjectId, actorId, role)
         if (current.authorId != actorId && role !in setOf("teacher", "admin")) throw ForumForbidden()
@@ -173,8 +256,13 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
 
     @Transactional
     override fun withdraw(request: WithdrawTopicRecord): ForumTopicView? {
-        val (actorId, role, sessionHash, id, revision) = request
-        lockAuthInvariant(); requireSession(actorId, role, sessionHash)
+        val actorId = request.actorId
+        val role = request.role
+        val sessionHash = request.sessionHash
+        val id = request.id
+        val revision = request.revision
+        lockAuthInvariant()
+        requireSession(actorId, role, sessionHash)
         val current = lockTopic(id, actorId, role) ?: return null
         requireWritable(current.classId, current.subjectId, actorId, role)
         if (current.authorId != actorId && role !in setOf("teacher", "admin")) throw ForumForbidden()
@@ -188,22 +276,37 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
 
     @Transactional
     override fun vote(request: VoteTopicReplyRecord): ForumTopicView? {
-        val (actorId, role, sessionHash, id, replyId, voted) = request
-        lockAuthInvariant(); requireSession(actorId, role, sessionHash)
+        val actorId = request.actorId
+        val role = request.role
+        val sessionHash = request.sessionHash
+        val id = request.id
+        val replyId = request.replyId
+        val voted = request.voted
+        lockAuthInvariant()
+        requireSession(actorId, role, sessionHash)
         val topic = lockTopic(id, actorId, role) ?: return null
         requireWritable(topic.classId, topic.subjectId, actorId, role)
         val reply = jdbc.query("SELECT author_id FROM core.topic_replies WHERE id=? AND topic_id=? AND withdrawn_at IS NULL", { rs, _ -> rs.getString(1) }, replyId, id).firstOrNull() ?: return null
         if (reply == actorId) throw ForumForbidden()
-        if (voted) jdbc.update("INSERT INTO core.topic_votes(reply_id,user_id,created_at) VALUES(?,?,?) ON CONFLICT(reply_id,user_id) DO NOTHING", replyId, actorId, Timestamp.from(clock.instant()))
-        else jdbc.update("DELETE FROM core.topic_votes WHERE reply_id=? AND user_id=?", replyId, actorId)
+        if (voted) {
+            jdbc.update("INSERT INTO core.topic_votes(reply_id,user_id,created_at) VALUES(?,?,?) ON CONFLICT(reply_id,user_id) DO NOTHING", replyId, actorId, Timestamp.from(clock.instant()))
+        } else {
+            jdbc.update("DELETE FROM core.topic_votes WHERE reply_id=? AND user_id=?", replyId, actorId)
+        }
         audit(actorId, "academic.topic_vote", replyId)
         return topic(GetStoredTopicQuery(actorId, role, sessionHash, id))
     }
 
     @Transactional
     override fun withdrawReply(request: WithdrawTopicReplyRecord): ForumTopicView? {
-        val (actorId, role, sessionHash, id, replyId, revision) = request
-        lockAuthInvariant(); requireSession(actorId, role, sessionHash)
+        val actorId = request.actorId
+        val role = request.role
+        val sessionHash = request.sessionHash
+        val id = request.id
+        val replyId = request.replyId
+        val revision = request.revision
+        lockAuthInvariant()
+        requireSession(actorId, role, sessionHash)
         val topic = lockTopic(id, actorId, role) ?: return null
         requireWritable(topic.classId, topic.subjectId, actorId, role)
         val reply = jdbc.query("SELECT author_id,revision FROM core.topic_replies WHERE id=? AND topic_id=? AND withdrawn_at IS NULL FOR UPDATE", { rs, _ -> rs.getString(1) to rs.getInt(2) }, replyId, id).firstOrNull() ?: return null
@@ -247,18 +350,22 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
             targetType != null && targetId != null -> ForumTargetView(targetType, targetId)
             else -> throw IllegalStateException("Stored forum target is incomplete")
         }
-        val topic = ForumTopicView(rs.getString("id"), rs.getInt("revision"), rs.getTimestamp("created_at").toInstant().toString(),
+        val topic = ForumTopicView(
+            rs.getString("id"), rs.getInt("revision"), rs.getTimestamp("created_at").toInstant().toString(),
             rs.getTimestamp("updated_at").toInstant().toString(), rs.getString("updated_by"), rs.getString("class_id"),
             rs.getString("subject_id"), rs.getString("title"), rs.getString("body"),
             mapper.readValue(rs.getString("tags"), Array<String>::class.java).toList(), target, rs.getString("attachment_id"),
             ForumAuthorView(rs.getString("author_id"), rs.getString("author_name")), emptyList(), false, null,
-            targetId, null)
+            targetId, null,
+        )
         return topic to rs.getTimestamp("last_activity_at").toInstant()
     }
-    private fun replyRow(rs: ResultSet) = ForumReplyView(rs.getString("id"), rs.getInt("revision"),
+    private fun replyRow(rs: ResultSet) = ForumReplyView(
+        rs.getString("id"), rs.getInt("revision"),
         rs.getTimestamp("created_at").toInstant().toString(), rs.getTimestamp("updated_at").toInstant().toString(),
         rs.getString("updated_by"), ForumAuthorView(rs.getString("author_id"), rs.getString("author_name")),
-        rs.getString("body"), rs.getInt("vote_count"), rs.getBoolean("voted_by_me"), rs.getBoolean("accepted"))
+        rs.getString("body"), rs.getInt("vote_count"), rs.getBoolean("voted_by_me"), rs.getBoolean("accepted"),
+    )
     private fun access(alias: String, role: String, actorId: String): Pair<String, List<Any>> = when (role) {
         "admin" -> "true" to emptyList()
         "teacher" -> "EXISTS(SELECT 1 FROM core.subject_teachers st JOIN core.users u ON u.id=st.teacher_id WHERE st.subject_id=$alias.subject_id AND st.teacher_id=? AND u.active AND u.role='teacher')" to listOf(actorId)
@@ -275,7 +382,15 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         val role = jdbc.query("SELECT u.role FROM core.users u JOIN core.sessions s ON s.user_id=u.id WHERE u.id=? AND u.active AND (u.role<>'student' OR u.email_confirmed_at IS NOT NULL) AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?", { rs, _ -> rs.getString(1) }, actorId, hash, Timestamp.from(clock.instant())).firstOrNull() ?: throw ForumForbidden()
         if (role != expectedRole || role !in setOf("admin", "teacher", "student")) throw ForumForbidden()
     }
-    private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }
-    private fun nextActivity(previous: java.time.Instant) = maxOf(clock.instant(), previous.plusNanos(1_000))
-    private fun audit(actorId: String, event: String, resourceId: String) { jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), event, resourceId, actorId) }
+    private fun lockAuthInvariant() {
+        jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java)
+    }
+    private fun nextActivity(previous: java.time.Instant) = maxOf(clock.instant(), previous.plusNanos(ACTIVITY_TICK_NANOS))
+    private fun audit(actorId: String, event: String, resourceId: String) {
+        jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), event, resourceId, actorId)
+    }
 }
+
+private const val MAX_PAGE_SIZE = 10
+
+private const val ACTIVITY_TICK_NANOS = 1_000L

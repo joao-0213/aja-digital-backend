@@ -4,5 +4,9 @@ import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
 
 interface EncodedIdempotencyStoreOutputPort {
     fun findEncoded(request: FindIdempotencyDto): String?
-    fun saveEncoded(request: FindIdempotencyDto, response: String)
+
+    fun saveEncoded(
+        request: FindIdempotencyDto,
+        response: String,
+    )
 }

@@ -7,10 +7,14 @@ import br.com.ajadigital.core.assessment.application.ports.out.AssessmentReadOut
 import br.com.ajadigital.core.assessment.domain.policies.AssessmentPolicy
 import java.util.Collections
 
-class ListDashboardAssessmentsUseCase(private val store: AssessmentReadOutputPort) : ListDashboardAssessmentsInputPort {
+class ListDashboardAssessmentsUseCase(
+    private val store: AssessmentReadOutputPort,
+) : ListDashboardAssessmentsInputPort {
     override fun dashboardAssessments(query: ListDashboardAssessmentsQuery): List<DashboardAssessment> {
         AssessmentPolicy.reader(query.actor.role, query.actor.active, query.actor.emailConfirmedAt != null)
-        require(query.pageSize in 1..100)
+        require(query.pageSize in 1..MAX_PAGE_SIZE)
         return Collections.unmodifiableList(store.dashboardAssessments(query).toList())
     }
 }
+
+private const val MAX_PAGE_SIZE = 100

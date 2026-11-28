@@ -1,12 +1,12 @@
 package br.com.ajadigital.core.assessment.adapters.`in`.controllers
 
-import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentForbidden
 import br.com.ajadigital.core.assessment.adapters.`in`.controllers.models.requests.InternalPracticeRequest
 import br.com.ajadigital.core.assessment.adapters.`in`.controllers.models.responses.InternalPracticeResponse
 import br.com.ajadigital.core.assessment.application.models.CheckPracticeBlockedQuery
 import br.com.ajadigital.core.assessment.application.ports.`in`.CheckPracticeBlockedInputPort
-import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentForbidden
 import br.com.ajadigital.core.identity.application.contracts.SessionRequired
+import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.web.bind.annotation.CookieValue
 import org.springframework.web.bind.annotation.PostMapping
@@ -25,7 +25,7 @@ class InternalPracticeController(
     private val expectedToken = serviceToken.toByteArray(StandardCharsets.UTF_8)
 
     init {
-        require(expectedToken.size >= 32) { "Questions service credential must contain at least 32 bytes" }
+        require(expectedToken.size >= MIN_SERVICE_TOKEN_BYTES) { "Questions service credential must contain at least 32 bytes" }
     }
 
     @PostMapping("/internal/v1/session/practice")
@@ -45,3 +45,5 @@ class InternalPracticeController(
         }
     }
 }
+
+private const val MIN_SERVICE_TOKEN_BYTES = 32

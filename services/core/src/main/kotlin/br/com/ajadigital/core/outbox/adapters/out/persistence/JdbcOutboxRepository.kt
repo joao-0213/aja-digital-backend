@@ -1,11 +1,11 @@
 package br.com.ajadigital.core.outbox.adapters.out.persistence
 
-import br.com.ajadigital.core.outbox.domain.models.PendingOutboxEvent
-import br.com.ajadigital.core.outbox.domain.models.ClaimPendingOutboxEventsDto
-import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventPublishedDto
-import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventFailedDto
-import br.com.ajadigital.core.outbox.domain.models.RedriveStoredOutboxEventDto
 import br.com.ajadigital.core.outbox.application.ports.out.OutboxRepositoryOutputPort
+import br.com.ajadigital.core.outbox.domain.models.ClaimPendingOutboxEventsDto
+import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventFailedDto
+import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventPublishedDto
+import br.com.ajadigital.core.outbox.domain.models.PendingOutboxEvent
+import br.com.ajadigital.core.outbox.domain.models.RedriveStoredOutboxEventDto
 import org.springframework.jdbc.core.JdbcTemplate
 import java.sql.Timestamp
 import java.time.Instant

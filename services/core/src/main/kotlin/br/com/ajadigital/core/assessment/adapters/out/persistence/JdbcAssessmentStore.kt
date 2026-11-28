@@ -1,42 +1,34 @@
 package br.com.ajadigital.core.assessment.adapters.out.persistence
 
-import br.com.ajadigital.core.assessment.domain.models.AssessmentKind
-import br.com.ajadigital.core.assessment.application.models.CreateAssessmentRecord
-
-import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentRecord
-
-import br.com.ajadigital.core.assessment.application.models.PublishAssessmentCommand
-
-import br.com.ajadigital.core.assessment.application.models.GetAssessmentQuery
-
-import br.com.ajadigital.core.assessment.application.models.ListAssessmentsQuery
-
-
-
-
 import br.com.ajadigital.core.assessment.adapters.serialization.AssessmentRepresentation
+import br.com.ajadigital.core.assessment.application.contracts.DashboardAssessment
+import br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery
 import br.com.ajadigital.core.assessment.application.models.AssessmentDetails
+import br.com.ajadigital.core.assessment.application.models.AssessmentReceiptKey
 import br.com.ajadigital.core.assessment.application.models.AssessmentResults
+import br.com.ajadigital.core.assessment.application.models.CreateAssessmentRecord
+import br.com.ajadigital.core.assessment.application.models.GetAssessmentQuery
+import br.com.ajadigital.core.assessment.application.models.ListAssessmentsQuery
+import br.com.ajadigital.core.assessment.application.models.PublishAssessmentCommand
+import br.com.ajadigital.core.assessment.application.models.UpdateAssessmentRecord
+import br.com.ajadigital.core.assessment.application.ports.out.AssessmentReadOutputPort
+import br.com.ajadigital.core.assessment.application.ports.out.AssessmentWriteOutputPort
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Conflict
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Forbidden
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.IdempotencyConflict
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.NotFound
+import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
+import br.com.ajadigital.core.assessment.domain.models.AssessmentKind
+import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestion
 import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestionContent
 import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestionView
 import br.com.ajadigital.core.assessment.domain.models.AssessmentRecord
-import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
-import br.com.ajadigital.core.assessment.application.models.AssessmentReceiptKey
-import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
-import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Conflict
-import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.IdempotencyConflict
-import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.Forbidden
-import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentAuthoringFailure.NotFound
-import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
-import br.com.ajadigital.core.assessment.application.contracts.DashboardAssessment
-import br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery
-import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
-import br.com.ajadigital.core.assessment.domain.models.AssessmentQuestion
 import br.com.ajadigital.core.assessment.domain.models.AssessmentState
 import br.com.ajadigital.core.assessment.domain.policies.AssessmentEditPolicy
-import br.com.ajadigital.core.assessment.application.ports.out.AssessmentReadOutputPort
-import br.com.ajadigital.core.assessment.application.ports.out.AssessmentWriteOutputPort
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
+import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
+import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
@@ -47,7 +39,9 @@ import java.time.Clock
 import java.util.UUID
 
 @Repository
-class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val clock: Clock, private val idempotency: EncodedIdempotencyStoreOutputPort) : AssessmentReadOutputPort, AssessmentWriteOutputPort {
+class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val clock: Clock, private val idempotency: EncodedIdempotencyStoreOutputPort) :
+    AssessmentReadOutputPort,
+    AssessmentWriteOutputPort {
     @Transactional
     override fun authorizeWrite(actor: AuthenticatedActor, moduleId: String) {
         lockAuthInvariant()
@@ -66,8 +60,11 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         val now = Timestamp.from(clock.instant())
         val id = UUID.randomUUID().toString()
         val order = jdbc.queryForObject("SELECT COALESCE(max(order_index)+1,0) FROM core.assessments WHERE module_id=?", Int::class.java, draft.moduleId) ?: 0
-        jdbc.update("""INSERT INTO core.assessments(id,module_id,kind,status,revision,published_at,deadline,allow_late,created_at,updated_at,updated_by,title,description,max_grade,required,order_index)
-            VALUES(?,?,?,'draft',1,NULL,?,?,?,?,?,?,?,?,?,?)""", id, draft.moduleId, draft.kind.value, draft.deadline?.let(Timestamp::from), draft.allowLate, now, now, actorId, draft.title, draft.description, draft.maxGrade, draft.required, order)
+        jdbc.update(
+            """INSERT INTO core.assessments(id,module_id,kind,status,revision,published_at,deadline,allow_late,created_at,updated_at,updated_by,title,description,max_grade,required,order_index)
+            VALUES(?,?,?,'draft',1,NULL,?,?,?,?,?,?,?,?,?,?)""",
+            id, draft.moduleId, draft.kind.value, draft.deadline?.let(Timestamp::from), draft.allowLate, now, now, actorId, draft.title, draft.description, draft.maxGrade, draft.required, order,
+        )
         writeQuestions(id, request.questions)
         audit(actorId, "academic.assessment_created", id)
         return refreshAndSave(command, GetAssessmentQuery(actor, id))
@@ -101,10 +98,16 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
             deleteUnusedAssessmentImages(id, desiredQuestions)
             writeQuestions(id, desiredQuestions)
         }
-        if (jdbc.update("""UPDATE core.assessments SET module_id=?,kind=?,deadline=?,allow_late=?,title=?,description=?,max_grade=?,required=?,
+        if (jdbc.update(
+                """UPDATE core.assessments SET module_id=?,kind=?,deadline=?,allow_late=?,title=?,description=?,max_grade=?,required=?,
             revision=revision+1,updated_at=?,updated_by=?,questions_updated_at=CASE WHEN ? THEN ? ELSE questions_updated_at END
-            WHERE id=? AND revision=?""", next.moduleId, next.kind.value, next.deadline?.let(Timestamp::from), next.allowLate, next.title, next.description, next.maxGrade, next.required,
-            now, actorId, changedQuestions, now, id, expectedRevision) != 1) return null
+            WHERE id=? AND revision=?""",
+                next.moduleId, next.kind.value, next.deadline?.let(Timestamp::from), next.allowLate, next.title, next.description, next.maxGrade, next.required,
+                now, actorId, changedQuestions, now, id, expectedRevision,
+            ) != 1
+        ) {
+            return null
+        }
         if (prior.moduleId != next.moduleId) updatePublicationSubject(id, next.moduleId)
         audit(actorId, "academic.assessment_updated", id)
         return refreshAndSave(command, GetAssessmentQuery(actor, id))
@@ -112,7 +115,11 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
 
     @Transactional
     override fun publish(request: PublishAssessmentCommand): AssessmentDetails.Staff? {
-        val (actor, id, key, expectedRevision, requestHash) = request
+        val actor = request.actor
+        val id = request.id
+        val key = request.key
+        val expectedRevision = request.expectedRevision
+        val requestHash = request.fingerprint
         val actorId = actor.id
         lockAuthInvariant()
         val moduleId = jdbc.query("SELECT module_id FROM core.assessments WHERE id=?", { rs, _ -> rs.getString(1) }, id).firstOrNull() ?: return null
@@ -136,20 +143,35 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         val actorId = actor.id
         val role = requireSession(actorId, actor.sessionValidationReference)
         val where = accessPredicate(role)
-        val row = jdbc.query("""SELECT a.*,m.subject_id,s.class_id,c.active AS class_active,
+        val row = jdbc.query(
+            """SELECT a.*,m.subject_id,s.class_id,c.active AS class_active,
             (SELECT count(*)::integer FROM core.assessment_questions aq WHERE aq.assessment_id=a.id) AS question_count,
             EXISTS(SELECT 1 FROM core.enrollments e WHERE e.class_id=s.class_id AND e.student_id=? AND e.status='active' AND NOT jsonb_exists(e.unassigned_assessment_ids,a.id)) AS assigned
             FROM core.assessments a JOIN core.modules m ON m.id=a.module_id JOIN core.subjects s ON s.id=m.subject_id JOIN core.classes c ON c.id=s.class_id
-            WHERE a.id=? AND $where""", { rs, _ -> rs.readRow() },
+            WHERE a.id=? AND $where""",
+            { rs, _ -> rs.readRow() },
             *(listOf(actorId, id) + if (role == "teacher" || role == "student") listOf(actorId) else emptyList()).toTypedArray(),
         ).firstOrNull() ?: return null
-        return if (role == "student") row.student() else AssessmentDetails.Staff(
-            row.record, questionRows(listOf(id))[id].orEmpty(), hasSubmissions(id),
-        )
+        return if (role == "student") {
+            row.student()
+        } else {
+            AssessmentDetails.Staff(
+                row.record,
+                questionRows(listOf(id))[id].orEmpty(),
+                hasSubmissions(id),
+            )
+        }
     }
 
     override fun assessments(request: ListAssessmentsQuery): AssessmentResults {
-        val (actor, page, pageSize, sort, subjectId, moduleId, kind, status) = request
+        val actor = request.actor
+        val page = request.page
+        val pageSize = request.pageSize
+        val sort = request.sort
+        val subjectId = request.subjectId
+        val moduleId = request.moduleId
+        val kind = request.kind
+        val status = request.status
         val loaded = assessmentPage(actor.id, actor.sessionValidationReference, page, pageSize, sort, subjectId, moduleId, kind, status)
         return AssessmentResults(loaded.details, page, pageSize, loaded.total)
     }
@@ -170,28 +192,51 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     }
 
     private fun assessmentPage(
-        actorId: String, sessionHash: String, page: Int, pageSize: Int, sort: String,
-        subjectId: String?, moduleId: String?, kind: String?, status: String?,
+        actorId: String,
+        sessionHash: String,
+        page: Int,
+        pageSize: Int,
+        sort: String,
+        subjectId: String?,
+        moduleId: String?,
+        kind: String?,
+        status: String?,
     ): LoadedPage {
         val role = requireSession(actorId, sessionHash)
         val clauses = mutableListOf(accessPredicate(role))
         val args = mutableListOf<Any>()
         if (role == "teacher" || role == "student") args += actorId
-        if (subjectId != null) { clauses += "s.id=?"; args += subjectId }
-        if (moduleId != null) { clauses += "m.id=?"; args += moduleId }
-        if (kind != null) { clauses += "a.kind=?"; args += kind }
-        if (status != null) { clauses += "a.status=?"; args += status }
+        if (subjectId != null) {
+            clauses += "s.id=?"
+            args += subjectId
+        }
+        if (moduleId != null) {
+            clauses += "m.id=?"
+            args += moduleId
+        }
+        if (kind != null) {
+            clauses += "a.kind=?"
+            args += kind
+        }
+        if (status != null) {
+            clauses += "a.status=?"
+            args += status
+        }
         val where = clauses.joinToString(" AND ")
         val joins = "FROM core.assessments a JOIN core.modules m ON m.id=a.module_id JOIN core.subjects s ON s.id=m.subject_id JOIN core.classes c ON c.id=s.class_id"
         val count = jdbc.queryForObject("SELECT count(*) $joins WHERE $where", Long::class.javaObjectType, *args.toTypedArray()) ?: 0L
         val order = if (sort == "-id") "a.id DESC" else "a.id"
-        val rows = jdbc.query("""SELECT a.*,m.subject_id,s.class_id,c.active AS class_active,
+        val rows = jdbc.query(
+            """SELECT a.*,m.subject_id,s.class_id,c.active AS class_active,
             (SELECT count(*)::integer FROM core.assessment_questions aq WHERE aq.assessment_id=a.id) AS question_count,
             EXISTS(SELECT 1 FROM core.enrollments e WHERE e.class_id=s.class_id AND e.student_id=? AND e.status='active' AND NOT jsonb_exists(e.unassigned_assessment_ids,a.id)) AS assigned
-            $joins WHERE $where ORDER BY $order LIMIT ? OFFSET ?""", { rs, _ -> rs.readRow() },
+            $joins WHERE $where ORDER BY $order LIMIT ? OFFSET ?""",
+            { rs, _ -> rs.readRow() },
             *(listOf(actorId) + args + listOf(pageSize, (page - 1L) * pageSize)).toTypedArray(),
         )
-        val items = if (role == "student") rows.map(ReadRow::student) else {
+        val items = if (role == "student") {
+            rows.map(ReadRow::student)
+        } else {
             val ids = rows.map { it.record.id }
             val questions = questionRows(ids)
             val submissions = hasSubmissions(ids)
@@ -214,13 +259,19 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         val sessionHash = actor.sessionValidationReference
         requireSession(actorId, sessionHash, "student")
         val where = accessPredicate("student")
-        return jdbc.queryForObject("""SELECT count(*) FROM core.assessments a
+        return jdbc.queryForObject(
+            """SELECT count(*) FROM core.assessments a
             JOIN core.modules m ON m.id=a.module_id JOIN core.subjects s ON s.id=m.subject_id JOIN core.classes c ON c.id=s.class_id
             WHERE $where AND ((a.kind='quiz' AND NOT EXISTS(
                 SELECT 1 FROM core.attempts x WHERE x.assessment_id=a.id AND x.user_id=? AND x.submitted_at IS NOT NULL
             )) OR (a.kind='work' AND NOT EXISTS(
                 SELECT 1 FROM core.submissions x WHERE x.assessment_id=a.id AND x.user_id=? AND x.submitted_at IS NOT NULL
-            )))""", Int::class.java, actorId, actorId, actorId) ?: 0
+            )))""",
+            Int::class.java,
+            actorId,
+            actorId,
+            actorId,
+        ) ?: 0
     }
 
     private fun questionRows(ids: List<String>): Map<String, List<AssessmentQuestionView>> {
@@ -235,8 +286,17 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     private fun writeQuestions(id: String, questions: List<AssessmentQuestion>) {
         questions.forEachIndexed { position, question ->
             val snapshot = snapshotImage(id, question)
-            jdbc.update("""INSERT INTO core.assessment_questions(assessment_id,question_id,position,source,source_revision,content_hash,snapshot)
-                VALUES(?,?,?,?,?,?,?::jsonb)""", id, question.id, position, question.source, question.sourceRevision, question.contentHash, mapper.writeValueAsString(AssessmentRepresentation.question(question.id, question.source, snapshot)))
+            jdbc.update(
+                """INSERT INTO core.assessment_questions(assessment_id,question_id,position,source,source_revision,content_hash,snapshot)
+                VALUES(?,?,?,?,?,?,?::jsonb)""",
+                id,
+                question.id,
+                position,
+                question.source,
+                question.sourceRevision,
+                question.contentHash,
+                mapper.writeValueAsString(AssessmentRepresentation.question(question.id, question.source, snapshot)),
+            )
         }
     }
 
@@ -251,8 +311,11 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         if (source[0] == "assessment" && source[1] == assessmentId) return snapshot
         if (source[0] != "question") throw NotFound()
         val copiedId = UUID.randomUUID().toString()
-        jdbc.update("""INSERT INTO core.files(id,purpose,parent_id,name,mime,size,sha256,status,content,created_at)
-            VALUES(?,'assessment',?,?,?,?,?,'attached',?,?)""", copiedId, assessmentId, source[2], source[3], source[4], source[5], source[6], Timestamp.from(clock.instant()))
+        jdbc.update(
+            """INSERT INTO core.files(id,purpose,parent_id,name,mime,size,sha256,status,content,created_at)
+            VALUES(?,'assessment',?,?,?,?,?,'attached',?,?)""",
+            copiedId, assessmentId, source[FILE_NAME], source[FILE_MIME], source[FILE_SIZE], source[FILE_HASH], source[FILE_CONTENT], Timestamp.from(clock.instant()),
+        )
         return snapshot.withImage(image.copy(src = "/api/v1/files/$copiedId/content"))
     }
 
@@ -267,13 +330,17 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     private fun assessmentImageId(src: String?): String? = Regex("/api/v1/files/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/content").matchEntire(src ?: "")?.groupValues?.get(1)
 
     private fun retainExistingSnapshots(id: String, questions: List<AssessmentQuestion>): List<AssessmentQuestion> = questions.map { question ->
-        if (question.snapshot != null) question else jdbc.query("SELECT source_revision,content_hash,snapshot::text FROM core.assessment_questions WHERE assessment_id=? AND question_id=? AND source='bank'", { rs, _ ->
-            question.copy(
-                snapshot = AssessmentRepresentation.readQuestion(mapper.readTree(rs.getString("snapshot"))),
-                sourceRevision = rs.getInt("source_revision").takeUnless { rs.wasNull() },
-                contentHash = rs.getString("content_hash"),
-            )
-        }, id, question.id).firstOrNull() ?: throw NotFound()
+        if (question.snapshot != null) {
+            question
+        } else {
+            jdbc.query("SELECT source_revision,content_hash,snapshot::text FROM core.assessment_questions WHERE assessment_id=? AND question_id=? AND source='bank'", { rs, _ ->
+                question.copy(
+                    snapshot = AssessmentRepresentation.readQuestion(mapper.readTree(rs.getString("snapshot"))),
+                    sourceRevision = rs.getInt("source_revision").takeUnless { rs.wasNull() },
+                    contentHash = rs.getString("content_hash"),
+                )
+            }, id, question.id).firstOrNull() ?: throw NotFound()
+        }
     }
 
     private fun questionSignature(id: String): List<AssessmentQuestionView> = jdbc.query("SELECT question_id,snapshot::text FROM core.assessment_questions WHERE assessment_id=? ORDER BY position", { rs, _ ->
@@ -294,10 +361,13 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
 
     private fun resetPendingAttempts(id: String) {
         if (jdbc.queryForObject("SELECT to_regclass('core.attempts') IS NOT NULL", Boolean::class.java) != true) return
-        jdbc.update("""DELETE FROM core.command_idempotency c USING core.attempts a
+        jdbc.update(
+            """DELETE FROM core.command_idempotency c USING core.attempts a
             WHERE a.assessment_id=? AND a.submitted_at IS NULL AND c.actor_id=a.user_id
               AND c.operation='startAttempt' AND c.target='/attempts'
-              AND c.response_body::jsonb->>'assessmentId'=a.assessment_id""", id)
+              AND c.response_body::jsonb->>'assessmentId'=a.assessment_id""",
+            id,
+        )
         jdbc.update("DELETE FROM core.attempts WHERE assessment_id=? AND submitted_at IS NULL", id)
     }
 
@@ -334,7 +404,9 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         val placeholders = accepted.joinToString(",") { "?" }
         return jdbc.query("SELECT u.role FROM core.users u JOIN core.sessions s ON s.user_id=u.id WHERE u.id=? AND u.active AND u.role IN ($placeholders) AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?", { rs, _ -> rs.getString(1) }, *(listOf(actorId) + accepted + listOf(hash, Timestamp.from(clock.instant()))).toTypedArray()).firstOrNull() ?: throw Forbidden()
     }
-    private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }
+    private fun lockAuthInvariant() {
+        jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java)
+    }
     override fun replay(request: AssessmentReceiptKey): AssessmentDetails.Staff? = try {
         idempotency.findEncoded(request.toStorageKey())?.let { AssessmentRepresentation.readStaff(mapper.readTree(it)) }
     } catch (_: IdempotencyKeyReuse) {
@@ -347,18 +419,33 @@ class JdbcAssessmentStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         return result
     }
 
-    private fun AssessmentReceiptKey.toStorageKey() =
-        FindIdempotencyDto(actorId, operation, target, key, requestHash)
+    private fun AssessmentReceiptKey.toStorageKey() = FindIdempotencyDto(actorId, operation, target, key, requestHash)
 
-    private fun audit(actorId: String, eventType: String, id: String) { jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), eventType, id, actorId) }
+    private fun audit(actorId: String, eventType: String, id: String) {
+        jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), eventType, id, actorId)
+    }
     private fun ResultSet.assessmentRecord() = AssessmentRecord(
-        getString("id"), getInt("revision"), getTimestamp("created_at").toInstant(),
-        getTimestamp("updated_at").toInstant(), getString("updated_by"),
+        getString("id"),
+        getInt("revision"),
+        getTimestamp("created_at").toInstant(),
+        getTimestamp("updated_at").toInstant(),
+        getString("updated_by"),
         AssessmentDraft(
-            getString("module_id"), getString("title"), getString("description"), AssessmentKind.parse(getString("kind")),
-            getBigDecimal("max_grade")?.toDouble(), getTimestamp("deadline")?.toInstant(),
-            getBoolean("required"), getBoolean("allow_late"),
+            getString("module_id"),
+            getString("title"),
+            getString("description"),
+            AssessmentKind.parse(getString("kind")),
+            getBigDecimal("max_grade")?.toDouble(),
+            getTimestamp("deadline")?.toInstant(),
+            getBoolean("required"),
+            getBoolean("allow_late"),
         ),
         AssessmentRepresentation.state(getString("status"), getTimestamp("published_at")?.toInstant()),
     )
 }
+
+private const val FILE_NAME = 2
+private const val FILE_MIME = 3
+private const val FILE_SIZE = 4
+private const val FILE_HASH = 5
+private const val FILE_CONTENT = 6

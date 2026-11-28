@@ -13,7 +13,10 @@ class SwaggerWebJarGuardFilter(private val environment: Environment) : OncePerRe
         val path = request.requestURI.removePrefix(request.contextPath)
         val docsEnabled = environment.activeProfiles.contains("docs")
         val disabledDocsAsset = !docsEnabled && path.startsWith("/swagger-ui/")
-        if (path.startsWith("/webjars/swagger-ui/") || disabledDocsAsset) response.sendError(HttpServletResponse.SC_NOT_FOUND)
-        else chain.doFilter(request, response)
+        if (path.startsWith("/webjars/swagger-ui/") || disabledDocsAsset) {
+            response.sendError(HttpServletResponse.SC_NOT_FOUND)
+        } else {
+            chain.doFilter(request, response)
+        }
     }
 }

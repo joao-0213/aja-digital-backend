@@ -12,12 +12,23 @@ class ListSubjectsUseCase(
     private val store: SubjectStoreOutputPort,
 ) : ListSubjectsInputPort {
     override fun subjects(request: ListSubjectsQuery): Page<SubjectSummary> {
-        val (actor, page, size, sort, classId, query) = request
+        val actor = request.actor
+        val page = request.page
+        val size = request.size
+        val sort = request.sort
+        val classId = request.classId
+        val query = request.query
         CurriculumPolicy.requireReader(actor.active, actor.role, actor.emailConfirmedAt != null)
-        return store.subjects(StoreListSubjectsQuery(
-            actor.id, actor.role,
-            CurriculumPolicy.checkedPage(page), CurriculumPolicy.checkedSize(size),
-            CurriculumPolicy.checkedSort(sort), classId, query?.trim(),
-        ))
+        return store.subjects(
+            StoreListSubjectsQuery(
+                actor.id,
+                actor.role,
+                CurriculumPolicy.checkedPage(page),
+                CurriculumPolicy.checkedSize(size),
+                CurriculumPolicy.checkedSort(sort),
+                classId,
+                query?.trim(),
+            ),
+        )
     }
 }

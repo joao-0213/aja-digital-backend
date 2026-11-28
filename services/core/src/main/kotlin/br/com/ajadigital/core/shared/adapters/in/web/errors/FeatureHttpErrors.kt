@@ -16,5 +16,4 @@ object FeatureHttpErrors {
         currentRevision?.let { body["details"] = mapOf("currentRevision" to it) }
         return ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("error" to body))
     }
-
 }

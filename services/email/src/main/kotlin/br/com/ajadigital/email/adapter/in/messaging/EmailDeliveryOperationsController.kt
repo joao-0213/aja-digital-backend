@@ -3,6 +3,7 @@ package br.com.ajadigital.email.adapter.`in`.messaging
 import br.com.ajadigital.email.application.delivery.RedriveDeadEmail
 import br.com.ajadigital.email.application.delivery.RedriveResult
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -28,7 +29,7 @@ class EmailDeliveryOperationsController(
         @RequestHeader("X-AJA-Operator-Token", required = false) suppliedToken: String?,
     ): ResponseEntity<Void> {
         if (suppliedToken.isNullOrBlank() || !MessageDigest.isEqual(operatorToken.toByteArray(), suppliedToken.toByteArray())) {
-            return ResponseEntity.status(401).build()
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         }
         if (runCatching { UUID.fromString(eventId) }.isFailure) return ResponseEntity.notFound().build()
         return when (redrive.redrive(eventId)) {

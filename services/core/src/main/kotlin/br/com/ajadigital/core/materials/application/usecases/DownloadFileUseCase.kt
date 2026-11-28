@@ -7,7 +7,9 @@ import br.com.ajadigital.core.materials.application.ports.out.FileStoreOutputPor
 import br.com.ajadigital.core.materials.domain.exceptions.MaterialsNotFound
 import br.com.ajadigital.core.materials.domain.policies.MaterialRules
 
-class DownloadFileUseCase(private val store: FileStoreOutputPort) : DownloadFileInputPort {
+class DownloadFileUseCase(
+    private val store: FileStoreOutputPort,
+) : DownloadFileInputPort {
     override fun download(request: DownloadFileQuery): DownloadedFile {
         MaterialRules.id(request.id)
         request.actor.requireSessionRole()

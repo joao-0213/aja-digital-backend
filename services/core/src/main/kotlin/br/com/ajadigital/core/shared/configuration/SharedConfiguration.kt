@@ -14,6 +14,5 @@ class SharedConfiguration {
     fun clock(): Clock = Clock.systemUTC()
 
     @Bean
-    fun transactionRunner(transactionManager: PlatformTransactionManager): TransactionRunnerOutputPort =
-        SpringTransactionRunner(TransactionTemplate(transactionManager))
+    fun transactionRunner(transactionManager: PlatformTransactionManager): TransactionRunnerOutputPort = SpringTransactionRunner(TransactionTemplate(transactionManager))
 }

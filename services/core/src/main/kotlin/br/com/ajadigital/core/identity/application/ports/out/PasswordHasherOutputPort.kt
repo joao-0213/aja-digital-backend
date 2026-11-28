@@ -5,5 +5,6 @@ import br.com.ajadigital.core.identity.application.models.VerifyPasswordDto
 
 interface PasswordHasherOutputPort {
     fun hash(request: HashPasswordDto): String
+
     fun matches(request: VerifyPasswordDto): Boolean
 }

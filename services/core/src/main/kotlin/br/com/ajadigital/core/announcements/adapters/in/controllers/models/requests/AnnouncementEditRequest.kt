@@ -3,7 +3,6 @@ package br.com.ajadigital.core.announcements.adapters.`in`.controllers.models.re
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.node.MissingNode
 
-
 @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = false)
 data class AnnouncementEditRequest(
     val expectedRevision: JsonNode = MissingNode.getInstance(),

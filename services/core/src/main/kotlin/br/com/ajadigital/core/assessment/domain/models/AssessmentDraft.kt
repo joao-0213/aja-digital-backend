@@ -2,7 +2,6 @@ package br.com.ajadigital.core.assessment.domain.models
 
 import java.time.Instant
 
-
 data class AssessmentDraft(
     val moduleId: String,
     val title: String,

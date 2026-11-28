@@ -11,7 +11,9 @@ sealed interface AssessmentState {
         override val publishedAt: Instant? = null
     }
 
-    data class Published(override val publishedAt: Instant) : AssessmentState {
+    data class Published(
+        override val publishedAt: Instant,
+    ) : AssessmentState {
         override val label = "published"
     }
 }

@@ -17,6 +17,8 @@ class Subject(
 ) {
     val teacherIds: List<String> = Collections.unmodifiableList(teacherIds.toList())
 
-    internal fun copy(revision: Int = this.revision, teacherIds: List<String> = this.teacherIds): Subject =
-        Subject(id, revision, createdAt, updatedAt, updatedBy, classId, name, teacherIds, color, icon, description)
+    internal fun copy(
+        revision: Int = this.revision,
+        teacherIds: List<String> = this.teacherIds,
+    ): Subject = Subject(id, revision, createdAt, updatedAt, updatedBy, classId, name, teacherIds, color, icon, description)
 }

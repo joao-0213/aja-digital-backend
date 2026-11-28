@@ -6,10 +6,14 @@ import br.com.ajadigital.core.materials.application.ports.`in`.GetDashboardConte
 import br.com.ajadigital.core.materials.application.ports.out.LearningProgressOutputPort
 import br.com.ajadigital.core.materials.domain.exceptions.MaterialsForbidden
 
-class GetDashboardContentUseCase(private val store: LearningProgressOutputPort) : GetDashboardContentInputPort {
+class GetDashboardContentUseCase(
+    private val store: LearningProgressOutputPort,
+) : GetDashboardContentInputPort {
     override fun dashboard(actor: AuthenticatedActor): DashboardContent {
         actor.requireReader()
         if (actor.role != "student") throw MaterialsForbidden()
-        return store.dashboard(actor, 100)
+        return store.dashboard(actor, DASHBOARD_PROGRESS_LIMIT)
     }
 }
+
+private const val DASHBOARD_PROGRESS_LIMIT = 100

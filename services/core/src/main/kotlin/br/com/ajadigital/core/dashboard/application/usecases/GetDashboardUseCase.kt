@@ -1,29 +1,28 @@
 package br.com.ajadigital.core.dashboard.application.usecases
-import br.com.ajadigital.core.dashboard.application.models.*
 
-import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardAnnouncementsInputPort
-import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardUpcomingEventsInputPort
+import br.com.ajadigital.core.academic.application.contracts.DashboardAcademicQuery
+import br.com.ajadigital.core.academic.application.ports.`in`.GetDashboardAcademicInputPort
 import br.com.ajadigital.core.announcements.application.contracts.ListDashboardAnnouncementsQuery
 import br.com.ajadigital.core.announcements.application.contracts.ListDashboardUpcomingEventsQuery
-import br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery
+import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardAnnouncementsInputPort
+import br.com.ajadigital.core.announcements.application.ports.`in`.ListDashboardUpcomingEventsInputPort
 import br.com.ajadigital.core.assessment.application.contracts.CountPendingFeedbackQuery
+import br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery
 import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingFeedbackInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingStudentAssessmentsInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.ListDashboardAssessmentsInputPort
-import br.com.ajadigital.core.dashboard.domain.exceptions.DashboardForbidden
-import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
-import br.com.ajadigital.core.academic.application.contracts.DashboardAcademicQuery
-import br.com.ajadigital.core.academic.application.ports.`in`.GetDashboardAcademicInputPort
 import br.com.ajadigital.core.curriculum.application.contracts.ListSubjectsQuery
 import br.com.ajadigital.core.curriculum.application.ports.`in`.ListSubjectsInputPort
-import br.com.ajadigital.core.dashboard.application.ports.`in`.GetDashboardInputPort
-import br.com.ajadigital.core.dashboard.application.models.DashboardRead
-import br.com.ajadigital.core.dashboard.application.models.DashboardStudent
-import br.com.ajadigital.core.dashboard.application.models.DashboardStaff
-import br.com.ajadigital.core.dashboard.application.models.DashboardSubject
 import br.com.ajadigital.core.dashboard.application.models.DashboardAssessment
-import br.com.ajadigital.core.forum.application.ports.`in`.ListDashboardTopicsInputPort
+import br.com.ajadigital.core.dashboard.application.models.DashboardRead
+import br.com.ajadigital.core.dashboard.application.models.DashboardStaff
+import br.com.ajadigital.core.dashboard.application.models.DashboardStudent
+import br.com.ajadigital.core.dashboard.application.models.DashboardSubject
+import br.com.ajadigital.core.dashboard.application.ports.`in`.GetDashboardInputPort
+import br.com.ajadigital.core.dashboard.domain.exceptions.DashboardForbidden
 import br.com.ajadigital.core.forum.application.contracts.ListDashboardTopicsQuery
+import br.com.ajadigital.core.forum.application.ports.`in`.ListDashboardTopicsInputPort
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.materials.application.ports.`in`.GetDashboardContentInputPort
 import java.time.Clock
 import java.time.LocalDate
@@ -50,8 +49,12 @@ class GetDashboardUseCase(
         val upcomingItems = dashboardUpcoming.dashboardUpcoming(ListDashboardUpcomingEventsQuery(actor, today, today.plusDays(30), 5))
         val topicItems = dashboardTopics.dashboardTopics(ListDashboardTopicsQuery(actor))
         val summary = Summary(
-            subjectsPage.items.map(::subjectProjection), assessmentItems.map(::assessmentProjection),
-            announcementItems, upcomingItems, topicItems, actor.role,
+            subjectsPage.items.map(::subjectProjection),
+            assessmentItems.map(::assessmentProjection),
+            announcementItems,
+            upcomingItems,
+            topicItems,
+            actor.role,
         )
 
         return if (actor.role == "student") studentDashboard(actor, summary) else staffDashboard(actor, summary)
@@ -93,10 +96,12 @@ class GetDashboardUseCase(
     )
 
     private data class Summary(
-        val subjects: List<DashboardSubject>, val assessments: List<DashboardAssessment>,
+        val subjects: List<DashboardSubject>,
+        val assessments: List<DashboardAssessment>,
         val announcements: List<br.com.ajadigital.core.announcements.application.contracts.Announcement>,
         val upcoming: List<br.com.ajadigital.core.announcements.application.contracts.AnnouncementCalendarEvent>,
-        val topics: List<br.com.ajadigital.core.forum.application.contracts.ForumDashboardTopic>, val role: String,
+        val topics: List<br.com.ajadigital.core.forum.application.contracts.ForumDashboardTopic>,
+        val role: String,
     )
 
     private companion object {

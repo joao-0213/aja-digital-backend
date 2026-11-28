@@ -14,8 +14,9 @@ class UpdateSubjectCommand(
     val icon: FieldChange<String>,
     val description: FieldChange<String>,
 ) {
-    val teacherIds: FieldChange<List<String>> = when (teacherIds) {
-        FieldChange.Unchanged -> FieldChange.Unchanged
-        is FieldChange.Set -> FieldChange.Set(teacherIds.value.toList())
-    }
+    val teacherIds: FieldChange<List<String>> =
+        when (teacherIds) {
+            FieldChange.Unchanged -> FieldChange.Unchanged
+            is FieldChange.Set -> FieldChange.Set(teacherIds.value.toList())
+        }
 }

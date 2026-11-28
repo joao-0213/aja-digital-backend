@@ -6,8 +6,8 @@ import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingStud
 import br.com.ajadigital.core.assessment.application.ports.`in`.CreateAssessmentInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.CreateSubmissionInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.GetAssessmentInputPort
-import br.com.ajadigital.core.assessment.application.ports.`in`.GetAttemptResultInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.GetAttemptInputPort
+import br.com.ajadigital.core.assessment.application.ports.`in`.GetAttemptResultInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.GetSubmissionInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.ListAssessmentsInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.ListAttemptsInputPort
@@ -33,8 +33,8 @@ import br.com.ajadigital.core.assessment.application.usecases.CountPendingStuden
 import br.com.ajadigital.core.assessment.application.usecases.CreateAssessmentUseCase
 import br.com.ajadigital.core.assessment.application.usecases.CreateSubmissionUseCase
 import br.com.ajadigital.core.assessment.application.usecases.GetAssessmentUseCase
-import br.com.ajadigital.core.assessment.application.usecases.GetAttemptUseCase
 import br.com.ajadigital.core.assessment.application.usecases.GetAttemptResultUseCase
+import br.com.ajadigital.core.assessment.application.usecases.GetAttemptUseCase
 import br.com.ajadigital.core.assessment.application.usecases.GetSubmissionUseCase
 import br.com.ajadigital.core.assessment.application.usecases.ListAssessmentsUseCase
 import br.com.ajadigital.core.assessment.application.usecases.ListAttemptsUseCase
@@ -55,17 +55,23 @@ import org.springframework.context.annotation.Configuration
 @Configuration
 class AssessmentConfiguration {
     @Bean
-    fun createAssessment(store: AssessmentWriteOutputPort, snapshots: QuestionSnapshotProviderOutputPort): CreateAssessmentInputPort =
-        CreateAssessmentUseCase(store, snapshots)
+    fun createAssessment(
+        store: AssessmentWriteOutputPort,
+        snapshots: QuestionSnapshotProviderOutputPort,
+    ): CreateAssessmentInputPort = CreateAssessmentUseCase(store, snapshots)
 
     @Bean
     fun updateAssessment(
-        store: AssessmentWriteOutputPort, read: AssessmentReadOutputPort, snapshots: QuestionSnapshotProviderOutputPort,
+        store: AssessmentWriteOutputPort,
+        read: AssessmentReadOutputPort,
+        snapshots: QuestionSnapshotProviderOutputPort,
     ): UpdateAssessmentInputPort = UpdateAssessmentUseCase(store, read, snapshots)
 
     @Bean
-    fun publishAssessment(store: AssessmentWriteOutputPort, read: AssessmentReadOutputPort): PublishAssessmentInputPort =
-        PublishAssessmentUseCase(store, read)
+    fun publishAssessment(
+        store: AssessmentWriteOutputPort,
+        read: AssessmentReadOutputPort,
+    ): PublishAssessmentInputPort = PublishAssessmentUseCase(store, read)
 
     @Bean
     fun getAssessment(store: AssessmentReadOutputPort): GetAssessmentInputPort = GetAssessmentUseCase(store)
