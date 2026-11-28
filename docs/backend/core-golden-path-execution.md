@@ -195,3 +195,7 @@ The Ponytail follow-up removed the unused session reference from five store quer
 ## GP-07.3 — Core architecture rules
 
 **Status: GP-07.3 complete.** [GP-07.3 evidence](core-golden-path-gp073-evidence.md) records the mandatory architecture gate, exact exports, live coverage for all 95 Core public operations and independent reviews.
+
+## GP-07 — Final Core evidence and guide
+
+**Status: complete for Core.** The [golden path guide](core-golden-path-guide.md) links examples in the verified implementation. The [final evidence](core-golden-path-gp07-evidence.md) records the full Core gate and the pending integrated B-16 acceptance.

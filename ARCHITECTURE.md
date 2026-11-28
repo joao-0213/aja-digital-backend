@@ -75,7 +75,7 @@ Prefer maintained libraries already selected by the service or Spring Boot's man
 - `Argon2PasswordHasher` behind `PasswordHasher` port — already properly abstracted with correct algorithm selection.
 - `AesGcmOutboxPayloadProtector` behind `OutboxPayloadProtector` port — custom crypto with specific AAD, key-id, and associated-data requirements; no off-the-shelf replacement matches the outbox contract.
 - `TransactionRunner` port with `SpringTransactionRunner` — deliberate architectural boundary that keeps `TransactionTemplate` out of the domain layer; not reinventing transaction management.
-- `EmailAddress` normalization and validation as a domain value type — richer than annotation-only validation; encapsulates normalization semantics.
+- `EmailAddress` is Identity's published, framework-free validator for the email formats already accepted by Identity and Academic.
 - JDBC persistence with explicit SQL — project decision preserving authorization filters, pagination, projections, locking, and constraints in efficient SQL; not a JPA candidate.
 - `OriginFilter` — custom origin enforcement matching contracted allowed-Origin behavior.
 - Domain policies (scoring, edit rules, access checks, draft transitions) as Kotlin code — these are business logic, not input validation annotations.
@@ -84,6 +84,8 @@ Prefer maintained libraries already selected by the service or Spring Boot's man
 If springdoc is introduced, make the docs profile explicitly opt-in (for local/test use) and disable the default ungrouped API docs and UI outside that profile. A public Core docs group may be exposed at `/v3/api-docs/core-public` with the UI at `/swagger-ui.html` only in the enabled profile. Exclude every private/internal and operational route from the public group. Group exclusion alone is insufficient: verify every enabled JSON/YAML docs endpoint and UI for route, schema, and secret disclosure, and keep default API docs disabled when the opt-in profile is inactive. Swagger UI must use the existing login flow and `aja_session` cookie behavior; do not add an auth bypass or assume the UI can manually set an HttpOnly cookie. These are technical documentation routes, not new public business operations. Email remains a worker with only private/local operational docs; do not invent a public Email API.
 
 ## Verification target
+
+Core runs its production architecture checks through `test` and `check`. `architectureAudit` also runs them on its own and writes the findings report. The guide links the implementation examples and verification evidence. [Core golden path guide](docs/backend/core-golden-path-guide.md)
 
 Architecture checks should verify that domain and application packages cannot depend on framework, transport, persistence, or broker implementations; adapters depend inward on ports; and adapters do not depend on one another. The recommended tool for these dependency checks is ArchUnit as a test dependency, which verifies real class and package dependencies including cycles. Use bounded Kotlin PSI source checks for the primary declaration, filename, and allowed related declarations; do not require every helper or subtype to be split into its own file. Keep public contract checks against the normative OpenAPI and exercise any enabled runtime docs routes for accidental exposure.
 

@@ -1,6 +1,10 @@
 # Core refactoring plan
 
-**Status (2026-11-17):** R-00 through R-08 are recorded as verified in their evidence documents. R-09 remains pending. Phases 0 through 5 are therefore complete only to the extent covered by those recorded issues; phase 6 is verified and phase 7 remains pending. These are historical issue records, not proof that the current worktree has no later drift. The user has authorized execution under [core-golden-path-orchestration-prompt.md](core-golden-path-orchestration-prompt.md); the resumable local issue order and current baseline are in [core-golden-path-issues.md](core-golden-path-issues.md) and [core-golden-path-execution.md](core-golden-path-execution.md). Core execution decisions D-01–D-12 in that prompt supersede only incompatible older Core package/DTO/helper conventions; public/private contracts and migration constraints remain binding. Current API and service contracts remain governed by [ARQUITETURA.md](../../ARQUITETURA.md), [docs/backend/operation-ownership.md](operation-ownership.md), issue acceptance criteria, and [docs/http/openapi.json](../http/openapi.json). Target package rules are in [ARCHITECTURE.md](../../ARCHITECTURE.md).
+**Status (2026-11-27)**
+
+R-00 through R-08 are recorded in their issue evidence. Core verification of R-09 is complete, and integrated B-16 acceptance remains pending. [Local backlog](core-golden-path-issues.md) | [Execution record](core-golden-path-execution.md) | [Core golden path guide](core-golden-path-guide.md) | [Final evidence](core-golden-path-gp07-evidence.md)
+
+The current Core workflow follows the repository architecture and the existing operation and HTTP contracts. [Architecture](../../ARCHITECTURE.md) | [Operation ownership](operation-ownership.md) | [OpenAPI](../http/openapi.json)
 
 ## Scope and constraints
 
@@ -350,11 +354,11 @@ Configure in `application.properties`:
 
 ### R-09 — Harden architecture tests and run final gates
 
-**Implements:** phase 7. **Depends on:** R-08. **Status:** all criteria **pending**.
+**Implements:** phase 7. **Depends on:** R-08. **Status:** Core criteria verified. Integrated B-16 acceptance remains pending.
 
 **Progress (2026-11-17):** at the user's direction, the Core build now includes ArchUnit and an initial `CoreArchUnitTests` suite for role naming, adapter-to-use-case dependencies, domain framework/adapter dependencies, one-request DTO contracts, and source naming/placement. `.\gradlew.bat test --tests br.com.ajadigital.core.CoreArchUnitTests --console=plain` compiled main and test sources, then ran five tests: three passed and two failed on current architecture violations. The role names/files were aligned for 101 incoming ports, 18 outgoing port interfaces, and 101 use-case classes. Non-port result/page/record types were moved out of `ports/` into `domain/models/` (and the shared idempotency exception to `domain/exceptions/`). The DTO rule found 229 reflected port operations, none taking exactly one `*Dto` parameter. The source check found nine mixed-responsibility `*Support` objects; the names `Base`, `Generic`, `Utils`, and `Helper` did not appear as Core type names. `toResponse` was moved to an inbound mapper, and the single-use `toUserOrThrow` conversion was inlined into its owning use case. The `*Support` objects are mixed: some contain policy decisions, others JSON parsing, idempotency coordination, hashing, or response mapping. Split these by responsibility into policies, adapter mappers, or the owning use case rather than moving each object wholesale. R-09 and subsequent Core work remain pending until the DTO and helper violations are resolved and the architecture gate passes. Feature-cycle, configuration, broader adapter-boundary, and final-gate rules remain to be added and verified.
 
-**Scope:** update `ArchitectureTests.kt` (already moved per test inventory in R-02) with comprehensive ArchUnit rules for the final package tree. Add or verify these rules:
+`CoreProductionArchitectureAuditTest`, `CoreArchUnitTests` and `CoreArchitectureFixtureTests` verify the final package tree. The production gate combines these bytecode and source rules with separate runtime evidence.
 
 1. `domain` packages do not depend on Spring, Jackson, JDBC, RabbitMQ, HTTP, or adapter implementations.
 2. Controllers and workers depend on incoming port interfaces, not concrete use cases.
@@ -364,24 +368,16 @@ Configure in `application.properties`:
 6. Cross-feature dependencies follow an explicit allowed list and introduce no cycles.
 7. Adapters do not depend on one another.
 
-Keep the source-aware one-type-per-file verification (bytecode-level tools cannot establish source file ownership for Kotlin).
+Kotlin PSI checks one primary declaration per file, including the permitted related declarations. ArchUnit checks class and package dependencies.
 
-Run the full verification sequence:
+The final Core gate ran `test`, `check`, `build` and standalone `architectureAudit` with `B16_OPENAPI_COVERAGE=true`. The default Core `test` task includes the production audit. The integrated `scripts/acceptance-b16.ps1` gate remains conditional on the backlog state and its runtime prerequisites. [Core gate evidence](core-golden-path-gp073-evidence.md)
 
-1. `.\gradlew.bat test` — all tests pass including architecture tests.
-2. `.\gradlew.bat build` — clean build succeeds.
-3. Focused feature and architecture/source-shape checks.
-4. `scripts/acceptance-b16.ps1` — run only when the full backlog state and environment make this gate applicable; record availability and outcome.
-
-Review the complete authorized diff across all R-issues. Fix only confirmed findings from the review; do not introduce unrelated changes.
-
-**What changes:** `ArchitectureTests.kt` gains comprehensive ArchUnit dependency and structure rules.
-
-**What does NOT change:** no contract, migration, service ownership, or unrelated files changed. All behavioral invariants from R-00 characterization hold across the complete refactoring.
+The Core refactoring preserves the normative API, migrations and service ownership. R-00 characterization remains the behavioral baseline for the focused and full regression runs.
 
 **Acceptance criteria:**
 
-- **Pending:** all ArchUnit rules pass; one-type-per-file source check passes; `.\gradlew.bat test` passes; `.\gradlew.bat build` passes; `scripts/acceptance-b16.ps1` outcome recorded (pass or documented unavailability); complete diff reviewed; no contract, migration, service ownership, or unrelated file changes; exact commands, exit outcomes, service/dependency availability, operation counts, and any untested limits recorded.
+- **Core verified:** the mandatory ArchUnit and Kotlin PSI checks, standalone audit, test, check and build passed. The Core HTTP coverage assertions pass for all 95 public operations. Implementation reviews and compatibility checks are recorded in [GP-07.3 evidence](core-golden-path-gp073-evidence.md).
+- **Integrated B-16 pending:** its aggregate runner was unavailable in this checkout. The [final evidence](core-golden-path-gp07-evidence.md) records the missing prerequisites, exact Core commands and remaining cross-service coverage.
 
 
 **Follow-up progress (2026-11-17):** the user clarified that `Dto` is reserved for actual DTO types. `ARCHITECTURE.md` now states this and a source rule checks DTO declarations across Core. Curriculum's 23 port operations now accept request DTOs; controller, dashboard, use-case, and JDBC callers were updated, with `compileKotlin` and `compileTestKotlin` passing. Its `CurriculumSupport` was removed: pure validation/authorization rules moved to `CurriculumPolicy`, while idempotency coordination moved into the owning creation use cases. The remaining eight `*Support` objects have been relocated to feature `domain/policies/` packages and renamed by purpose, but their mixed contents still need review and separation; this is not considered resolved just by renaming. The focused ArchUnit suite now passes role naming, adapter dependencies, domain framework/adapter boundaries, and source placement; its DTO test still reports 120 port operations that need one DTO. No issue implementation, review, full suite, API runtime validation, or final architecture rules have been completed.
