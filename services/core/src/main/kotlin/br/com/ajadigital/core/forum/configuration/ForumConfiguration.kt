@@ -22,11 +22,10 @@ import br.com.ajadigital.core.forum.application.usecases.ReplyToTopicUseCase
 import br.com.ajadigital.core.forum.application.usecases.VoteTopicReplyUseCase
 import br.com.ajadigital.core.forum.application.usecases.WithdrawTopicUseCase
 import br.com.ajadigital.core.forum.application.usecases.WithdrawTopicReplyUseCase
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
+import br.com.ajadigital.core.forum.application.ports.out.ForumRequestFingerprintOutputPort
 
 @Configuration
 class ForumConfiguration {
@@ -34,8 +33,8 @@ class ForumConfiguration {
     fun createTopic(
         store: TopicStoreOutputPort,
         questions: ForumQuestionSnapshotProviderOutputPort,
-        mapper: JsonSerializerOutputPort,
-    ): CreateTopicInputPort = CreateTopicUseCase(store, questions, mapper)
+        fingerprints: ForumRequestFingerprintOutputPort,
+    ): CreateTopicInputPort = CreateTopicUseCase(store, questions, fingerprints)
 
     @Bean
     fun listTopics(store: TopicStoreOutputPort): ListTopicsInputPort = ListTopicsUseCase(store)
@@ -49,9 +48,9 @@ class ForumConfiguration {
     @Bean
     fun replyToTopic(
         store: TopicStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
+        fingerprints: ForumRequestFingerprintOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): ReplyToTopicInputPort = ReplyToTopicUseCase(store, mapper, transactionRunner)
+    ): ReplyToTopicInputPort = ReplyToTopicUseCase(store, fingerprints, transactionRunner)
 
     @Bean
     fun markTopicRead(

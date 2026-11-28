@@ -2,13 +2,12 @@ package br.com.ajadigital.core.forum.adapters.out.persistence
 import br.com.ajadigital.core.forum.application.models.*
 import br.com.ajadigital.core.forum.domain.models.TopicDraft
 
-import br.com.ajadigital.core.shared.domain.models.SaveIdempotencyDto
 import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicIdempotencyConflict
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.forum.application.contracts.ForumDashboardTopic
 import br.com.ajadigital.core.forum.application.models.ForumTopicPage
 import br.com.ajadigital.core.forum.application.models.ForumTopicView
@@ -23,15 +22,18 @@ import java.time.Clock
 import java.util.UUID
 
 @Repository
-class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val clock: Clock, private val idempotency: IdempotencyStoreOutputPort) : TopicStoreOutputPort {
+class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectMapper, private val clock: Clock, private val idempotency: EncodedIdempotencyStoreOutputPort) : TopicStoreOutputPort {
     private val topicCodec = ForumTopicViewCodec(mapper)
+
+    @Suppress("UNCHECKED_CAST")
+    private fun readReceipt(value: String): Map<String, Any?> = mapper.readValue(value, Map::class.java) as Map<String, Any?>
     @Transactional
     override fun authorizeAndFindReplay(request: FindTopicReplayQuery): ForumTopicView? {
         val (actorId, role, sessionHash, draft, idempotencyKey, requestHash) = request
         lockAuthInvariant(); requireSession(actorId, role, sessionHash)
         requireWritable(draft.classId, draft.subjectId, actorId, role)
         val replay = try {
-            idempotency.find(FindIdempotencyDto(actorId, "createTopic", "/topics", idempotencyKey, requestHash))
+            idempotency.findEncoded(FindIdempotencyDto(actorId, "createTopic", "/topics", idempotencyKey, requestHash))?.let(::readReceipt)
         } catch (_: IdempotencyKeyReuse) {
             throw AcademicIdempotencyConflict()
         }
@@ -52,11 +54,11 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
 
     override fun findReplyReceipt(request: br.com.ajadigital.core.forum.application.models.FindForumReplyReceiptQuery): ForumTopicView? =
         try {
-            idempotency.find(FindIdempotencyDto(request.actorId, "replyToTopic", "/topics/${request.topicId}", request.key, request.requestHash))?.let(topicCodec::decode)
+            idempotency.findEncoded(FindIdempotencyDto(request.actorId, "replyToTopic", "/topics/${request.topicId}", request.key, request.requestHash))?.let(topicCodec::decodeJson)
         } catch (_: IdempotencyKeyReuse) { throw AcademicIdempotencyConflict() }
 
     override fun saveReplyReceipt(request: br.com.ajadigital.core.forum.application.models.SaveForumReplyReceiptCommand) {
-        idempotency.save(SaveIdempotencyDto(request.actorId, "replyToTopic", "/topics/${request.topicId}", request.key, request.requestHash, topicCodec.encode(request.response)))
+        idempotency.saveEncoded(FindIdempotencyDto(request.actorId, "replyToTopic", "/topics/${request.topicId}", request.key, request.requestHash), topicCodec.encode(request.response))
     }
 
     @Transactional
@@ -64,7 +66,7 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         val (actorId, role, sessionHash, draft, idempotencyKey, requestHash) = request
         lockAuthInvariant(); requireSession(actorId, role, sessionHash); requireWritable(draft.classId, draft.subjectId, actorId, role)
         try {
-            idempotency.find(FindIdempotencyDto(actorId, "createTopic", "/topics", idempotencyKey, requestHash))?.let { return topicCodec.decode(it) }
+            idempotency.findEncoded(FindIdempotencyDto(actorId, "createTopic", "/topics", idempotencyKey, requestHash))?.let { return topicCodec.decodeJson(it) }
         } catch (_: IdempotencyKeyReuse) {
             throw AcademicIdempotencyConflict()
         }
@@ -77,7 +79,7 @@ class JdbcTopicStore(private val jdbc: JdbcTemplate, private val mapper: ObjectM
         jdbc.update("INSERT INTO core.topic_reads(topic_id,user_id,read_at) VALUES(?,?,?)", id, actorId, now)
         audit(actorId, "academic.topic_created", id)
         val response = topic(GetStoredTopicQuery(actorId, role, sessionHash, id)) ?: throw AcademicNotFound()
-        idempotency.save(SaveIdempotencyDto(actorId, "createTopic", "/topics", idempotencyKey, requestHash, topicCodec.encode(response)))
+        idempotency.saveEncoded(FindIdempotencyDto(actorId, "createTopic", "/topics", idempotencyKey, requestHash), topicCodec.encode(response))
         return response
     }
 

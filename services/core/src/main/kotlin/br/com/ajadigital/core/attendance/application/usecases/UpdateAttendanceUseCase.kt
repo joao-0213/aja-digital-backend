@@ -7,14 +7,13 @@ import br.com.ajadigital.core.attendance.application.ports.`in`.UpdateAttendance
 import br.com.ajadigital.core.attendance.application.models.UpdateAttendanceRecordCommand
 import br.com.ajadigital.core.attendance.domain.policies.AttendancePolicy
 import br.com.ajadigital.core.attendance.application.ports.out.AttendanceStoreOutputPort
-import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 
 class UpdateAttendanceUseCase(private val store: AttendanceStoreOutputPort, private val transactionRunner: TransactionRunnerOutputPort) : UpdateAttendanceInputPort {
-    override fun update(command: UpdateAttendanceCommand): AttendanceRead = transactionRunner.run(TransactionRunDto {
+    override fun update(command: UpdateAttendanceCommand): AttendanceRead = transactionRunner.run {
         AttendancePolicy.writable(command.actor)
         require(command.revision > 0 && command.records.keys.all(AttendancePolicy::validId))
         store.update(UpdateAttendanceRecordCommand(command.actor.id, command.actor.role, command.actor.sessionValidationReference, AttendancePolicy.checkedId(command.id), command.revision, command.records))
             ?.toAttendanceRead() ?: throw AcademicNotFound()
-    })
+    }
 }

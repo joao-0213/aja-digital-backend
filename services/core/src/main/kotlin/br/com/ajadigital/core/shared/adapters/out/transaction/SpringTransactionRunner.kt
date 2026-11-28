@@ -1,9 +1,8 @@
 package br.com.ajadigital.core.shared.adapters.out.transaction
 
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
-import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.transaction.support.TransactionTemplate
 
 class SpringTransactionRunner(private val template: TransactionTemplate) : TransactionRunnerOutputPort {
-    override fun <T> run(request: TransactionRunDto<T>): T = template.execute { request.block() }
+    override fun <T> run(block: () -> T): T = template.execute { block() }
 }

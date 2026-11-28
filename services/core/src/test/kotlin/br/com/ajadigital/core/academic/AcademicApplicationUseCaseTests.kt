@@ -8,11 +8,10 @@ import br.com.ajadigital.core.academic.application.usecases.ListMyEnrollmentsUse
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.academic.domain.policies.AcademicPolicy
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
-import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicReceiptCodecOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.academic.application.ports.out.AcademicRequestFingerprintOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
@@ -113,11 +112,11 @@ class AcademicApplicationUseCaseTests {
 
     private fun createClass(store: AcademicStoreOutputPort): CreateClassUseCase = CreateClassUseCase(
         store,
-        proxy { method, _ -> if (method == "serialize") "class-request".toByteArray() else error("Unexpected serializer call: $method") },
+        proxy<AcademicRequestFingerprintOutputPort> { method, _ -> if (method == "createClass") "class-request" else error("Unexpected fingerprint call: $method") },
         proxy<EncodedIdempotencyStoreOutputPort> { method, _ -> when (method) { "findEncoded" -> null; "saveEncoded" -> null; else -> error("Unexpected idempotency call: $method") } },
         proxy<AcademicReceiptCodecOutputPort> { method, _ -> when (method) { "encode" -> "receipt"; "decodeClass" -> error("Unexpected receipt replay"); else -> error("Unexpected receipt codec call: $method") } },
         object : TransactionRunnerOutputPort {
-            override fun <T> run(request: TransactionRunDto<T>): T = request.block()
+            override fun <T> run(block: () -> T): T = block()
         },
     )
 

@@ -15,7 +15,7 @@ import br.com.ajadigital.core.shared.application.contracts.Page
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 
 class PublishMaterialsUseCase(
     private val store: MaterialWriteOutputPort,

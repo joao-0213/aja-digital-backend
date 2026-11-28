@@ -8,10 +8,9 @@ import br.com.ajadigital.core.outbox.domain.models.ClaimPendingOutboxEventsDto
 import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventPublishedDto
 import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventFailedDto
 import br.com.ajadigital.core.outbox.domain.models.RedriveStoredOutboxEventDto
-import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
 import br.com.ajadigital.core.outbox.application.ports.out.EventPublisherOutputPort
 import br.com.ajadigital.core.outbox.application.ports.out.OutboxRepositoryOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -23,7 +22,7 @@ class PublishPendingEventsTests {
     private val now = Instant.parse("2026-01-01T00:00:00Z")
     private val clock = Clock.fixed(now, ZoneOffset.UTC)
     private val transactions = object : TransactionRunnerOutputPort {
-        override fun <T> run(request: TransactionRunDto<T>): T = request.block()
+        override fun <T> run(block: () -> T): T = block()
     }
 
     @Test

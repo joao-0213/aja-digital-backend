@@ -8,10 +8,8 @@ import br.com.ajadigital.core.attendance.application.ports.out.AttendanceStoreOu
 import br.com.ajadigital.core.attendance.application.usecases.RecordAttendanceUseCase
 import br.com.ajadigital.core.attendance.domain.models.*
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
-import br.com.ajadigital.core.shared.domain.models.SerializeJsonDto
-import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.attendance.adapters.out.serialization.JacksonAttendanceRequestFingerprint
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
@@ -31,9 +29,9 @@ class AttendanceApplicationTests {
             override fun find(actorId: String, key: String, requestHash: String): AttendanceReceipt? = null
             override fun save(actorId: String, key: String, requestHash: String, receipt: AttendanceReceipt) = error("must not save")
         }
-        val serializer = object : JsonSerializerOutputPort { override fun serialize(request: SerializeJsonDto) = byteArrayOf() }
-        val runner = object : TransactionRunnerOutputPort { override fun <T> run(request: TransactionRunDto<T>): T = request.block() }
-        val port: RecordAttendanceInputPort = RecordAttendanceUseCase(store, receipts, serializer, runner)
+        val fingerprints = JacksonAttendanceRequestFingerprint(tools.jackson.databind.json.JsonMapper.builder().build())
+        val runner = object : TransactionRunnerOutputPort { override fun <T> run(block: () -> T): T = block() }
+        val port: RecordAttendanceInputPort = RecordAttendanceUseCase(store, receipts, fingerprints, runner)
         val valid = AttendanceDraft("subject", LocalDate.parse("2026-11-12"), LocalTime.NOON, emptyMap())
         assertThrows(AcademicForbidden::class.java) { port.create(RecordAttendanceCommand(student, valid, "attendance-key")) }
         assertThrows(IllegalArgumentException::class.java) {

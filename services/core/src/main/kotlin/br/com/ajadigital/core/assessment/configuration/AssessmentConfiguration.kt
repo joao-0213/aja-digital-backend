@@ -49,10 +49,8 @@ import br.com.ajadigital.core.assessment.application.usecases.SubmitAttemptUseCa
 import br.com.ajadigital.core.assessment.application.usecases.SubmitSubmissionUseCase
 import br.com.ajadigital.core.assessment.application.usecases.UpdateAssessmentUseCase
 import br.com.ajadigital.core.assessment.application.usecases.UpdateSubmissionUseCase
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 
 @Configuration
 class AssessmentConfiguration {

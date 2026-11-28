@@ -10,33 +10,31 @@ import br.com.ajadigital.core.academic.application.models.AcademicStoreTransitio
 import br.com.ajadigital.core.academic.application.models.TransitionEnrollmentDto
 
 import br.com.ajadigital.core.academic.domain.policies.AcademicPolicy
-import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
 
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.academic.application.ports.`in`.TransitionEnrollmentInputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
+import br.com.ajadigital.core.academic.application.ports.out.AcademicRequestFingerprintOutputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicReceiptCodecOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
-import br.com.ajadigital.core.shared.domain.models.SerializeJsonDto
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 
 class TransitionEnrollmentUseCase(
     private val store: AcademicStoreOutputPort,
-    private val objectMapper: JsonSerializerOutputPort,
+    private val fingerprints: AcademicRequestFingerprintOutputPort,
     private val idempotency: EncodedIdempotencyStoreOutputPort,
     private val receiptCodec: AcademicReceiptCodecOutputPort,
     private val transactionRunner: TransactionRunnerOutputPort,
 ) : TransitionEnrollmentInputPort {
     override fun transitionEnrollment(request: TransitionEnrollmentDto): AcademicEnrollmentView {
                 val (actor, id, revision, command, key) = request
-        return         transactionRunner.run(TransactionRunDto {
-            AcademicIdempotency.execute(idempotency, objectMapper, AcademicAuthorization.requireAdmin(store, actor, true), "${command}Enrollment", "/enrollments/$id/$command", key, mapOf("expectedRevision" to revision),
+        return transactionRunner.run {
+            AcademicIdempotency.execute(idempotency, AcademicAuthorization.requireAdmin(store, actor, true), "${command}Enrollment", "/enrollments/$id/$command", key, { fingerprints.expectedRevision(revision) },
                 encode = { receiptCodec.encode(it) },
                 decode = receiptCodec::decodeEnrollment,
             ) {
                 store.transitionEnrollment(AcademicStoreTransitionEnrollmentDto(id, actor.id, revision.also { require(it > 0) }, command)) ?: AcademicPolicy.conflict(store.findEnrollment(AcademicStoreFindEnrollmentDto(id))?.revision)
             }
-        })
+        }
     }
 }

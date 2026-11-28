@@ -9,12 +9,11 @@ import br.com.ajadigital.core.academic.application.models.UpdateUserDto
 import br.com.ajadigital.core.academic.application.models.FindUserDto
 
 import br.com.ajadigital.core.academic.domain.policies.AcademicPolicy
-import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
 
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.academic.application.ports.`in`.UpdateUserInputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 
 class UpdateUserUseCase(
     private val store: AcademicStoreOutputPort,
@@ -22,9 +21,9 @@ class UpdateUserUseCase(
 ) : UpdateUserInputPort {
     override fun updateUser(request: UpdateUserDto): AcademicUserView {
                 val (actor, id, revision, name, email) = request
-        return         transactionRunner.run(TransactionRunDto {
+        return transactionRunner.run {
             store.updateUser(AcademicStoreUpdateUserDto(id, AcademicAuthorization.requireAdmin(store, actor, true).id, revision.also { require(it > 0) }, name?.trim(), email?.trim()))
                 ?: AcademicPolicy.conflict(store.findUser(FindUserDto(id))?.revision)
-        })
+        }
     }
 }

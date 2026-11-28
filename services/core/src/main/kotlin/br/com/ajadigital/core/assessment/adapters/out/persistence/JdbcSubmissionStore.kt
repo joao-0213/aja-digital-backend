@@ -16,14 +16,13 @@ import br.com.ajadigital.core.assessment.application.models.SubmissionPublishFee
 
 import br.com.ajadigital.core.assessment.application.models.SubmissionCreateRecord
 
-import br.com.ajadigital.core.shared.domain.models.SaveIdempotencyDto
 import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
 import br.com.ajadigital.core.assessment.domain.exceptions.InvalidSubmissionFeedback
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.assessment.domain.models.SubmissionAttachment
 import br.com.ajadigital.core.assessment.domain.models.SubmissionPage
 import br.com.ajadigital.core.assessment.domain.models.SubmissionView
@@ -47,7 +46,7 @@ class JdbcSubmissionStore(
     private val jdbc: JdbcTemplate,
     private val mapper: ObjectMapper,
     private val clock: Clock,
-    private val idempotency: IdempotencyStoreOutputPort,
+    private val idempotency: EncodedIdempotencyStoreOutputPort,
 ) : SubmissionStoreOutputPort {
     @Transactional
     override fun create(request: SubmissionCreateRecord): SubmissionView {
@@ -65,7 +64,7 @@ class JdbcSubmissionStore(
         if (existing != null) {
             val row = authorized(actorId, role, sessionHash, existing) ?: throw AcademicNotFound()
             val result = dto(row)
-            idempotency.save(SaveIdempotencyDto(actorId, "createSubmission", "/submissions", key, requestHash, result))
+            idempotency.saveEncoded(FindIdempotencyDto(actorId, "createSubmission", "/submissions", key, requestHash), mapper.writeValueAsString(result))
             return view(result, role)
         }
         if (!DeadlinePolicy.isBeforeDeadline((assessment["deadline"] as Timestamp?)?.toInstant(), assessment["allowLate"] as Boolean, clock.instant())) throw AcademicNotFound()
@@ -76,7 +75,7 @@ class JdbcSubmissionStore(
             VALUES(?,1,?,?,?,?,?,?::jsonb)""", id, now, now, actorId, assessmentId, actorId, attachmentJson(attachments))
         audit(actorId, "academic.submission_created", id)
         val result = authorized(actorId, role, sessionHash, id)?.let(::dto) ?: throw AcademicNotFound()
-        idempotency.save(SaveIdempotencyDto(actorId, "createSubmission", "/submissions", key, requestHash, result))
+        idempotency.saveEncoded(FindIdempotencyDto(actorId, "createSubmission", "/submissions", key, requestHash), mapper.writeValueAsString(result))
         return view(result, role)
     }
 
@@ -163,7 +162,7 @@ class JdbcSubmissionStore(
         replay(actorId, "submitSubmission", "/submissions/$id/submit", key, requestHash)?.let { return view(it, role) }
         if (current["submittedAt"] != null) {
             val result = dto(current)
-            idempotency.save(SaveIdempotencyDto(actorId, "submitSubmission", "/submissions/$id/submit", key, requestHash, result))
+            idempotency.saveEncoded(FindIdempotencyDto(actorId, "submitSubmission", "/submissions/$id/submit", key, requestHash), mapper.writeValueAsString(result))
             return view(result, role)
         }
         if (current["revision"] != expectedRevision) throw AcademicConflict(current["revision"] as Int)
@@ -189,7 +188,7 @@ class JdbcSubmissionStore(
         if (jdbc.update("UPDATE core.submissions SET submitted_at=?,receipt_id=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=? AND submitted_at IS NULL", now, receiptId, now, actorId, id, expectedRevision) != 1) throw AcademicConflict(current["revision"] as Int)
         audit(actorId, "academic.submission_submitted", id)
         val result = authorized(actorId, role, sessionHash, id)?.let(::dto) ?: return null
-        idempotency.save(SaveIdempotencyDto(actorId, "submitSubmission", "/submissions/$id/submit", key, requestHash, result))
+        idempotency.saveEncoded(FindIdempotencyDto(actorId, "submitSubmission", "/submissions/$id/submit", key, requestHash), mapper.writeValueAsString(result))
         return view(result, role)
     }
 
@@ -240,7 +239,7 @@ class JdbcSubmissionStore(
         jdbc.update("""UPDATE core.submissions SET feedback_draft=NULL,feedback_published=?::jsonb,feedback_history=?::jsonb,feedback_updated=false,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=?""", mapper.writeValueAsString(published), mapper.writeValueAsString(history + published), now, actorId, id, expectedRevision)
         audit(actorId, "academic.feedback_published", id)
         val result = authorized(actorId, role, sessionHash, id)?.let(::dto) ?: return null
-        idempotency.save(SaveIdempotencyDto(actorId, "publishSubmissionFeedback", "/submissions/$id/publish-feedback", key, requestHash, result))
+        idempotency.saveEncoded(FindIdempotencyDto(actorId, "publishSubmissionFeedback", "/submissions/$id/publish-feedback", key, requestHash), mapper.writeValueAsString(result))
         return view(result, role)
     }
 
@@ -360,7 +359,9 @@ class JdbcSubmissionStore(
         val placeholders = accepted.joinToString(",") { "?" }
         if (jdbc.query("SELECT 1 FROM core.users u JOIN core.sessions s ON s.user_id=u.id WHERE u.id=? AND u.active AND u.role IN ($placeholders) AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?", { rs, _ -> rs.getInt(1) }, *(listOf(actorId) + accepted + listOf(hash, Timestamp.from(clock.instant()))).toTypedArray()).isEmpty()) throw AcademicForbidden()
     }
-    private fun replay(actorId: String, operation: String, target: String, key: String, hash: String): Map<String, Any?>? = try { idempotency.find(FindIdempotencyDto(actorId, operation, target, key, hash)) } catch (_: IdempotencyKeyReuse) { throw br.com.ajadigital.core.academic.domain.exceptions.AcademicIdempotencyConflict() }
+    @Suppress("UNCHECKED_CAST")
+    private fun readReceipt(value: String): Map<String, Any?> = mapper.readValue(value, Map::class.java) as Map<String, Any?>
+    private fun replay(actorId: String, operation: String, target: String, key: String, hash: String): Map<String, Any?>? = try { idempotency.findEncoded(FindIdempotencyDto(actorId, operation, target, key, hash))?.let(::readReceipt) } catch (_: IdempotencyKeyReuse) { throw br.com.ajadigital.core.academic.domain.exceptions.AcademicIdempotencyConflict() }
     private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }
     private fun audit(actorId: String, type: String, targetId: String) { jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), type, targetId, actorId) }
 }

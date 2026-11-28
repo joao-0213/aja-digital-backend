@@ -15,7 +15,7 @@ import br.com.ajadigital.core.outbox.application.ports.out.OutboxRepositoryOutpu
 import br.com.ajadigital.core.outbox.application.usecases.PublishPendingEventsUseCase
 import br.com.ajadigital.core.outbox.application.usecases.RedriveOutboxEventUseCase
 import br.com.ajadigital.core.outbox.application.usecases.OutboxEventProducerUseCase
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.amqp.rabbit.core.RabbitTemplate
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
@@ -43,7 +43,8 @@ class OutboxConfiguration {
     @Bean
     fun outboxPayloadProtector(
         @Value("\${core.outbox.encryption-key}") keyBase64: String,
-    ): OutboxPayloadProtectorOutputPort = AesGcmOutboxPayloadProtector(keyBase64)
+        mapper: ObjectMapper,
+    ): OutboxPayloadProtectorOutputPort = AesGcmOutboxPayloadProtector(keyBase64, mapper)
 
     @Bean
     fun publishPendingEventsUseCase(

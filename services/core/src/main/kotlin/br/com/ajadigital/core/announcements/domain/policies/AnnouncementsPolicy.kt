@@ -3,7 +3,6 @@ package br.com.ajadigital.core.announcements.domain.policies
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementDraft
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
-import java.security.MessageDigest
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeParseException
@@ -34,5 +33,4 @@ internal object AnnouncementsPolicy {
         throw IllegalArgumentException()
     }
 
-    fun sha256(value: ByteArray) = MessageDigest.getInstance("SHA-256").digest(value).joinToString("") { "%02x".format(it) }
 }

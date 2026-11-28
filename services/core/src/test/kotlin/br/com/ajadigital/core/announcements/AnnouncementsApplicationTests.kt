@@ -2,6 +2,7 @@ package br.com.ajadigital.core.announcements
 
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.announcements.adapters.out.serialization.JacksonAnnouncementReceiptCodec
+import br.com.ajadigital.core.announcements.adapters.out.serialization.JacksonAnnouncementRequestFingerprint
 import br.com.ajadigital.core.announcements.application.contracts.Announcement
 import br.com.ajadigital.core.announcements.application.contracts.AnnouncementAuthor
 import br.com.ajadigital.core.announcements.application.contracts.AnnouncementOccurrenceProjection
@@ -18,10 +19,7 @@ import br.com.ajadigital.core.shared.application.contracts.Page
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
-import br.com.ajadigital.core.shared.domain.models.SerializeJsonDto
-import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
@@ -42,13 +40,11 @@ class AnnouncementsApplicationTests {
         val idempotency = TestIdempotency()
         val useCase = CreateAnnouncementUseCase(
             store,
-            object : JsonSerializerOutputPort {
-                override fun serialize(request: SerializeJsonDto) = JsonMapper.builder().build().writeValueAsBytes(request.value)
-            },
+            JacksonAnnouncementRequestFingerprint(JsonMapper.builder().build()),
             idempotency,
             codec,
             object : TransactionRunnerOutputPort {
-                override fun <T> run(request: TransactionRunDto<T>): T = request.block()
+                override fun <T> run(block: () -> T): T = block()
             },
         )
 

@@ -51,12 +51,12 @@ import br.com.ajadigital.core.academic.application.usecases.UpdateUserUseCase
 import br.com.ajadigital.core.academic.application.usecases.WithdrawUserUseCase
 import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
 import br.com.ajadigital.core.identity.application.ports.out.PasswordHasherOutputPort
+import br.com.ajadigital.core.academic.application.ports.out.AcademicRequestFingerprintOutputPort
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicReceiptCodecOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 import java.time.Clock
 
 @Configuration
@@ -77,14 +77,14 @@ class AcademicConfiguration {
     @Bean
     fun createUser(
         store: AcademicStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
+        fingerprints: AcademicRequestFingerprintOutputPort,
         clock: Clock,
         encryption: OutboxPayloadProtectorOutputPort,
         hasher: PasswordHasherOutputPort,
         idempotency: EncodedIdempotencyStoreOutputPort,
         receiptCodec: AcademicReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): CreateUserInputPort = CreateUserUseCase(store, mapper, clock, encryption, hasher, idempotency, receiptCodec, transactionRunner)
+    ): CreateUserInputPort = CreateUserUseCase(store, fingerprints, clock, encryption, hasher, idempotency, receiptCodec, transactionRunner)
 
     @Bean
     fun updateUser(store: AcademicStoreOutputPort, transactionRunner: TransactionRunnerOutputPort): UpdateUserInputPort = UpdateUserUseCase(store, transactionRunner)
@@ -110,11 +110,11 @@ class AcademicConfiguration {
     @Bean
     fun createClass(
         store: AcademicStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
-        idempotency: EncodedIdempotencyStoreOutputPort,
+        fingerprints: AcademicRequestFingerprintOutputPort,
+                idempotency: EncodedIdempotencyStoreOutputPort,
         receiptCodec: AcademicReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): CreateClassInputPort = CreateClassUseCase(store, mapper, idempotency, receiptCodec, transactionRunner)
+    ): CreateClassInputPort = CreateClassUseCase(store, fingerprints, idempotency, receiptCodec, transactionRunner)
 
     @Bean
     fun updateClass(store: AcademicStoreOutputPort, transactionRunner: TransactionRunnerOutputPort): UpdateClassInputPort = UpdateClassUseCase(store, transactionRunner)
@@ -122,20 +122,20 @@ class AcademicConfiguration {
     @Bean
     fun closeClass(
         store: AcademicStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
-        idempotency: EncodedIdempotencyStoreOutputPort,
+        fingerprints: AcademicRequestFingerprintOutputPort,
+                idempotency: EncodedIdempotencyStoreOutputPort,
         receiptCodec: AcademicReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): CloseClassInputPort = CloseClassUseCase(store, mapper, idempotency, receiptCodec, transactionRunner)
+    ): CloseClassInputPort = CloseClassUseCase(store, fingerprints, idempotency, receiptCodec, transactionRunner)
 
     @Bean
     fun reopenClass(
         store: AcademicStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
-        idempotency: EncodedIdempotencyStoreOutputPort,
+        fingerprints: AcademicRequestFingerprintOutputPort,
+                idempotency: EncodedIdempotencyStoreOutputPort,
         receiptCodec: AcademicReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): ReopenClassInputPort = ReopenClassUseCase(store, mapper, idempotency, receiptCodec, transactionRunner)
+    ): ReopenClassInputPort = ReopenClassUseCase(store, fingerprints, idempotency, receiptCodec, transactionRunner)
 
     @Bean
     fun listEnrollments(store: AcademicStoreOutputPort): ListEnrollmentsInputPort = ListEnrollmentsUseCase(store)
@@ -149,20 +149,20 @@ class AcademicConfiguration {
     @Bean
     fun createEnrollment(
         store: AcademicStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
-        idempotency: EncodedIdempotencyStoreOutputPort,
+        fingerprints: AcademicRequestFingerprintOutputPort,
+                idempotency: EncodedIdempotencyStoreOutputPort,
         receiptCodec: AcademicReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): CreateEnrollmentInputPort = CreateEnrollmentUseCase(store, mapper, idempotency, receiptCodec, transactionRunner)
+    ): CreateEnrollmentInputPort = CreateEnrollmentUseCase(store, fingerprints, idempotency, receiptCodec, transactionRunner)
 
     @Bean
     fun transitionEnrollment(
         store: AcademicStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
-        idempotency: EncodedIdempotencyStoreOutputPort,
+        fingerprints: AcademicRequestFingerprintOutputPort,
+                idempotency: EncodedIdempotencyStoreOutputPort,
         receiptCodec: AcademicReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): TransitionEnrollmentInputPort = TransitionEnrollmentUseCase(store, mapper, idempotency, receiptCodec, transactionRunner)
+    ): TransitionEnrollmentInputPort = TransitionEnrollmentUseCase(store, fingerprints, idempotency, receiptCodec, transactionRunner)
 
     @Bean
     fun listMyEnrollments(store: AcademicStoreOutputPort): ListMyEnrollmentsInputPort = ListMyEnrollmentsUseCase(store)

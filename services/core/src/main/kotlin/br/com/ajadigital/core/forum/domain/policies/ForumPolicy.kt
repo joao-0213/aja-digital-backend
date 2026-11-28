@@ -2,7 +2,6 @@ package br.com.ajadigital.core.forum.domain.policies
 
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
-import java.security.MessageDigest
 
 internal object ForumPolicy {
     fun readable(actor: AuthenticatedActor): AuthenticatedActor =
@@ -15,6 +14,4 @@ internal object ForumPolicy {
 
     fun checkedId(value: String) = value.also { require(validId(it)) }
 
-    fun sha256(value: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(value).joinToString("") { "%02x".format(it) }
 }

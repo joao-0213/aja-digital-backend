@@ -11,11 +11,10 @@ import br.com.ajadigital.core.attendance.application.usecases.ListAttendanceSess
 import br.com.ajadigital.core.attendance.application.usecases.ListEligibleAttendanceStudentsUseCase
 import br.com.ajadigital.core.attendance.application.usecases.RecordAttendanceUseCase
 import br.com.ajadigital.core.attendance.application.usecases.UpdateAttendanceUseCase
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
+import br.com.ajadigital.core.attendance.application.ports.out.AttendanceRequestFingerprintOutputPort
 import br.com.ajadigital.core.attendance.application.ports.out.AttendanceReceiptStoreOutputPort
 
 @Configuration
@@ -36,9 +35,9 @@ class AttendanceConfiguration {
     fun recordAttendance(
         store: AttendanceStoreOutputPort,
         receipts: AttendanceReceiptStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
+        fingerprints: AttendanceRequestFingerprintOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): RecordAttendanceInputPort = RecordAttendanceUseCase(store, receipts, mapper, transactionRunner)
+    ): RecordAttendanceInputPort = RecordAttendanceUseCase(store, receipts, fingerprints, transactionRunner)
 
     @Bean
     fun updateAttendance(

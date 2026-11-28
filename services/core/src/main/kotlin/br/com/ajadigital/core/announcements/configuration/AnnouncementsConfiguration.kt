@@ -19,21 +19,21 @@ import br.com.ajadigital.core.announcements.application.usecases.UpdateAnnouncem
 import br.com.ajadigital.core.announcements.application.usecases.WithdrawAnnouncementUseCase
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementReceiptCodecOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
+import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementRequestFingerprintOutputPort
 
 @Configuration
 class AnnouncementsConfiguration {
     @Bean
     fun createAnnouncement(
         store: AnnouncementStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
+        fingerprints: AnnouncementRequestFingerprintOutputPort,
         idempotency: EncodedIdempotencyStoreOutputPort,
         receiptCodec: AnnouncementReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,
-    ): CreateAnnouncementInputPort = CreateAnnouncementUseCase(store, mapper, idempotency, receiptCodec, transactionRunner)
+    ): CreateAnnouncementInputPort = CreateAnnouncementUseCase(store, fingerprints, idempotency, receiptCodec, transactionRunner)
 
     @Bean
     fun updateAnnouncement(

@@ -381,7 +381,7 @@ class DashboardIntegrationTests : CoreIntegrationTestBase() {
         val store = JdbcAnnouncementStore(
             JdbcTemplate(countingDataSource), tools.jackson.databind.json.JsonMapper.builder().build(), mutableClock,
             br.com.ajadigital.core.outbox.application.usecases.OutboxEventProducerUseCase(
-                AesGcmOutboxPayloadProtector(java.util.Base64.getEncoder().encodeToString(ByteArray(32))),
+                AesGcmOutboxPayloadProtector(java.util.Base64.getEncoder().encodeToString(ByteArray(32)), tools.jackson.databind.json.JsonMapper.builder().build()),
                 br.com.ajadigital.core.outbox.adapters.out.persistence.JdbcOutboxEventWriter(JdbcTemplate(countingDataSource)),
             ),
         )

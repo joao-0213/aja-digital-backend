@@ -41,7 +41,7 @@ import org.springframework.test.context.DynamicPropertySource
 import org.springframework.context.annotation.Import
 import br.com.ajadigital.core.outbox.application.ports.`in`.PublishPendingEventsInputPort
 import br.com.ajadigital.core.academic.application.ports.`in`.CreateClassInputPort
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @AutoConfigureMockMvc
@@ -56,7 +56,7 @@ abstract class CoreIntegrationTestBase {
     @Autowired protected lateinit var passwordEncoder: PasswordEncoder
     @Autowired protected lateinit var mutableClock: MutableTestClock
     @Autowired protected lateinit var createClassUseCase: CreateClassInputPort
-    @Autowired protected lateinit var idempotencyStore: IdempotencyStoreOutputPort
+    @Autowired protected lateinit var idempotencyStore: EncodedIdempotencyStoreOutputPort
     @Autowired protected lateinit var questionSnapshotProvider: TestQuestionSnapshotProvider
     @Autowired protected lateinit var webContext: ServletWebServerApplicationContext
     @Autowired protected lateinit var openApiCoverage: CoreOpenApiCoverageFilter

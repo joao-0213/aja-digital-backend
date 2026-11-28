@@ -187,3 +187,7 @@ The Ponytail follow-up removed the unused session reference from five store quer
 ## GP-07.1 — Academic typed contracts
 
 **Status: GP-07.1 complete.** [GP-07.1 evidence](core-golden-path-gp071-evidence.md) records the typed views, SQL comparison, historical receipt replay, full Core gate and independent reviews.
+
+## GP-07.2 — Shared technical contracts
+
+**Status: GP-07.2 complete.** [GP-07.2 evidence](core-golden-path-gp072-evidence.md) records the direct transaction callback, historical fingerprints and receipts, token payload checks, full Core gate and independent reviews.

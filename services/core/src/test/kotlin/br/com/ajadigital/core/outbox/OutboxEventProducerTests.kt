@@ -24,6 +24,7 @@ class OutboxEventProducerTests {
                 encryptedRequest = request
                 return EncryptedOutboxPayload("key-1", byteArrayOf(4), byteArrayOf(5, 6))
             }
+            override fun encryptIdentityNotification(request: br.com.ajadigital.core.outbox.domain.models.EncryptIdentityNotificationDto): EncryptedOutboxPayload = error("unused")
             override fun keyId(request: OutboxPayloadKeyDto) = "key-1"
         }
         val writer = object : InsertOutboxEventOutputPort {

@@ -8,7 +8,7 @@ import br.com.ajadigital.core.curriculum.application.ports.`in`.UpdateSubjectInp
 import br.com.ajadigital.core.curriculum.application.ports.out.SubjectStoreOutputPort
 import br.com.ajadigital.core.curriculum.domain.policies.CurriculumPolicy
 import br.com.ajadigital.core.shared.application.contracts.valueOrNull
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 
 class UpdateSubjectUseCase(
     private val store: SubjectStoreOutputPort,

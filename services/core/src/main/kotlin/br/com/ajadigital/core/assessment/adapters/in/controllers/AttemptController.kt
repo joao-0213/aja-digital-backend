@@ -1,7 +1,6 @@
 package br.com.ajadigital.core.assessment.adapters.`in`.controllers
 import br.com.ajadigital.core.assessment.application.models.*
 import br.com.ajadigital.core.assessment.adapters.serialization.AttemptRepresentation
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 
 import br.com.ajadigital.core.assessment.application.models.SubmitAttemptCommand
 
@@ -36,8 +35,8 @@ import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.JsonNode
+import tools.jackson.databind.ObjectMapper
 import br.com.ajadigital.core.shared.adapters.`in`.web.requests.toRequestValue
-import br.com.ajadigital.core.shared.domain.models.SerializeJsonDto
 import java.security.MessageDigest
 
 @RestController
@@ -49,7 +48,7 @@ class AttemptController(
     private val saveAttemptAnswers: SaveAttemptAnswersInputPort,
     private val submitAttempt: SubmitAttemptInputPort,
     private val getAttemptResult: GetAttemptResultInputPort,
-    private val serializer: JsonSerializerOutputPort,
+    private val mapper: ObjectMapper,
 ) {
     @GetMapping("/api/v1/attempts")
     fun attempts(
@@ -130,7 +129,7 @@ class AttemptController(
 
     private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
 
-    private fun requestHash(value: Any?) = MessageDigest.getInstance("SHA-256").digest(serializer.serialize(SerializeJsonDto(value))).joinToString("") { "%02x".format(it) }
+    private fun requestHash(value: Any?) = MessageDigest.getInstance("SHA-256").digest(mapper.writeValueAsBytes(value)).joinToString("") { "%02x".format(it) }
     private fun integerValue(value: Any?): Int? = when (value) {
         is Int -> value
         is Long -> value.takeIf { it in Int.MIN_VALUE..Int.MAX_VALUE }?.toInt()

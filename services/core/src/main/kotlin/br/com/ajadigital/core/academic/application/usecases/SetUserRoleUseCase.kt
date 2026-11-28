@@ -9,12 +9,11 @@ import br.com.ajadigital.core.academic.application.models.SetUserRoleDto
 import br.com.ajadigital.core.academic.application.models.FindUserDto
 
 import br.com.ajadigital.core.academic.domain.policies.AcademicPolicy
-import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
 
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.academic.application.ports.`in`.SetUserRoleInputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 
 class SetUserRoleUseCase(
     private val store: AcademicStoreOutputPort,
@@ -22,9 +21,9 @@ class SetUserRoleUseCase(
 ) : SetUserRoleInputPort {
     override fun setRole(request: SetUserRoleDto): AcademicUserView {
         val (actor, id, revision, role) = request
-                return         transactionRunner.run(TransactionRunDto {
+                return transactionRunner.run {
             store.changeRole(AcademicStoreChangeRoleDto(id, AcademicAuthorization.requireAdmin(store, actor, true).id, revision.also { require(it > 0) }, role.also { require(it in AcademicPolicy.roles) }))
                 ?: AcademicPolicy.conflict(store.findUser(FindUserDto(id))?.revision)
-        })
+        }
     }
 }

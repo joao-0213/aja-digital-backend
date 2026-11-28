@@ -34,7 +34,7 @@ import br.com.ajadigital.core.materials.application.usecases.ReorderMaterialsUse
 import br.com.ajadigital.core.materials.application.usecases.UpdateMaterialUseCase
 import br.com.ajadigital.core.materials.application.usecases.UploadFileUseCase
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 

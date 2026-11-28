@@ -14,7 +14,6 @@ import br.com.ajadigital.core.assessment.application.models.AttemptResultQuery
 
 import br.com.ajadigital.core.assessment.application.models.PracticeBlockedQuery
 
-import br.com.ajadigital.core.shared.domain.models.SaveIdempotencyDto
 import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
@@ -31,7 +30,7 @@ import br.com.ajadigital.core.assessment.domain.policies.DeadlinePolicy
 import br.com.ajadigital.core.assessment.application.ports.out.AttemptStoreOutputPort
 import br.com.ajadigital.core.assessment.adapters.serialization.AttemptRepresentation
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
@@ -47,7 +46,7 @@ class JdbcAttemptStore(
     private val jdbc: JdbcTemplate,
     private val mapper: ObjectMapper,
     private val clock: Clock,
-    private val idempotency: IdempotencyStoreOutputPort,
+    private val idempotency: EncodedIdempotencyStoreOutputPort,
 ) : AttemptStoreOutputPort {
     @Transactional
     override fun practiceBlocked(request: PracticeBlockedQuery): Boolean {
@@ -83,7 +82,7 @@ class JdbcAttemptStore(
         if (existing != null) {
             val attempt = authorizedAttempt(actorId, role, sessionHash, existing) ?: throw AcademicNotFound()
             val record = attempt.toRecord()
-            idempotency.save(SaveIdempotencyDto(actorId, "startAttempt", "/attempts", key, requestHash, AttemptRepresentation.attempt(record)))
+            idempotency.saveEncoded(FindIdempotencyDto(actorId, "startAttempt", "/attempts", key, requestHash), mapper.writeValueAsString(AttemptRepresentation.attempt(record)))
             return record
         }
         if (!DeadlinePolicy.isBeforeDeadline(assessment.deadline, assessment.allowLate, clock.instant())) throw AcademicConflict()
@@ -101,7 +100,7 @@ class JdbcAttemptStore(
             mapper.writeValueAsString(order), mapper.writeValueAsString(questions), assessment.questionsUpdatedAt?.let(Timestamp::from))
         val attempt = authorizedAttempt(actorId, role, sessionHash, attemptId) ?: throw AcademicNotFound()
         val record = attempt.toRecord()
-        idempotency.save(SaveIdempotencyDto(actorId, "startAttempt", "/attempts", key, requestHash, AttemptRepresentation.attempt(record)))
+        idempotency.saveEncoded(FindIdempotencyDto(actorId, "startAttempt", "/attempts", key, requestHash), mapper.writeValueAsString(AttemptRepresentation.attempt(record)))
         return record
     }
 
@@ -163,7 +162,7 @@ class JdbcAttemptStore(
         replay(actorId, "submitAttempt", "/attempts/$id/submit", key, requestHash)?.let { return AttemptRepresentation.readResult(it) }
         if (current.state is AttemptState.Submitted) {
             val result = attemptResult(current)
-            idempotency.save(SaveIdempotencyDto(actorId, "submitAttempt", "/attempts/$id/submit", key, requestHash, AttemptRepresentation.result(result)))
+            idempotency.saveEncoded(FindIdempotencyDto(actorId, "submitAttempt", "/attempts/$id/submit", key, requestHash), mapper.writeValueAsString(AttemptRepresentation.result(result)))
             return result
         }
         if (current.revision != expectedRevision) throw AcademicConflict(current.revision)
@@ -182,7 +181,7 @@ class JdbcAttemptStore(
         if (jdbc.update("UPDATE core.attempts SET submitted_at=?,receipt_id=?,score=?,max_score=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=? AND submitted_at IS NULL", now, receiptId, score, maxScore, now, actorId, id, expectedRevision) != 1) throw AcademicConflict(current.revision)
         val submitted = authorizedAttempt(actorId, role, sessionHash, id) ?: return null
         val result = attemptResult(submitted)
-        idempotency.save(SaveIdempotencyDto(actorId, "submitAttempt", "/attempts/$id/submit", key, requestHash, AttemptRepresentation.result(result)))
+        idempotency.saveEncoded(FindIdempotencyDto(actorId, "submitAttempt", "/attempts/$id/submit", key, requestHash), mapper.writeValueAsString(AttemptRepresentation.result(result)))
         return result
     }
 
@@ -289,8 +288,11 @@ class JdbcAttemptStore(
         if (jdbc.query("SELECT 1 FROM core.users u JOIN core.sessions s ON s.user_id=u.id WHERE u.id=? AND u.active AND u.role IN ($placeholders) AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?", { rs, _ -> rs.getInt(1) }, *(listOf(actorId) + accepted + listOf(hash, Timestamp.from(clock.instant()))).toTypedArray()).isEmpty()) throw AcademicForbidden()
     }
 
+    @Suppress("UNCHECKED_CAST")
+    private fun readReceipt(value: String): Map<String, Any?> = mapper.readValue(value, Map::class.java) as Map<String, Any?>
+
     private fun replay(actorId: String, operation: String, target: String, key: String, hash: String): Map<String, Any?>? = try {
-        idempotency.find(FindIdempotencyDto(actorId, operation, target, key, hash))
+        idempotency.findEncoded(FindIdempotencyDto(actorId, operation, target, key, hash))?.let(::readReceipt)
     } catch (_: IdempotencyKeyReuse) { throw br.com.ajadigital.core.academic.domain.exceptions.AcademicIdempotencyConflict() }
 
     private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }

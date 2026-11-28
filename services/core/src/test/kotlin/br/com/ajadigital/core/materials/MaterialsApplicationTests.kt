@@ -12,8 +12,7 @@ import br.com.ajadigital.core.materials.domain.exceptions.MaterialsIdempotencyCo
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
-import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
@@ -51,7 +50,7 @@ class MaterialsApplicationTests {
             }
         }
         val runner = object : TransactionRunnerOutputPort {
-            override fun <T> run(request: TransactionRunDto<T>): T = request.block()
+            override fun <T> run(block: () -> T): T = block()
         }
         val publisher: PublishMaterialsInputPort = PublishMaterialsUseCase(store, idempotency, JacksonMaterialPublicationReceipt(JsonMapper.builder().build()), runner)
         val lesson = MaterialDraft(moduleId, "Lesson", MaterialKind.LESSON, 10.0, "Body", null, null)

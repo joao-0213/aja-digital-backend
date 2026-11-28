@@ -18,8 +18,7 @@ import br.com.ajadigital.core.curriculum.domain.exceptions.CurriculumNotFound
 import br.com.ajadigital.core.curriculum.domain.models.ModuleRevision
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.shared.application.contracts.FieldChange
-import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -28,7 +27,7 @@ import java.time.Instant
 class CurriculumApplicationTests {
     private val store = InMemoryCurriculumStore()
     private val transaction = object : TransactionRunnerOutputPort {
-        override fun <T> run(request: TransactionRunDto<T>): T = request.block()
+        override fun <T> run(block: () -> T): T = block()
     }
     private val teacher = AuthenticatedActor("teacher", "teacher", true, Instant.EPOCH, "teacher-session")
     private val student = AuthenticatedActor("student", "student", true, Instant.EPOCH, "student-session")

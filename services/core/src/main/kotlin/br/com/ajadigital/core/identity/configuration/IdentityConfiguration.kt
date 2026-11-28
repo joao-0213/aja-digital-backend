@@ -24,7 +24,6 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import org.springframework.security.crypto.password.PasswordEncoder
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 import java.time.Clock
 
 @Configuration
@@ -36,10 +35,9 @@ class IdentityConfiguration {
     fun registerStudent(
         store: IdentityStoreOutputPort,
         hasher: PasswordHasherOutputPort,
-        mapper: JsonSerializerOutputPort,
-        clock: Clock,
+                clock: Clock,
         encryption: OutboxPayloadProtectorOutputPort,
-    ): RegisterStudentInputPort = RegisterStudentUseCase(store, hasher, mapper, clock, encryption)
+    ): RegisterStudentInputPort = RegisterStudentUseCase(store, hasher, clock, encryption)
 
     @Bean
     fun login(
@@ -61,10 +59,9 @@ class IdentityConfiguration {
     @Bean
     fun requestAuthToken(
         store: IdentityStoreOutputPort,
-        mapper: JsonSerializerOutputPort,
-        clock: Clock,
+                clock: Clock,
         encryption: OutboxPayloadProtectorOutputPort,
-    ): RequestAuthTokenInputPort = RequestAuthTokenUseCase(store, mapper, clock, encryption)
+    ): RequestAuthTokenInputPort = RequestAuthTokenUseCase(store, clock, encryption)
 
     @Bean
     fun resetPassword(

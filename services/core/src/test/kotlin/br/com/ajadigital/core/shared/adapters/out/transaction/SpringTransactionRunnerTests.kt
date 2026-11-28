@@ -5,10 +5,8 @@ import br.com.ajadigital.core.forum.application.contracts.ForumDashboardTopic
 import br.com.ajadigital.core.assessment.domain.models.AssessmentKind
 import br.com.ajadigital.core.forum.application.models.*
 import br.com.ajadigital.core.shared.application.contracts.FieldChange
-import br.com.ajadigital.core.shared.domain.models.SaveIdempotencyDto
 import br.com.ajadigital.core.assessment.application.models.AssessmentReceiptKey
 import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
-import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
 import br.com.ajadigital.core.assessment.application.contracts.DashboardAssessment
 import br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery
 import br.com.ajadigital.core.assessment.domain.models.AssessmentDraft
@@ -45,21 +43,20 @@ import br.com.ajadigital.core.materials.application.ports.out.MaterialWriteOutpu
 import br.com.ajadigital.core.materials.application.usecases.PublishMaterialsUseCase
 import br.com.ajadigital.core.shared.application.contracts.Page
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.IdempotencyStoreOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import tools.jackson.databind.json.JsonMapper
-import br.com.ajadigital.core.shared.adapters.out.serialization.JacksonJsonSerializer
+import br.com.ajadigital.core.forum.adapters.out.serialization.JacksonForumRequestFingerprint
 import br.com.ajadigital.core.shared.adapters.`in`.web.requests.toRequestValue
 import java.time.Instant
 
 class SpringTransactionRunnerTests {
     private val mapper = JsonMapper.builder().build()
-    private val serializer = JacksonJsonSerializer(mapper)
+    private val fingerprints = JacksonForumRequestFingerprint(mapper)
     private val teacher = AuthenticatedActor("teacher-1", "teacher", true, Instant.parse("2026-01-01T00:00:00Z"), "hash-1")
     private fun forumTopic(id: String) = ForumTopicView(id, 1, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z", null, "class-1", "sub-1", "Title", "Body", emptyList(), null, null, ForumAuthorView("teacher-1", "Teacher"), emptyList(), true, null, null, null)
 
@@ -69,10 +66,10 @@ class SpringTransactionRunnerTests {
         var snapshotInTx: Boolean? = null
         var txEntries = 0
         val runner = object : TransactionRunnerOutputPort {
-            override fun <T> run(request: TransactionRunDto<T>): T {
+            override fun <T> run(block: () -> T): T {
                 txEntries++
                 inTx = true
-                return try { request.block() } finally { inTx = false }
+                return try { block() } finally { inTx = false }
             }
         }
         val snapshots = object : ForumQuestionSnapshotProviderOutputPort {
@@ -95,12 +92,7 @@ class SpringTransactionRunnerTests {
             override fun vote(request: VoteTopicReplyRecord): ForumTopicView? = null
             override fun withdrawReply(request: WithdrawTopicReplyRecord): ForumTopicView? = null
         }
-        val idempotency = object : IdempotencyStoreOutputPort {
-            override fun find(request: FindIdempotencyDto): Map<String, Any?>? = null
-            override fun save(request: SaveIdempotencyDto) {}
-        }
-
-        val useCase = CreateTopicUseCase(store, snapshots, serializer)
+        val useCase = CreateTopicUseCase(store, snapshots, fingerprints)
         val result = useCase.create(CreateTopicCommand(teacher, TopicDraft("class-1", "sub-1", "Title", "Body", emptyList(), "question", "q-1", null), "idem-key-1234"))
 
         assertEquals("topic-1", result.id)
@@ -160,10 +152,10 @@ class SpringTransactionRunnerTests {
         var rolledBack = false
         var committed = false
         val runner = object : TransactionRunnerOutputPort {
-            override fun <T> run(request: TransactionRunDto<T>): T {
+            override fun <T> run(block: () -> T): T {
                 inTx = true
                 return try {
-                    request.block().also { committed = true }
+                    block().also { committed = true }
                 } catch (e: Throwable) {
                     rolledBack = true
                     throw e
@@ -209,10 +201,10 @@ class SpringTransactionRunnerTests {
         var rolledBack = false
         var committed = false
         val runner = object : TransactionRunnerOutputPort {
-            override fun <T> run(request: TransactionRunDto<T>): T {
+            override fun <T> run(block: () -> T): T {
                 inTx = true
                 return try {
-                    request.block().also { committed = true }
+                    block().also { committed = true }
                 } catch (e: Throwable) {
                     rolledBack = true
                     throw e
@@ -247,7 +239,7 @@ class SpringTransactionRunnerTests {
         val snapshots = object : QuestionSnapshotProviderOutputPort {
             override fun snapshots(request: br.com.ajadigital.core.assessment.application.models.QuestionSnapshotQuery): List<BankQuestionSnapshot> = emptyList()
         }
-        val topicsUseCase = ReplyToTopicUseCase(topicStore, serializer, runner)
+        val topicsUseCase = ReplyToTopicUseCase(topicStore, fingerprints, runner)
         assertThrows(IllegalStateException::class.java) {
             topicsUseCase.reply(ReplyToTopicCommand(teacher, "topic-1", "Helpful reply", "idem-reply-1234"))
         }

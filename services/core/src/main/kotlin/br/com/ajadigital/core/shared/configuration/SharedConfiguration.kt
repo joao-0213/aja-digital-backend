@@ -1,7 +1,7 @@
 package br.com.ajadigital.core.shared.configuration
 
 import br.com.ajadigital.core.shared.adapters.out.transaction.SpringTransactionRunner
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.transaction.PlatformTransactionManager

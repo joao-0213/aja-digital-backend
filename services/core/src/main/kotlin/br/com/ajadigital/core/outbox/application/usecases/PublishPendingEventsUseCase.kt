@@ -1,6 +1,5 @@
 package br.com.ajadigital.core.outbox.application.usecases
 
-import br.com.ajadigital.core.shared.domain.models.TransactionRunDto
 
 import br.com.ajadigital.core.outbox.domain.models.PendingOutboxEvent
 import br.com.ajadigital.core.outbox.domain.models.PublishAvailableDto
@@ -11,7 +10,7 @@ import br.com.ajadigital.core.outbox.domain.models.MarkOutboxEventFailedDto
 import br.com.ajadigital.core.outbox.application.ports.`in`.PublishPendingEventsInputPort
 import br.com.ajadigital.core.outbox.application.ports.out.EventPublisherOutputPort
 import br.com.ajadigital.core.outbox.application.ports.out.OutboxRepositoryOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import java.time.Clock
 import java.time.Instant
 
@@ -22,11 +21,11 @@ class PublishPendingEventsUseCase(
     private val clock: Clock,
 ) : PublishPendingEventsInputPort {
     override fun publishAvailable(request: PublishAvailableDto) {
-        transactions.run(TransactionRunDto {
+        transactions.run {
             val now = Instant.now(clock)
             val events = repository.claimPending(ClaimPendingOutboxEventsDto(now, BATCH_LIMIT))
             events.forEach { event -> publishOne(event, now) }
-        })
+        }
     }
 
     private fun publishOne(event: PendingOutboxEvent, now: Instant) {

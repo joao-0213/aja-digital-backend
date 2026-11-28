@@ -10,7 +10,7 @@ import br.com.ajadigital.core.curriculum.application.ports.out.SubjectStoreOutpu
 import br.com.ajadigital.core.curriculum.domain.policies.CurriculumPolicy
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 
 
 class CreateModuleUseCase(

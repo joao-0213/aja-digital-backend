@@ -12,8 +12,7 @@ import br.com.ajadigital.core.forum.domain.models.TopicDraft
 import br.com.ajadigital.core.forum.application.models.ForumQuestionSnapshot
 import br.com.ajadigital.core.forum.application.models.ForumQuestionSnapshotQuery
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
-import br.com.ajadigital.core.shared.adapters.out.serialization.JacksonJsonSerializer
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
+import br.com.ajadigital.core.forum.adapters.out.serialization.JacksonForumRequestFingerprint
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
@@ -21,7 +20,7 @@ import tools.jackson.databind.json.JsonMapper
 import java.time.Instant
 
 class ForumApplicationUseCaseTests {
-    private val serializer: JsonSerializerOutputPort = JacksonJsonSerializer(JsonMapper.builder().build())
+    private val fingerprints = JacksonForumRequestFingerprint(JsonMapper.builder().build())
     private val actor = AuthenticatedActor("student-1", "student", true, Instant.parse("2026-01-01T00:00:00Z"), "session-hash")
     private val draft = TopicDraft("class-1", "subject-1", "Title", "Body", emptyList(), "question", "q-1", null)
     private val request = CreateTopicCommand(actor, draft, "idempotency-123")
@@ -36,7 +35,7 @@ class ForumApplicationUseCaseTests {
         val snapshots = object : ForumQuestionSnapshotProviderOutputPort {
             override fun snapshots(request: ForumQuestionSnapshotQuery): List<ForumQuestionSnapshot> { providerCalls++; return emptyList() }
         }
-        val denied = CreateTopicUseCase(store, snapshots, serializer)
+        val denied = CreateTopicUseCase(store, snapshots, fingerprints)
 
         assertThrows(AcademicForbidden::class.java) {
             denied.create(request.copy(actor = AuthenticatedActor("student-1", "student", false, actor.emailConfirmedAt, "session-hash")))
@@ -56,7 +55,7 @@ class ForumApplicationUseCaseTests {
             override fun snapshots(request: ForumQuestionSnapshotQuery): List<ForumQuestionSnapshot> { providerCalls++; return emptyList() }
         }
 
-        assertEquals(replay.id, CreateTopicUseCase(store, snapshots, serializer).create(request).id)
+        assertEquals(replay.id, CreateTopicUseCase(store, snapshots, fingerprints).create(request).id)
         assertEquals(0, providerCalls)
     }
 
@@ -67,7 +66,7 @@ class ForumApplicationUseCaseTests {
         }
 
         assertThrows(InvalidTopicReference::class.java) {
-            CreateTopicUseCase(StubTopicStore(), snapshots, serializer).create(request)
+            CreateTopicUseCase(StubTopicStore(), snapshots, fingerprints).create(request)
         }
     }
 

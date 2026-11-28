@@ -20,13 +20,8 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.security.MessageDigest
 import br.com.ajadigital.core.attendance.adapters.out.persistence.JdbcAttendanceStore
-import br.com.ajadigital.core.shared.domain.models.SerializeJsonDto
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
 
 class AttendanceIntegrationTests : CoreIntegrationTestBase() {
-    @org.springframework.beans.factory.annotation.Autowired
-    private lateinit var attendanceSerializer: JsonSerializerOutputPort
-
     @Test
     fun attendanceCanBeCreatedAndReplayedWithoutDuplicatingTheClassSession() {
         val (adminCookie, _) = adminSession()
@@ -59,7 +54,7 @@ class AttendanceIntegrationTests : CoreIntegrationTestBase() {
         assertEquals(created.body(), storedReceipt)
         data class BaselineAttendanceDraft(val subjectId: String, val date: LocalDate, val time: LocalTime, val records: Map<String, Boolean>)
         val baselineDraft = BaselineAttendanceDraft(subjectId, LocalDate.parse("2026-11-12"), LocalTime.parse("14:00"), sortedMapOf(studentId to true, peerId to false))
-        val baselineHash = MessageDigest.getInstance("SHA-256").digest(attendanceSerializer.serialize(SerializeJsonDto(baselineDraft))).joinToString("") { "%02x".format(it) }
+        val baselineHash = MessageDigest.getInstance("SHA-256").digest(tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsBytes(baselineDraft)).joinToString("") { "%02x".format(it) }
         assertEquals(baselineHash, jdbc.queryForObject("SELECT request_hash FROM core.command_idempotency WHERE actor_id=? AND operation='createAttendance' AND target='/attendance' AND idempotency_key=?", String::class.java, teacherId, key))
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM core.attendance WHERE subject_id=? AND class_date='2026-11-12' AND class_time='14:00'", Int::class.java, subjectId))
         val recordIds = listOf(studentId, peerId)

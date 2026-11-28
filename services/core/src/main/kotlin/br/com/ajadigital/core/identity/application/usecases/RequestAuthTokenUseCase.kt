@@ -1,7 +1,7 @@
 package br.com.ajadigital.core.identity.application.usecases
 import br.com.ajadigital.core.identity.application.models.AcceptedResponse
 import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
-import br.com.ajadigital.core.outbox.domain.models.EncryptOutboxPayloadDto
+import br.com.ajadigital.core.outbox.domain.models.EncryptIdentityNotificationDto
 
 import br.com.ajadigital.core.identity.domain.models.User
 import br.com.ajadigital.core.identity.domain.exceptions.AuthTokenExpired
@@ -17,8 +17,6 @@ import br.com.ajadigital.core.identity.application.models.RecordIdentityAuditDto
 import br.com.ajadigital.core.identity.application.models.IssueAuthTokenDto
 import br.com.ajadigital.core.identity.application.models.ConfirmEmailDto
 import br.com.ajadigital.core.identity.application.ports.out.IdentityStoreOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
-import br.com.ajadigital.core.shared.domain.models.SerializeJsonDto
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Clock
@@ -30,7 +28,6 @@ import java.util.UUID
 
 class RequestAuthTokenUseCase(
     private val store: IdentityStoreOutputPort,
-    private val objectMapper: JsonSerializerOutputPort,
     private val clock: Clock,
     private val encryption: OutboxPayloadProtectorOutputPort,
 ) : RequestAuthTokenInputPort {
@@ -54,8 +51,7 @@ class RequestAuthTokenUseCase(
         val eventId = UUID.randomUUID().toString()
         val eventType = if (purpose == "email_confirmation") "identity.email-confirmation-requested" else "identity.password-reset-requested"
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also(SecureRandom()::nextBytes))
-        val payload = objectMapper.serialize(SerializeJsonDto(mapOf("recipient" to identity.user.email, "token" to token, "userId" to identity.user.id, "purpose" to purpose)))
-        val encrypted = encryption.encrypt(EncryptOutboxPayloadDto(eventId, eventType, 1, payload))
+        val encrypted = encryption.encryptIdentityNotification(EncryptIdentityNotificationDto(eventId, eventType, 1, identity.user.email, token, identity.user.id, purpose))
         store.issueAuthToken(
             IssueAuthTokenDto(AuthTokenIssue(
                 id, identity.user.id, purpose, sha256(token), identity.user.email, now, now.plus(Duration.ofMinutes(30)),

@@ -1,7 +1,7 @@
 package br.com.ajadigital.core.identity.application.usecases
 import br.com.ajadigital.core.identity.application.models.RegistrationRecords
 import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
-import br.com.ajadigital.core.outbox.domain.models.EncryptOutboxPayloadDto
+import br.com.ajadigital.core.outbox.domain.models.EncryptIdentityNotificationDto
 import br.com.ajadigital.core.identity.application.models.RegistrationCommand
 import br.com.ajadigital.core.identity.domain.exceptions.RegistrationConflict
 import br.com.ajadigital.core.identity.application.models.RegistrationResult
@@ -16,8 +16,6 @@ import br.com.ajadigital.core.identity.domain.policies.EmailAddress
 import br.com.ajadigital.core.identity.application.ports.`in`.RegisterStudentInputPort
 import br.com.ajadigital.core.identity.application.ports.out.IdentityStoreOutputPort
 import br.com.ajadigital.core.identity.application.ports.out.PasswordHasherOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
-import br.com.ajadigital.core.shared.domain.models.SerializeJsonDto
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Clock
@@ -30,7 +28,6 @@ import java.util.UUID
 class RegisterStudentUseCase(
     private val store: IdentityStoreOutputPort,
     private val passwordHasher: PasswordHasherOutputPort,
-    private val objectMapper: JsonSerializerOutputPort,
     private val clock: Clock,
     private val encryption: OutboxPayloadProtectorOutputPort,
 ) : RegisterStudentInputPort {
@@ -53,8 +50,7 @@ class RegisterStudentUseCase(
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) })
         val user = User(id, 1, now, now, id, command.name.trim(), email)
         val expires = now.plus(Duration.ofMinutes(30))
-        val payload = objectMapper.serialize(SerializeJsonDto(mapOf("recipient" to email, "token" to token, "userId" to id, "purpose" to "email_confirmation")))
-        val encrypted = encryption.encrypt(EncryptOutboxPayloadDto(eventId, "identity.email-confirmation-requested", 1, payload))
+        val encrypted = encryption.encryptIdentityNotification(EncryptIdentityNotificationDto(eventId, "identity.email-confirmation-requested", 1, email, token, id, "email_confirmation"))
         val passwordHash = passwordHasher.hash(HashPasswordDto(command.password))
         store.createRegistration(
             CreateRegistrationDto(br.com.ajadigital.core.identity.application.models.RegistrationRecords(

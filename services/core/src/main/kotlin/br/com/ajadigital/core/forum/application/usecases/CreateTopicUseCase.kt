@@ -9,14 +9,13 @@ import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
 import br.com.ajadigital.core.forum.domain.exceptions.InvalidTopicReference
 import br.com.ajadigital.core.forum.application.ports.`in`.CreateTopicInputPort
 import br.com.ajadigital.core.forum.application.ports.out.TopicStoreOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.JsonSerializerOutputPort
-import br.com.ajadigital.core.shared.domain.models.SerializeJsonDto
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.forum.application.ports.out.ForumRequestFingerprintOutputPort
 
 class CreateTopicUseCase(
     private val store: TopicStoreOutputPort,
     private val questions: ForumQuestionSnapshotProviderOutputPort,
-    private val mapper: JsonSerializerOutputPort,
+    private val fingerprints: ForumRequestFingerprintOutputPort,
 ) : CreateTopicInputPort {
     override fun create(request: CreateTopicCommand): ForumTopicView {
         val (actor, draft, key) = request
@@ -28,7 +27,7 @@ class CreateTopicUseCase(
         val targetId = draft.targetId
         require(draft.targetType == null || draft.targetType in setOf("question", "material") && targetId != null && ForumPolicy.validId(targetId))
         require(draft.attachmentId == null || ForumPolicy.validId(draft.attachmentId))
-        val hash = ForumPolicy.sha256(mapper.serialize(SerializeJsonDto(draft)))
+        val hash = fingerprints.createTopic(draft)
         store.authorizeAndFindReplay(FindTopicReplayQuery(actor.id, actor.role, actor.sessionValidationReference, draft, key, hash))?.let { return it }
         if (draft.targetType == "question") {
             val questionId = targetId ?: throw InvalidTopicReference()

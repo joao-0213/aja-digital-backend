@@ -24,7 +24,7 @@ import br.com.ajadigital.core.curriculum.application.usecases.UpdateModuleUseCas
 import br.com.ajadigital.core.curriculum.application.usecases.UpdateSubjectUseCase
 import br.com.ajadigital.core.curriculum.application.usecases.VisitSubjectUseCase
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
-import br.com.ajadigital.core.shared.domain.ports.out.TransactionRunnerOutputPort
+import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import br.com.ajadigital.core.curriculum.application.ports.out.CurriculumReceiptCodecOutputPort
