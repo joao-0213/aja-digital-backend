@@ -107,7 +107,7 @@ class AnnouncementController(
         @RequestParam(required = false) subjectId: String?,
     ) = calendarPage(listCalendarEvents.calendar(ListCalendarEventsQuery(actor(cookie), page, pageSize, sort, from, to, subjectId?.let(::id))))
 
-    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
+    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(cookie)
     private fun announcementPage(result: Page<Announcement>) = mapOf("items" to result.items.map { it.response() }, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     private fun calendarPage(result: Page<AnnouncementCalendarEvent>) = mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     private fun id(value: String) = value.also { require(it.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"))) }

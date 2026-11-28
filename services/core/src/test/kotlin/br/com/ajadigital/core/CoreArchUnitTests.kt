@@ -65,9 +65,33 @@ class CoreArchUnitTests {
 
     @Test
     fun `all currently compatible bytecode guarantees pass`() {
-        val violations = listOf(domainIsolation(), inboundBoundary(), noControllerConnectionFactoryDependency(), dashboardDoesNotCallConcreteUseCases())
+        val violations = listOf(
+            domainIsolation(), CoreBytecodeArchitectureRules.applicationIsolation(), inboundBoundary(), forbiddenAdapterDirection(),
+            CoreBytecodeArchitectureRules.outboundToInboundDirection(), noControllerConnectionFactoryDependency(), dashboardDoesNotCallConcreteUseCases(),
+        )
             .flatMap { rule -> rule.evaluate(production).failureReport.details }
+        val policyViolations = CoreBytecodeArchitectureRules.policyEffectFindings(production.toList())
+        val configurationViolations = CoreBytecodeArchitectureRules.configurationFindings(production.toList())
+        assertTrue(policyViolations.isEmpty(), policyViolations.joinToString("\n"))
+        assertTrue(configurationViolations.isEmpty(), configurationViolations.joinToString("\n"))
         assertFalse(violations.isNotEmpty(), violations.joinToString("\n"))
+    }
+
+    @Test
+    fun `cross feature dependencies use the explicit export inventory`() {
+        val findings = CoreFeatureDependencyRules.analyze(production.toList())
+        assertTrue(findings.isEmpty(), findings.joinToString("\n"))
+    }
+
+    @Test
+    fun `feature export rule shares valid and invalid bytecode fixtures`() {
+        val fixtures = ClassFileImporter().importClasses(
+            br.com.ajadigital.core.forum.architecturefixtures.ValidPublishedIdentityUse::class.java,
+            br.com.ajadigital.core.forum.architecturefixtures.ForbiddenAcademicOutputPortUse::class.java,
+        ).toList()
+        val findings = CoreFeatureDependencyRules.analyze(fixtures, enforceInventory = false)
+        assertTrue(findings.any { it.contains("AcademicStoreOutputPort") }, findings.joinToString("\n"))
+        assertTrue(findings.none { it.contains("AuthenticatedActor") }, findings.joinToString("\n"))
     }
 
     @Test
@@ -106,6 +130,12 @@ class CoreArchUnitTests {
             br.com.ajadigital.core.dashboard.domain.usecases.SafeDashboardGetDashboardUseCase::class.java,
             br.com.ajadigital.core.dashboard.application.usecases.TargetDashboardConcreteUseCase::class.java,
             br.com.ajadigital.core.dashboard.application.usecases.NewDashboardGetDashboardUseCase::class.java,
+            br.com.ajadigital.core.architecture.fixtures.application.ValidApplicationFixture::class.java,
+            br.com.ajadigital.core.architecture.fixtures.application.ApplicationFrameworkLeakFixture::class.java,
+            br.com.ajadigital.core.architecture.fixtures.application.ApplicationConfigurationLeakFixture::class.java,
+            br.com.ajadigital.core.architecture.fixtures.application.MisplacedConfigurationFixture::class.java,
+            br.com.ajadigital.core.architecture.fixtures.application.LiteBeanHostLeakFixture::class.java,
+            br.com.ajadigital.core.architecture.fixtures.configuration.ValidFixtureConfiguration::class.java,
         )
         val concreteUseCaseFailure = inboundBoundary().evaluate(fixtures).failureReport.details
         assertTrue(concreteUseCaseFailure.any { it.contains("InboundAdapterFixture") && it.contains("ConcreteFixtureUseCase") }, concreteUseCaseFailure.toString())
@@ -132,6 +162,14 @@ class CoreArchUnitTests {
         assertTrue(dashboardFailure.any { it.contains("LegacyDashboardGetDashboardUseCase") }, dashboardFailure.toString())
         assertTrue(dashboardFailure.any { it.contains("NewDashboardGetDashboardUseCase") }, dashboardFailure.toString())
         assertTrue(dashboardFailure.none { it.contains("SafeDashboardGetDashboardUseCase") }, dashboardFailure.toString())
+        val applicationFailure = CoreBytecodeArchitectureRules.applicationIsolation().evaluate(fixtures).failureReport.details
+        assertTrue(applicationFailure.any { it.contains("ApplicationFrameworkLeakFixture") }, applicationFailure.toString())
+        assertTrue(applicationFailure.none { it.contains("ValidApplicationFixture") }, applicationFailure.toString())
+        val configurationFailure = CoreBytecodeArchitectureRules.configurationFindings(fixtures.toList())
+        assertTrue(configurationFailure.any { it.contains("ApplicationConfigurationLeakFixture") }, configurationFailure.toString())
+        assertTrue(configurationFailure.any { it.contains("MisplacedConfigurationFixture") }, configurationFailure.toString())
+        assertTrue(configurationFailure.any { it.contains("LiteBeanHostLeakFixture") }, configurationFailure.toString())
+        assertTrue(configurationFailure.none { it.startsWith("br.com.ajadigital.core.architecture.fixtures.configuration.ValidFixtureConfiguration") }, configurationFailure.toString())
     }
 
     @Test
@@ -284,26 +322,13 @@ class CoreArchUnitTests {
         assertTrue(findings.isEmpty(), findings.joinToString("\n"))
     }
 
-    private fun domainIsolation(): ArchRule = noClasses()
-        .that().resideInAPackage("..domain..")
-        .should().dependOnClassesThat().resideInAnyPackage(
-            "org.springframework..", "tools.jackson..", "com.fasterxml.jackson..", "java.sql..", "javax.sql..",
-            "com.rabbitmq..", "jakarta..", "java.net.http..", "..adapters..", "..application..", "..configuration..",
-        )
+    private fun domainIsolation(): ArchRule = CoreBytecodeArchitectureRules.domainIsolation()
 
-    private fun inboundBoundary(): ArchRule = noClasses()
-        .that().resideInAPackage("..adapters.in..")
-        .should().dependOnClassesThat().haveSimpleNameEndingWith("UseCase")
+    private fun inboundBoundary(): ArchRule = CoreBytecodeArchitectureRules.inboundBoundary()
 
-    private fun forbiddenAdapterDirection(): ArchRule = noClasses()
-        .that().resideInAPackage("..adapters.in..")
-        .should().dependOnClassesThat().resideInAPackage("..adapters.out..")
+    private fun forbiddenAdapterDirection(): ArchRule = CoreBytecodeArchitectureRules.inboundToOutboundDirection()
 
-    private fun noControllerConnectionFactoryDependency(): ArchRule = noClasses().that().haveSimpleNameEndingWith("Controller")
-        .should().dependOnClassesThat().haveSimpleName("ConnectionFactory")
+    private fun noControllerConnectionFactoryDependency(): ArchRule = CoreBytecodeArchitectureRules.noControllerConnectionFactory()
 
-    private fun dashboardDoesNotCallConcreteUseCases(): ArchRule = noClasses()
-        .that().haveSimpleNameEndingWith("GetDashboardUseCase")
-        .and().resideInAnyPackage("..dashboard.domain.usecases..", "..dashboard.application.usecases..")
-        .should().dependOnClassesThat().haveSimpleNameEndingWith("UseCase")
+    private fun dashboardDoesNotCallConcreteUseCases(): ArchRule = CoreBytecodeArchitectureRules.dashboardDoesNotCallConcreteUseCases()
 }

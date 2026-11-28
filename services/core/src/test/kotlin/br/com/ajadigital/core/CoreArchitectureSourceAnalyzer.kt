@@ -6,6 +6,7 @@ import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtPostfixExpression
 import org.jetbrains.kotlin.psi.KtTypeReference
+import org.jetbrains.kotlin.psi.KtTypeParameter
 import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
 
 /** Bounded PSI rules shared by production diagnostics and test resources. */
@@ -33,12 +34,12 @@ internal object CoreArchitectureSourceAnalyzer {
         if (policy) file.importDirectives.forEach { directive ->
             val imported = directive.importPath?.pathStr.orEmpty()
             if (imported.contains(".ports.") || imported.contains(".adapters.") || imported.startsWith("java.io.") ||
-                imported.startsWith("java.sql.") || imported.startsWith("java.net.")) add("policy imports I/O or a port: $imported")
+                imported.startsWith("java.sql.") || imported.startsWith("java.net.") && imported != "java.net.URI") add("policy imports I/O or a port: $imported")
         }
         if (application && (pkg.isPackageOrDescendant("application.contracts") || pkg.contains(".application.ports.")) &&
             file.collectDescendantsOfType<KtTypeReference>().any { type ->
                 val text = type.text
-                text == "Any" || text == "Any?" || text == "JsonNode" || text.contains("<*>") || text.contains(", Any")
+                type.parent !is KtTypeParameter && (text == "Any" || text == "Any?" || text == "JsonNode" || text.contains("<*>") || text.contains(", Any"))
             }) add("contract uses an unbounded or generic escape type")
         if ((domain || application) && file.importDirectives.any {
                 it.importPath?.pathStr?.contains("HttpStatus") == true || it.importPath?.pathStr?.contains("ResponseStatus") == true

@@ -15,7 +15,7 @@ class ListAnnouncementsUseCase(
 ) : ListAnnouncementsInputPort {
     override fun announcements(request: ListAnnouncementsQuery): Page<Announcement> {
         val (actor, page, size, sort, classId, subjectId, query) = request
-                AnnouncementsPolicy.requireReader(actor)
+                AnnouncementsPolicy.requireReader(actor.role, actor.active, actor.emailConfirmedAt != null)
         require(page > 0 && size in 1..100 && sort in setOf("createdAt", "-createdAt"))
         return store.announcements(ListAnnouncementsStoreQuery(actor.id, actor.role, actor.sessionValidationReference, page, size, sort, classId, subjectId, query?.trim()))
     }

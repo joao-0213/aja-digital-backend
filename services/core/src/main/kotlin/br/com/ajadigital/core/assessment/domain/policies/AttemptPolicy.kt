@@ -1,16 +1,15 @@
 package br.com.ajadigital.core.assessment.domain.policies
 
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentForbidden
 
 internal object AttemptPolicy {
-    fun student(actor: AuthenticatedActor) {
-        if (!actor.active || actor.role != "student" || actor.emailConfirmedAt == null) throw AcademicForbidden()
+    fun student(role: String, active: Boolean, emailConfirmed: Boolean) {
+        if (!active || role != "student" || !emailConfirmed) throw AssessmentForbidden()
     }
 
-    fun reader(actor: AuthenticatedActor) {
-        if (!actor.active || actor.role !in setOf("student", "teacher", "admin") || actor.role == "student" && actor.emailConfirmedAt == null) {
-            throw AcademicForbidden()
+    fun reader(role: String, active: Boolean, emailConfirmed: Boolean) {
+        if (!active || role !in setOf("student", "teacher", "admin") || role == "student" && !emailConfirmed) {
+            throw AssessmentForbidden()
         }
     }
 

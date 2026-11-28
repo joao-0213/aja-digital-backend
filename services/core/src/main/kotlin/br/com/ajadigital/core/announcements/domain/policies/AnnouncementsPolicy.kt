@@ -1,8 +1,7 @@
 package br.com.ajadigital.core.announcements.domain.policies
 
 import br.com.ajadigital.core.announcements.domain.models.AnnouncementDraft
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.announcements.domain.exceptions.AnnouncementForbidden
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeParseException
@@ -19,12 +18,12 @@ internal object AnnouncementsPolicy {
         }
     }
 
-    fun requireReader(actor: AuthenticatedActor) {
-        if (!actor.active || actor.role !in setOf("admin", "teacher", "student") || actor.role == "student" && actor.emailConfirmedAt == null) throw AcademicForbidden()
+    fun requireReader(role: String, active: Boolean, emailConfirmed: Boolean) {
+        if (!active || role !in setOf("admin", "teacher", "student") || role == "student" && !emailConfirmed) throw AnnouncementForbidden()
     }
 
-    fun requireWriter(actor: AuthenticatedActor) {
-        if (!actor.active || actor.role !in setOf("admin", "teacher")) throw AcademicForbidden()
+    fun requireWriter(role: String, active: Boolean, emailConfirmed: Boolean) {
+        if (!active || role !in setOf("admin", "teacher")) throw AnnouncementForbidden()
     }
 
     fun parseDate(value: String): LocalDate = try {

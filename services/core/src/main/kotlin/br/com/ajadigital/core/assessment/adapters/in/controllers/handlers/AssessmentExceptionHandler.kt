@@ -5,6 +5,12 @@ import br.com.ajadigital.core.assessment.domain.exceptions.InvalidAttemptAnswers
 import br.com.ajadigital.core.assessment.domain.exceptions.InvalidSubmissionFeedback
 import br.com.ajadigital.core.assessment.domain.exceptions.QuestionSnapshotNotFound
 import br.com.ajadigital.core.assessment.domain.exceptions.QuestionsUnavailable
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentForbidden
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentNotFound
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentConflict
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentIdempotencyConflict
+import br.com.ajadigital.core.assessment.adapters.`in`.controllers.InvalidPracticeServiceCredential
+import br.com.ajadigital.core.shared.adapters.`in`.web.errors.FeatureHttpErrors
 import br.com.ajadigital.core.shared.adapters.`in`.web.errors.errorBody
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -15,6 +21,18 @@ import java.util.UUID
 
 @RestControllerAdvice
 class AssessmentExceptionHandler {
+    @ExceptionHandler(InvalidPracticeServiceCredential::class)
+    fun invalidPracticeCredential() = ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .body(errorBody("FORBIDDEN", "Service credential is invalid"))
+    @ExceptionHandler(AssessmentForbidden::class)
+    fun forbidden() = FeatureHttpErrors.forbidden()
+    @ExceptionHandler(AssessmentNotFound::class)
+    fun notFound() = FeatureHttpErrors.notFound()
+    @ExceptionHandler(AssessmentConflict::class)
+    fun conflict(exception: AssessmentConflict) = FeatureHttpErrors.conflict(exception.currentRevision)
+    @ExceptionHandler(AssessmentIdempotencyConflict::class)
+    fun idempotencyConflict() = FeatureHttpErrors.idempotencyConflict()
+
     @ExceptionHandler(AssessmentAuthoringFailure::class)
     fun authoringFailure(failure: AssessmentAuthoringFailure): ResponseEntity<*> = when (failure) {
         is AssessmentAuthoringFailure.Forbidden ->

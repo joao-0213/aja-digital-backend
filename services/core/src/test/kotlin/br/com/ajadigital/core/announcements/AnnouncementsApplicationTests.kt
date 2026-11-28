@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.announcements
 
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.announcements.domain.exceptions.AnnouncementForbidden
 import br.com.ajadigital.core.announcements.adapters.out.serialization.JacksonAnnouncementReceiptCodec
 import br.com.ajadigital.core.announcements.adapters.out.serialization.JacksonAnnouncementRequestFingerprint
 import br.com.ajadigital.core.announcements.application.contracts.Announcement
@@ -48,7 +48,7 @@ class AnnouncementsApplicationTests {
             },
         )
 
-        assertThrows(AcademicForbidden::class.java) { useCase.create(CreateAnnouncementCommand(student, draft, "notice-key-0001")) }
+        assertThrows(AnnouncementForbidden::class.java) { useCase.create(CreateAnnouncementCommand(student, draft, "notice-key-0001")) }
         assertThrows(IllegalArgumentException::class.java) {
             useCase.create(CreateAnnouncementCommand(teacher, draft.copy(occurrence = AnnouncementOccurrence("2026-02-30", null, true)), "notice-key-0002"))
         }

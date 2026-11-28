@@ -31,7 +31,7 @@ class InternalSessionController(
     ): InternalSessionResponse {
         val supplied = candidateToken?.toByteArray(StandardCharsets.UTF_8) ?: ByteArray(0)
         if (!MessageDigest.isEqual(expectedToken, supplied)) throw InvalidInternalServiceCredential()
-        val session = authenticateStudent.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
+        val session = authenticateStudent.resolve(cookie)
         return InternalSessionResponse(session.user.id, session.id, session.user.role, session.user.active, session.user.emailConfirmedAt)
     }
 

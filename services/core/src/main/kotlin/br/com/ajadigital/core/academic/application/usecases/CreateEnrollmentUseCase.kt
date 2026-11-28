@@ -12,7 +12,7 @@ import br.com.ajadigital.core.academic.domain.policies.AcademicPolicy
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.academic.application.ports.`in`.CreateEnrollmentInputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
-import br.com.ajadigital.core.identity.domain.policies.EmailAddress
+import br.com.ajadigital.core.identity.application.contracts.EmailAddress
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicRequestFingerprintOutputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicReceiptCodecOutputPort

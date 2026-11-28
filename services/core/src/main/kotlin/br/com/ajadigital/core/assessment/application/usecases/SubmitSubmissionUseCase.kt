@@ -10,13 +10,13 @@ import br.com.ajadigital.core.assessment.application.models.SubmitSubmissionComm
 import br.com.ajadigital.core.assessment.domain.policies.SubmissionPolicy
 import br.com.ajadigital.core.assessment.application.ports.`in`.SubmitSubmissionInputPort
 import br.com.ajadigital.core.assessment.application.ports.out.SubmissionStoreOutputPort
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentNotFound
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 class SubmitSubmissionUseCase(private val store: SubmissionStoreOutputPort) : SubmitSubmissionInputPort {
     override fun submit(request: SubmitSubmissionCommand): br.com.ajadigital.core.assessment.domain.models.SubmissionView {
                 val (actor, id, key, body) = request
-        SubmissionPolicy.student(actor)
+        SubmissionPolicy.student(actor.role, actor.active, actor.emailConfirmedAt != null)
         SubmissionPolicy.id(id)
         SubmissionPolicy.validKey(key)
         require(body.fieldsValid)
@@ -26,6 +26,6 @@ class SubmitSubmissionUseCase(private val store: SubmissionStoreOutputPort) : Su
             (body.expectedRevision ?: throw IllegalArgumentException()).also { require(it > 0) },
             key,
             request.requestHash,
-        )) ?: throw AcademicNotFound()
+        )) ?: throw AssessmentNotFound()
     }
 }

@@ -118,7 +118,7 @@ class JdbcAcademicStore(private val jdbc: JdbcTemplate, private val clock: Clock
         val current = findUser(FindUserDto(id)) ?: return null
         val newName = name ?: current.name
         val newEmail = email ?: current.email
-        require(newName.isNotBlank() && newName.length <= 200 && br.com.ajadigital.core.identity.domain.policies.EmailAddress.isValid(newEmail))
+        require(newName.isNotBlank() && newName.length <= 200 && br.com.ajadigital.core.identity.application.contracts.EmailAddress.isValid(newEmail))
         val emailChanged = newEmail.lowercase() != (current.email).lowercase()
         val now = Timestamp.from(clock.instant())
         val changed = jdbc.update("""UPDATE core.users SET name=?,email=?,normalized_email=?,email_confirmed_at=CASE WHEN ? THEN NULL ELSE email_confirmed_at END,

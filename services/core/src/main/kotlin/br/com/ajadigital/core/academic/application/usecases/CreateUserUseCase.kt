@@ -14,12 +14,10 @@ import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.academic.application.ports.`in`.CreateUserInputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicStoreOutputPort
 import br.com.ajadigital.core.academic.application.models.ProvisionedIdentity
-import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
-import br.com.ajadigital.core.outbox.domain.models.EncryptIdentityNotificationDto
-import br.com.ajadigital.core.outbox.domain.models.OutboxPayloadKeyDto
-import br.com.ajadigital.core.identity.domain.policies.EmailAddress
-import br.com.ajadigital.core.identity.application.ports.out.PasswordHasherOutputPort
-import br.com.ajadigital.core.identity.application.models.HashPasswordDto
+import br.com.ajadigital.core.outbox.application.ports.`in`.OutboxEventProducerInputPort
+import br.com.ajadigital.core.outbox.application.contracts.PrepareIdentityNotificationCommand
+import br.com.ajadigital.core.identity.application.contracts.EmailAddress
+import br.com.ajadigital.core.identity.application.ports.`in`.HashPasswordInputPort
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicRequestFingerprintOutputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicReceiptCodecOutputPort
@@ -32,8 +30,8 @@ class CreateUserUseCase(
     private val store: AcademicStoreOutputPort,
     private val fingerprints: AcademicRequestFingerprintOutputPort,
     private val clock: Clock,
-    private val encryption: OutboxPayloadProtectorOutputPort,
-    private val passwordHasher: PasswordHasherOutputPort,
+    private val encryption: OutboxEventProducerInputPort,
+    private val passwordHasher: HashPasswordInputPort,
     private val idempotency: EncodedIdempotencyStoreOutputPort,
     private val receiptCodec: AcademicReceiptCodecOutputPort,
     private val transactionRunner: TransactionRunnerOutputPort,
@@ -55,8 +53,8 @@ class CreateUserUseCase(
                 val confirmationToken = AcademicTokens.generate()
                 val passwordEvent = UUID.randomUUID().toString()
                 val confirmationEvent = UUID.randomUUID().toString()
-                val passwordEncrypted = encryption.encryptIdentityNotification(EncryptIdentityNotificationDto(passwordEvent, "identity.password-reset-requested", 1, email, passwordToken, id, "password_reset"))
-                val confirmationEncrypted = encryption.encryptIdentityNotification(EncryptIdentityNotificationDto(confirmationEvent, "identity.email-confirmation-requested", 1, email, confirmationToken, id, "email_confirmation"))
+                val passwordEncrypted = encryption.prepareIdentityNotification(PrepareIdentityNotificationCommand(passwordEvent, "identity.password-reset-requested", 1, email, passwordToken, id, "password_reset"))
+                val confirmationEncrypted = encryption.prepareIdentityNotification(PrepareIdentityNotificationCommand(confirmationEvent, "identity.email-confirmation-requested", 1, email, confirmationToken, id, "email_confirmation"))
                 store.createUser(AcademicStoreCreateUserDto(
                     ProvisionedIdentity(
                         id,
@@ -65,7 +63,7 @@ class CreateUserUseCase(
                         email,
                         role,
                         now,
-                        passwordHasher.hash(HashPasswordDto(AcademicTokens.generate())),
+                        passwordHasher.hash(AcademicTokens.generate()),
                         UUID.randomUUID().toString(),
                         AcademicTokens.sha256(passwordToken),
                         passwordEvent,
@@ -76,7 +74,7 @@ class CreateUserUseCase(
                         confirmationEvent,
                         confirmationEncrypted.ciphertext,
                         confirmationEncrypted.nonce,
-                        encryption.keyId(OutboxPayloadKeyDto),
+                        passwordEncrypted.keyId,
                     ),
                 ))
             }

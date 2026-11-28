@@ -7,15 +7,15 @@ import br.com.ajadigital.core.announcements.application.ports.`in`.GetAnnounceme
 import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementStoreOutputPort
 import br.com.ajadigital.core.announcements.application.models.GetAnnouncementQuery
 import br.com.ajadigital.core.announcements.application.models.GetStoredAnnouncementQuery
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
+import br.com.ajadigital.core.announcements.domain.exceptions.AnnouncementNotFound
 
 class GetAnnouncementUseCase(
     private val store: AnnouncementStoreOutputPort,
 ) : GetAnnouncementInputPort {
     override fun announcement(request: GetAnnouncementQuery): Announcement = request.let {
         val (actor, id) = request
-        AnnouncementsPolicy.requireReader(actor).let {
-            store.announcement(GetStoredAnnouncementQuery(actor.id, actor.role, actor.sessionValidationReference, id)) ?: throw AcademicNotFound()
+        AnnouncementsPolicy.requireReader(actor.role, actor.active, actor.emailConfirmedAt != null).let {
+            store.announcement(GetStoredAnnouncementQuery(actor.id, actor.role, actor.sessionValidationReference, id)) ?: throw AnnouncementNotFound()
         }
     }
 }

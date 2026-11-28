@@ -56,7 +56,7 @@ class AttendanceController(
     @PatchMapping("/api/v1/attendance/{id}")
     fun updateAttendance(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @RequestBody body: AttendanceEditRequest) = updateAttendance.update(UpdateAttendanceCommand(actor(cookie), requestId(id), requestRevision(body.expectedRevision), records(body.records)))
 
-    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
+    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(cookie)
     private fun pagedBody(result: AttendanceSessionPage): Map<String, Any?> = mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     private fun pagedBody(result: AttendanceEligibleStudentPage): Map<String, Any?> = mapOf("items" to result.items, "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     private fun records(value: JsonNode): Map<String, Boolean> = run { require(value.isObject); value.properties().associate { (key, item) -> requestId(key) to item.booleanValue().also { require(item.isBoolean) } } }

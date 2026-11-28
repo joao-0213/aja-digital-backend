@@ -8,12 +8,12 @@ import br.com.ajadigital.core.assessment.application.contracts.CountPendingFeedb
 import br.com.ajadigital.core.assessment.domain.policies.SubmissionPolicy
 import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingFeedbackInputPort
 import br.com.ajadigital.core.assessment.application.ports.out.SubmissionStoreOutputPort
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 class CountPendingFeedbackUseCase(private val store: SubmissionStoreOutputPort) : CountPendingFeedbackInputPort {
     override fun pendingFeedbackCount(request: CountPendingFeedbackQuery): Int {
                 val (actor) = request
-        SubmissionPolicy.writer(actor)
+        SubmissionPolicy.writer(actor.role, actor.active, actor.emailConfirmedAt != null)
         return store.pendingFeedbackCount(PendingFeedbackCountQuery(actor))
     }
 }

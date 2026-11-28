@@ -3,7 +3,7 @@ package br.com.ajadigital.core.identity.adapters.`in`.controllers
 import br.com.ajadigital.core.identity.adapters.`in`.controllers.handlers.AuthExceptionHandler
 import br.com.ajadigital.core.shared.adapters.`in`.web.errors.SharedExceptionHandler
 import br.com.ajadigital.core.identity.domain.exceptions.InvalidCredentials
-import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
+import br.com.ajadigital.core.identity.application.contracts.SessionRequired
 import br.com.ajadigital.core.identity.application.models.AcceptedResponse
 import br.com.ajadigital.core.identity.application.models.AuthenticatedSession
 import br.com.ajadigital.core.identity.application.models.LoginCommand
@@ -36,10 +36,10 @@ class AuthValidationTests {
         override fun register(request: RegisterStudentDto): RegistrationResult = error("Should not reach use case on invalid DTO")
     }
     private val stubLogin = object : LoginInputPort {
-        override fun login(request: LoginStudentDto): AuthenticatedSession = throw InvalidCredentials()
+        override fun login(request: LoginCommand): AuthenticatedSession = throw InvalidCredentials()
     }
     private val stubAuth = object : ResolveSessionInputPort {
-        override fun resolve(request: ResolveStudentSessionDto): SessionRecord = throw SessionRequired()
+        override fun resolve(sessionCookie: String?): SessionRecord = throw SessionRequired()
     }
     private val stubLogout = object : LogoutInputPort {
         override fun logout(request: LogoutStudentSessionDto) {}

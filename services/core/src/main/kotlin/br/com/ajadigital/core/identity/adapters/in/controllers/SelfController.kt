@@ -11,5 +11,5 @@ import org.springframework.web.bind.annotation.GetMapping
 class SelfController(private val authenticateStudent: ResolveSessionInputPort) {
     @GetMapping("/api/v1/me")
     fun me(@CookieValue(name = "aja_session", required = false) cookie: String?): User =
-        authenticateStudent.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie)).user
+        authenticateStudent.resolve(cookie).user
 }

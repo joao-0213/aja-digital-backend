@@ -1,7 +1,7 @@
 package br.com.ajadigital.core.materials.adapters.`in`.filters
 
 import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
-import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
+import br.com.ajadigital.core.identity.application.contracts.SessionRequired
 import br.com.ajadigital.core.materials.application.models.QuestionServiceCredential
 import br.com.ajadigital.core.materials.application.ports.out.QuestionServiceAccessOutputPort
 import jakarta.servlet.FilterChain

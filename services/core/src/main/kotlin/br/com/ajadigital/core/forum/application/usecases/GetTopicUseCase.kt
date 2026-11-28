@@ -2,8 +2,8 @@ package br.com.ajadigital.core.forum.application.usecases
 import br.com.ajadigital.core.forum.application.models.*
 
 import br.com.ajadigital.core.forum.domain.policies.ForumPolicy
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.forum.domain.exceptions.ForumNotFound
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.forum.application.ports.`in`.GetTopicInputPort
 import br.com.ajadigital.core.forum.application.ports.out.TopicStoreOutputPort
 import br.com.ajadigital.core.forum.application.models.GetTopicQuery
@@ -14,6 +14,6 @@ class GetTopicUseCase(
 ) : GetTopicInputPort {
     override fun topic(request: GetTopicQuery): ForumTopicView = request.let {
         val (actor, id) = request
-        ForumPolicy.readable(actor).let { store.topic(GetStoredTopicQuery(actor.id, actor.role, actor.sessionValidationReference, ForumPolicy.checkedId(id))) ?: throw AcademicNotFound() }
+        ForumPolicy.readable(actor.role, actor.active, actor.emailConfirmedAt != null).let { store.topic(GetStoredTopicQuery(actor.id, actor.role, actor.sessionValidationReference, ForumPolicy.checkedId(id))) ?: throw ForumNotFound() }
     }
 }

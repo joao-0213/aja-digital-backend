@@ -1,7 +1,6 @@
 package br.com.ajadigital.core.identity.application.usecases
 
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
-import br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto
 import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
 import br.com.ajadigital.core.identity.application.ports.`in`.ResolveSessionInputPort
 
@@ -9,8 +8,8 @@ import br.com.ajadigital.core.identity.application.ports.`in`.ResolveSessionInpu
 class ResolveAuthenticatedActorUseCase(
     private val resolveSession: ResolveSessionInputPort,
 ) : ResolveAuthenticatedActorInputPort {
-    override fun resolve(request: ResolveStudentSessionDto): AuthenticatedActor =
-        resolveSession.resolve(request).let { session ->
+    override fun resolve(sessionCookie: String?): AuthenticatedActor =
+        resolveSession.resolve(sessionCookie).let { session ->
             AuthenticatedActor(
                 session.user.id,
                 session.user.role,

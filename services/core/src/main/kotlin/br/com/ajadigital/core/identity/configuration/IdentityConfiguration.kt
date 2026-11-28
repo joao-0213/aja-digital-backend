@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.identity.configuration
 
-import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
+import br.com.ajadigital.core.outbox.application.ports.`in`.OutboxEventProducerInputPort
 import br.com.ajadigital.core.identity.application.ports.`in`.LoginInputPort
 import br.com.ajadigital.core.identity.application.ports.`in`.LogoutInputPort
 import br.com.ajadigital.core.identity.application.ports.`in`.ResolveSessionInputPort
@@ -9,6 +9,7 @@ import br.com.ajadigital.core.identity.application.ports.`in`.RegisterStudentInp
 import br.com.ajadigital.core.identity.application.ports.`in`.RequestAuthTokenInputPort
 import br.com.ajadigital.core.identity.application.ports.`in`.ResetPasswordInputPort
 import br.com.ajadigital.core.identity.application.ports.`in`.UpdateOwnProfileInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.HashPasswordInputPort
 import br.com.ajadigital.core.identity.application.ports.out.IdentityStoreOutputPort
 import br.com.ajadigital.core.identity.application.ports.out.PasswordHasherOutputPort
 import br.com.ajadigital.core.identity.application.usecases.LoginUseCase
@@ -19,6 +20,7 @@ import br.com.ajadigital.core.identity.application.usecases.RegisterStudentUseCa
 import br.com.ajadigital.core.identity.application.usecases.RequestAuthTokenUseCase
 import br.com.ajadigital.core.identity.application.usecases.ResetPasswordUseCase
 import br.com.ajadigital.core.identity.application.usecases.UpdateOwnProfileUseCase
+import br.com.ajadigital.core.identity.application.usecases.HashPasswordUseCase
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -32,11 +34,14 @@ class IdentityConfiguration {
     fun passwordEncoder(): PasswordEncoder = Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()
 
     @Bean
+    fun hashPassword(hasher: PasswordHasherOutputPort): HashPasswordInputPort = HashPasswordUseCase(hasher)
+
+    @Bean
     fun registerStudent(
         store: IdentityStoreOutputPort,
         hasher: PasswordHasherOutputPort,
                 clock: Clock,
-        encryption: OutboxPayloadProtectorOutputPort,
+        encryption: OutboxEventProducerInputPort,
     ): RegisterStudentInputPort = RegisterStudentUseCase(store, hasher, clock, encryption)
 
     @Bean
@@ -60,7 +65,7 @@ class IdentityConfiguration {
     fun requestAuthToken(
         store: IdentityStoreOutputPort,
                 clock: Clock,
-        encryption: OutboxPayloadProtectorOutputPort,
+        encryption: OutboxEventProducerInputPort,
     ): RequestAuthTokenInputPort = RequestAuthTokenUseCase(store, clock, encryption)
 
     @Bean

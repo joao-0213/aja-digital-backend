@@ -8,12 +8,12 @@ import br.com.ajadigital.core.assessment.application.models.CreateSubmissionComm
 import br.com.ajadigital.core.assessment.domain.policies.SubmissionPolicy
 import br.com.ajadigital.core.assessment.application.ports.`in`.CreateSubmissionInputPort
 import br.com.ajadigital.core.assessment.application.ports.out.SubmissionStoreOutputPort
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 class CreateSubmissionUseCase(private val store: SubmissionStoreOutputPort) : CreateSubmissionInputPort {
     override fun create(request: CreateSubmissionCommand): br.com.ajadigital.core.assessment.domain.models.SubmissionView {
                 val (actor, key, body) = request
-        SubmissionPolicy.student(actor)
+        SubmissionPolicy.student(actor.role, actor.active, actor.emailConfirmedAt != null)
         SubmissionPolicy.validKey(key)
         require(body.fieldsValid)
         val assessmentId = (body.assessmentId ?: throw IllegalArgumentException()).also(SubmissionPolicy::id)

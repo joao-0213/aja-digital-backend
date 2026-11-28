@@ -24,10 +24,9 @@ import br.com.ajadigital.core.academic.application.ports.`in`.UpdateUserInputPor
 import br.com.ajadigital.core.academic.application.ports.`in`.WithdrawUserInputPort
 import br.com.ajadigital.core.identity.adapters.`in`.controllers.handlers.AuthExceptionHandler
 import br.com.ajadigital.core.shared.adapters.`in`.web.errors.SharedExceptionHandler
-import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
+import br.com.ajadigital.core.identity.application.contracts.SessionRequired
 import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
-import br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.http.MediaType
@@ -41,7 +40,7 @@ class SessionAuthPrecedenceTests {
     private lateinit var mvc: MockMvc
 
     private val stubAuth = object : ResolveAuthenticatedActorInputPort {
-        override fun resolve(request: ResolveStudentSessionDto): AuthenticatedActor = throw SessionRequired()
+        override fun resolve(sessionCookie: String?): AuthenticatedActor = throw SessionRequired()
     }
 
     private inline fun <reified T> unusedPort(): T = Proxy.newProxyInstance(

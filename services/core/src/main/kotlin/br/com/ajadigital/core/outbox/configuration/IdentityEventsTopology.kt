@@ -1,4 +1,4 @@
-package br.com.ajadigital.core.outbox.adapters.out.messaging
+package br.com.ajadigital.core.outbox.configuration
 
 import org.springframework.amqp.core.TopicExchange
 import org.springframework.context.annotation.Bean

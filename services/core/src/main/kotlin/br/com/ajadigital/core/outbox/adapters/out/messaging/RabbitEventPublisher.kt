@@ -34,7 +34,7 @@ class RabbitEventPublisher(
             channel.addReturnListener(returnListener)
             try {
                 channel.basicPublish(
-                    IdentityEventsTopology.EVENTS_EXCHANGE,
+                    "aja.events",
                     event.type,
                     true,
                     AMQP.BasicProperties.Builder().deliveryMode(2).contentType("application/json").build(),

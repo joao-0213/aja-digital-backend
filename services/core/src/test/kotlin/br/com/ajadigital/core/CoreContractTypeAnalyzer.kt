@@ -11,7 +11,7 @@ import com.tngtech.archunit.core.domain.JavaClasses
 /** Traverses only declared port signatures and project contract properties; library types are leaves. */
 internal object CoreContractTypeAnalyzer {
     private val publishedTypes = setOf(
-        "br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor",
+        "br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor",
         "br.com.ajadigital.core.assessment.application.contracts.DashboardAssessment",
         "br.com.ajadigital.core.assessment.application.contracts.ListDashboardAssessmentsQuery",
         "br.com.ajadigital.core.forum.application.contracts.ListDashboardTopicsQuery",

@@ -1,8 +1,8 @@
 package br.com.ajadigital.core.attendance.adapters.out.persistence
 
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
+import br.com.ajadigital.core.attendance.domain.exceptions.AttendanceConflict
+import br.com.ajadigital.core.attendance.domain.exceptions.AttendanceForbidden
+import br.com.ajadigital.core.attendance.domain.exceptions.AttendanceNotFound
 import br.com.ajadigital.core.attendance.domain.exceptions.InvalidAttendanceRecords
 import br.com.ajadigital.core.attendance.domain.models.AttendanceDraft
 import br.com.ajadigital.core.attendance.application.models.AttendanceCreateAuthorizationCommand
@@ -33,7 +33,7 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     @Transactional
     override fun authorizeCreate(request: AttendanceCreateAuthorizationCommand) {
         val (actorId, _, sessionHash, subjectId) = request
-        val classId = subjectClass(subjectId) ?: throw AcademicNotFound()
+        val classId = subjectClass(subjectId) ?: throw AttendanceNotFound()
         requireWriter(actorId, sessionHash, classId, subjectId, activeClass = true, lock = true)
     }
 
@@ -60,7 +60,7 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     override fun eligible(request: ListEligibleAttendanceStudentsRecordQuery): EligibleAttendanceStudentPageRecord {
         val (actorId, _, sessionHash, subjectId, date, _, page, size) = request
         requireSession(actorId, sessionHash, "admin", "teacher")
-        val classId = subjectClass(subjectId) ?: throw AcademicNotFound()
+        val classId = subjectClass(subjectId) ?: throw AttendanceNotFound()
         requireWriter(actorId, sessionHash, classId, subjectId, activeClass = true)
         val query = """SELECT u.id,u.name,
             bool_or(${datedEnrollment("?")}) eligible,
@@ -86,7 +86,7 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     @Transactional
     override fun create(request: AttendanceRecordCommand): AttendanceSessionRecord {
         val (actorId, _, sessionHash, draft) = request
-        val classId = subjectClass(draft.subjectId) ?: throw AcademicNotFound()
+        val classId = subjectClass(draft.subjectId) ?: throw AttendanceNotFound()
         requireWriter(actorId, sessionHash, classId, draft.subjectId, activeClass = true, lock = true)
         val eligible = markableIds(classId, draft.date)
         if (!eligible.containsAll(draft.records.keys)) throw InvalidAttendanceRecords()
@@ -108,7 +108,7 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
         val classId = subjectClass(subjectId) ?: return null
         requireWriter(actorId, sessionHash, classId, subjectId, activeClass = true, lock = true)
         val current = jdbc.query("SELECT revision,class_date,records FROM core.attendance WHERE id=? FOR UPDATE", { rs, _ -> Triple(rs.getInt(1), rs.getObject(2, LocalDate::class.java), records(rs.getString("records"))) }, id).firstOrNull() ?: return null
-        if (current.first != revision) throw AcademicConflict(current.first)
+        if (current.first != revision) throw AttendanceConflict(current.first)
         val markable = markableIds(classId, current.second)
         val immutable = preservedLegacyIds(classId, current.second, current.third)
         if (!markable.containsAll(records.keys - immutable) || records.any { (student, present) -> student in immutable && current.third[student] != present }) throw InvalidAttendanceRecords()
@@ -133,10 +133,10 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     private fun project(row: AttendanceSessionRecord, actorId: String, hash: String, studentFilter: String?): AttendanceSessionRecord {
         val role = requireSession(actorId, hash, "admin", "teacher", "student")
         return if (role == "student") {
-            if (!studentEnrolled(actorId, row.classId, row.date, actorId in row.records)) throw AcademicNotFound()
+            if (!studentEnrolled(actorId, row.classId, row.date, actorId in row.records)) throw AttendanceNotFound()
             row.viewed(row.records[actorId]?.let { mapOf(actorId to it) } ?: emptyMap(), true)
         } else {
-            if (role == "teacher" && !assigned(actorId, row.subjectId)) throw AcademicNotFound()
+            if (role == "teacher" && !assigned(actorId, row.subjectId)) throw AttendanceNotFound()
             val visible = (markableIds(row.classId, row.date) + preservedLegacyIds(row.classId, row.date, row.records)).toSet()
             row.viewed(row.records.filterKeys { it in visible && (studentFilter == null || it == studentFilter) }, false)
         }
@@ -156,19 +156,19 @@ class JdbcAttendanceStore(private val jdbc: JdbcTemplate, private val mapper: Ob
     private fun requireWriter(actorId: String, hash: String, classId: String, subjectId: String, activeClass: Boolean, lock: Boolean = false) {
         if (lock) lockAuthInvariant()
         val currentRole = requireSession(actorId, hash, "admin", "teacher")
-        val active = jdbc.query("SELECT active FROM core.classes WHERE id=?${if (lock) " FOR UPDATE" else ""}", { rs, _ -> rs.getBoolean(1) }, classId).firstOrNull() ?: throw AcademicNotFound()
-        if (activeClass && !active) throw AcademicForbidden()
+        val active = jdbc.query("SELECT active FROM core.classes WHERE id=?${if (lock) " FOR UPDATE" else ""}", { rs, _ -> rs.getBoolean(1) }, classId).firstOrNull() ?: throw AttendanceNotFound()
+        if (activeClass && !active) throw AttendanceForbidden()
         if (lock) jdbc.query("SELECT id FROM core.users WHERE id=? FOR UPDATE", { rs, _ -> rs.getString(1) }, actorId)
-        jdbc.query("SELECT id FROM core.subjects WHERE id=? AND class_id=?${if (lock) " FOR UPDATE" else ""}", { rs, _ -> rs.getString(1) }, subjectId, classId).firstOrNull() ?: throw AcademicNotFound()
+        jdbc.query("SELECT id FROM core.subjects WHERE id=? AND class_id=?${if (lock) " FOR UPDATE" else ""}", { rs, _ -> rs.getString(1) }, subjectId, classId).firstOrNull() ?: throw AttendanceNotFound()
         requireSession(actorId, hash, "admin", "teacher")
-        if (currentRole == "teacher" && !assigned(actorId, subjectId)) throw AcademicForbidden()
-        if (currentRole != "admin" && currentRole != "teacher") throw AcademicForbidden()
+        if (currentRole == "teacher" && !assigned(actorId, subjectId)) throw AttendanceForbidden()
+        if (currentRole != "admin" && currentRole != "teacher") throw AttendanceForbidden()
     }
 
     private fun requireSession(actorId: String, hash: String, vararg roles: String): String {
         val roleList = roles.joinToString(",") { "?" }
         val args = listOf(actorId) + roles + listOf(hash, Timestamp.from(clock.instant()))
-        return jdbc.query("SELECT u.role FROM core.users u JOIN core.sessions s ON s.user_id=u.id WHERE u.id=? AND u.active AND u.role IN ($roleList) AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?", { rs, _ -> rs.getString(1) }, *args.toTypedArray()).firstOrNull() ?: throw AcademicForbidden()
+        return jdbc.query("SELECT u.role FROM core.users u JOIN core.sessions s ON s.user_id=u.id WHERE u.id=? AND u.active AND u.role IN ($roleList) AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?", { rs, _ -> rs.getString(1) }, *args.toTypedArray()).firstOrNull() ?: throw AttendanceForbidden()
     }
 
     private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }

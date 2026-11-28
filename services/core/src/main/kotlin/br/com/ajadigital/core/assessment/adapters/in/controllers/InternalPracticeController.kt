@@ -1,14 +1,12 @@
 package br.com.ajadigital.core.assessment.adapters.`in`.controllers
 
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentForbidden
 import br.com.ajadigital.core.assessment.adapters.`in`.controllers.models.requests.InternalPracticeRequest
 import br.com.ajadigital.core.assessment.adapters.`in`.controllers.models.responses.InternalPracticeResponse
 import br.com.ajadigital.core.assessment.application.models.CheckPracticeBlockedQuery
 import br.com.ajadigital.core.assessment.application.ports.`in`.CheckPracticeBlockedInputPort
-import br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto
 import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticatedActorInputPort
-import br.com.ajadigital.core.identity.domain.exceptions.InvalidInternalServiceCredential
-import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
+import br.com.ajadigital.core.identity.application.contracts.SessionRequired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.web.bind.annotation.CookieValue
 import org.springframework.web.bind.annotation.PostMapping
@@ -37,12 +35,12 @@ class InternalPracticeController(
         @RequestBody request: InternalPracticeRequest,
     ): InternalPracticeResponse {
         val supplied = candidateToken?.toByteArray(StandardCharsets.UTF_8) ?: ByteArray(0)
-        if (!MessageDigest.isEqual(expectedToken, supplied)) throw InvalidInternalServiceCredential()
-        val actor = resolveActor.resolve(ResolveStudentSessionDto(cookie))
-        if (actor.role !in setOf("student", "teacher", "admin")) throw AcademicForbidden()
+        if (!MessageDigest.isEqual(expectedToken, supplied)) throw InvalidPracticeServiceCredential()
+        val actor = resolveActor.resolve(cookie)
+        if (actor.role !in setOf("student", "teacher", "admin")) throw AssessmentForbidden()
         return try {
             InternalPracticeResponse(checkPracticeBlocked.practiceBlocked(CheckPracticeBlockedQuery(actor, request.questionId)))
-        } catch (_: AcademicForbidden) {
+        } catch (_: AssessmentForbidden) {
             throw SessionRequired()
         }
     }

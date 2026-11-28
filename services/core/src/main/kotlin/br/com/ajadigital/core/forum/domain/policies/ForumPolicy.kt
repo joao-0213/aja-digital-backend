@@ -1,14 +1,13 @@
 package br.com.ajadigital.core.forum.domain.policies
 
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.forum.domain.exceptions.ForumForbidden
 
 internal object ForumPolicy {
-    fun readable(actor: AuthenticatedActor): AuthenticatedActor =
-        actor.takeIf { it.active && it.role in setOf("admin", "teacher", "student") && (it.role != "student" || it.emailConfirmedAt != null) }
-            ?: throw AcademicForbidden()
+    fun readable(role: String, active: Boolean, emailConfirmed: Boolean) {
+        if (!active || role !in setOf("admin", "teacher", "student") || role == "student" && !emailConfirmed) throw ForumForbidden()
+    }
 
-    fun writable(actor: AuthenticatedActor): AuthenticatedActor = readable(actor)
+    fun writable(role: String, active: Boolean, emailConfirmed: Boolean) = readable(role, active, emailConfirmed)
 
     fun validId(value: String) = value.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"))
 

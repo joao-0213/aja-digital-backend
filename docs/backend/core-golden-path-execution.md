@@ -191,3 +191,7 @@ The Ponytail follow-up removed the unused session reference from five store quer
 ## GP-07.2 — Shared technical contracts
 
 **Status: GP-07.2 complete.** [GP-07.2 evidence](core-golden-path-gp072-evidence.md) records the direct transaction callback, historical fingerprints and receipts, token payload checks, full Core gate and independent reviews.
+
+## GP-07.3 — Core architecture rules
+
+**Status: GP-07.3 complete.** [GP-07.3 evidence](core-golden-path-gp073-evidence.md) records the mandatory architecture gate, exact exports, live coverage for all 95 Core public operations and independent reviews.

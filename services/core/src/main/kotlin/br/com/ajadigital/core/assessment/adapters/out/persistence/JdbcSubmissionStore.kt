@@ -17,9 +17,9 @@ import br.com.ajadigital.core.assessment.application.models.SubmissionPublishFee
 import br.com.ajadigital.core.assessment.application.models.SubmissionCreateRecord
 
 import br.com.ajadigital.core.shared.domain.models.FindIdempotencyDto
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentConflict
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentForbidden
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentNotFound
 import br.com.ajadigital.core.assessment.domain.exceptions.InvalidSubmissionFeedback
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
@@ -58,23 +58,23 @@ class JdbcSubmissionStore(
         val key = request.key
         val requestHash = request.requestHash
         lockAuthInvariant(); requireSession(actorId, sessionHash, "student")
-        val assessment = studentAssessment(actorId, assessmentId, enforceDeadline = false) ?: throw AcademicNotFound()
+        val assessment = studentAssessment(actorId, assessmentId, enforceDeadline = false) ?: throw AssessmentNotFound()
         replay(actorId, "createSubmission", "/submissions", key, requestHash)?.let { return view(it, role) }
         val existing = jdbc.query("SELECT id FROM core.submissions WHERE assessment_id=? AND user_id=? FOR UPDATE", { rs, _ -> rs.getString(1) }, assessmentId, actorId).firstOrNull()
         if (existing != null) {
-            val row = authorized(actorId, role, sessionHash, existing) ?: throw AcademicNotFound()
+            val row = authorized(actorId, role, sessionHash, existing) ?: throw AssessmentNotFound()
             val result = dto(row)
             idempotency.saveEncoded(FindIdempotencyDto(actorId, "createSubmission", "/submissions", key, requestHash), mapper.writeValueAsString(result))
             return view(result, role)
         }
-        if (!DeadlinePolicy.isBeforeDeadline((assessment["deadline"] as Timestamp?)?.toInstant(), assessment["allowLate"] as Boolean, clock.instant())) throw AcademicNotFound()
+        if (!DeadlinePolicy.isBeforeDeadline((assessment["deadline"] as Timestamp?)?.toInstant(), assessment["allowLate"] as Boolean, clock.instant())) throw AssessmentNotFound()
         validateStagedFiles(actorId, assessmentId, attachments)
         val now = Timestamp.from(clock.instant().truncatedTo(ChronoUnit.MICROS))
         val id = UUID.randomUUID().toString()
         jdbc.update("""INSERT INTO core.submissions(id,revision,created_at,updated_at,updated_by,assessment_id,user_id,attachments)
             VALUES(?,1,?,?,?,?,?,?::jsonb)""", id, now, now, actorId, assessmentId, actorId, attachmentJson(attachments))
         audit(actorId, "academic.submission_created", id)
-        val result = authorized(actorId, role, sessionHash, id)?.let(::dto) ?: throw AcademicNotFound()
+        val result = authorized(actorId, role, sessionHash, id)?.let(::dto) ?: throw AssessmentNotFound()
         idempotency.saveEncoded(FindIdempotencyDto(actorId, "createSubmission", "/submissions", key, requestHash), mapper.writeValueAsString(result))
         return view(result, role)
     }
@@ -90,10 +90,10 @@ class JdbcSubmissionStore(
         val assessmentId = request.assessmentId
         val studentId = request.studentId
         lockAuthInvariant(); requireSession(actorId, sessionHash)
-        if (role == "student" && studentId != null && studentId != actorId) throw AcademicNotFound()
+        if (role == "student" && studentId != null && studentId != actorId) throw AssessmentNotFound()
         val clauses = mutableListOf(accessClause(role))
         val args = mutableListOf<Any>()
-        when (role) { "student", "teacher" -> args += actorId; "admin" -> Unit; else -> throw AcademicForbidden() }
+        when (role) { "student", "teacher" -> args += actorId; "admin" -> Unit; else -> throw AssessmentForbidden() }
         assessmentId?.let { clauses += "x.assessment_id=?"; args += it }
         if (role != "student" && studentId != null) { clauses += "x.user_id=?"; args += studentId }
         val where = clauses.joinToString(" AND ")
@@ -137,13 +137,13 @@ class JdbcSubmissionStore(
         val attachments = request.attachments
         lockAuthInvariant(); requireSession(actorId, sessionHash, "student")
         val current = authorized(actorId, role, sessionHash, id, forUpdate = true) ?: return null
-        if (current["submittedAt"] != null || current["revision"] != expectedRevision) throw AcademicConflict(current["revision"] as Int)
+        if (current["submittedAt"] != null || current["revision"] != expectedRevision) throw AssessmentConflict(current["revision"] as Int)
         val assessmentId = current["assessmentId"] as String
-        if (studentAssessment(actorId, assessmentId) == null) throw AcademicNotFound()
+        if (studentAssessment(actorId, assessmentId) == null) throw AssessmentNotFound()
         attachments?.let { validateStagedFiles(actorId, assessmentId, it) }
         val selectedJson = attachments?.let(::attachmentJson) ?: mapper.writeValueAsString(current["attachments"])
         val now = Timestamp.from(clock.instant())
-        if (jdbc.update("UPDATE core.submissions SET attachments=?::jsonb,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=? AND submitted_at IS NULL", selectedJson, now, actorId, id, expectedRevision) != 1) throw AcademicConflict(current["revision"] as Int)
+        if (jdbc.update("UPDATE core.submissions SET attachments=?::jsonb,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=? AND submitted_at IS NULL", selectedJson, now, actorId, id, expectedRevision) != 1) throw AssessmentConflict(current["revision"] as Int)
         audit(actorId, "academic.submission_updated", id)
         return authorized(actorId, role, sessionHash, id)?.let { view(dto(it), role) }
     }
@@ -165,27 +165,27 @@ class JdbcSubmissionStore(
             idempotency.saveEncoded(FindIdempotencyDto(actorId, "submitSubmission", "/submissions/$id/submit", key, requestHash), mapper.writeValueAsString(result))
             return view(result, role)
         }
-        if (current["revision"] != expectedRevision) throw AcademicConflict(current["revision"] as Int)
+        if (current["revision"] != expectedRevision) throw AssessmentConflict(current["revision"] as Int)
         val assessmentId = current["assessmentId"] as String
-        val assessment = studentAssessment(actorId, assessmentId, enforceDeadline = false) ?: throw AcademicNotFound()
-        if (!DeadlinePolicy.isBeforeDeadline((assessment["deadline"] as Timestamp?)?.toInstant(), assessment["allowLate"] as Boolean, clock.instant())) throw AcademicConflict(current["revision"] as Int)
+        val assessment = studentAssessment(actorId, assessmentId, enforceDeadline = false) ?: throw AssessmentNotFound()
+        if (!DeadlinePolicy.isBeforeDeadline((assessment["deadline"] as Timestamp?)?.toInstant(), assessment["allowLate"] as Boolean, clock.instant())) throw AssessmentConflict(current["revision"] as Int)
         @Suppress("UNCHECKED_CAST")
         val attachments = current["attachments"] as List<Map<String, Any?>>
-        if (attachments.isEmpty()) throw AcademicConflict(current["revision"] as Int)
+        if (attachments.isEmpty()) throw AssessmentConflict(current["revision"] as Int)
         val fileIds = attachments.filter { it["kind"] == "file" }.map { it["fileId"] as String }.sorted()
         val lockedFileExpiries = if (fileIds.isNotEmpty()) {
             val placeholders = fileIds.joinToString(",") { "?" }
             jdbc.query("SELECT id,expires_at FROM core.files WHERE id IN ($placeholders) AND owner_id=? AND purpose='work' AND parent_id=? AND status='staged' ORDER BY id FOR UPDATE", { rs, _ -> rs.getString("id") to rs.getTimestamp("expires_at")?.toInstant() }, *(fileIds + listOf(actorId, assessmentId)).toTypedArray()).mapNotNull { (fileId, expiresAt) -> expiresAt?.let { fileId to it } }.toMap()
         } else emptyMap()
         val now = Timestamp.from(clock.instant())
-        if (!DeadlinePolicy.isBeforeDeadline((assessment["deadline"] as Timestamp?)?.toInstant(), assessment["allowLate"] as Boolean, now.toInstant())) throw AcademicConflict(current["revision"] as Int)
-        if (!SubmissionPolicy.areStagedFilesValid(fileIds, lockedFileExpiries, now.toInstant())) throw AcademicConflict(current["revision"] as Int)
+        if (!DeadlinePolicy.isBeforeDeadline((assessment["deadline"] as Timestamp?)?.toInstant(), assessment["allowLate"] as Boolean, now.toInstant())) throw AssessmentConflict(current["revision"] as Int)
+        if (!SubmissionPolicy.areStagedFilesValid(fileIds, lockedFileExpiries, now.toInstant())) throw AssessmentConflict(current["revision"] as Int)
         if (fileIds.isNotEmpty()) {
             val placeholders = fileIds.joinToString(",") { "?" }
             jdbc.update("UPDATE core.files SET status='attached',expires_at=NULL WHERE id IN ($placeholders) AND owner_id=? AND purpose='work' AND parent_id=? AND status='staged'", *(fileIds + listOf(actorId, assessmentId)).toTypedArray())
         }
         val receiptId = UUID.randomUUID().toString()
-        if (jdbc.update("UPDATE core.submissions SET submitted_at=?,receipt_id=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=? AND submitted_at IS NULL", now, receiptId, now, actorId, id, expectedRevision) != 1) throw AcademicConflict(current["revision"] as Int)
+        if (jdbc.update("UPDATE core.submissions SET submitted_at=?,receipt_id=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=? AND submitted_at IS NULL", now, receiptId, now, actorId, id, expectedRevision) != 1) throw AssessmentConflict(current["revision"] as Int)
         audit(actorId, "academic.submission_submitted", id)
         val result = authorized(actorId, role, sessionHash, id)?.let(::dto) ?: return null
         idempotency.saveEncoded(FindIdempotencyDto(actorId, "submitSubmission", "/submissions/$id/submit", key, requestHash), mapper.writeValueAsString(result))
@@ -203,14 +203,14 @@ class JdbcSubmissionStore(
         val grade = request.grade
         lockAuthInvariant(); requireSession(actorId, sessionHash, "admin", "teacher")
         val current = feedbackWriteRow(actorId, role, sessionHash, id) ?: return null
-        if (current["submittedAt"] == null) throw AcademicNotFound()
-        if (current["revision"] != expectedRevision) throw AcademicConflict(current["revision"] as Int)
+        if (current["submittedAt"] == null) throw AssessmentNotFound()
+        if (current["revision"] != expectedRevision) throw AssessmentConflict(current["revision"] as Int)
         val maxGrade = current["maxGrade"] as BigDecimal?
         if (!SubmissionPolicy.isValidFeedbackGrade(grade, maxGrade)) throw InvalidSubmissionFeedback()
         val now = Timestamp.from(clock.instant()).toInstant().toString()
         val draft = mapOf("comment" to comment, "grade" to grade, "author" to mapOf("id" to actorId, "name" to current["actorName"]), "createdAt" to now)
         val updated = jdbc.update("""UPDATE core.submissions SET feedback_draft=?::jsonb,feedback_updated=(feedback_published IS NOT NULL),revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND revision=? AND submitted_at IS NOT NULL""", mapper.writeValueAsString(draft), Timestamp.from(clock.instant()), actorId, id, expectedRevision)
-        if (updated != 1) throw AcademicConflict(current["revision"] as Int)
+        if (updated != 1) throw AssessmentConflict(current["revision"] as Int)
         audit(actorId, "academic.feedback_saved", id)
         return authorized(actorId, role, sessionHash, id)?.let { view(dto(it), role) }
     }
@@ -227,11 +227,11 @@ class JdbcSubmissionStore(
         lockAuthInvariant(); requireSession(actorId, sessionHash, "admin", "teacher")
         val current = feedbackWriteRow(actorId, role, sessionHash, id) ?: return null
         replay(actorId, "publishSubmissionFeedback", "/submissions/$id/publish-feedback", key, requestHash)?.let { return view(it, role) }
-        if (current["submittedAt"] == null) throw AcademicNotFound()
-        if (current["revision"] != expectedRevision) throw AcademicConflict(current["revision"] as Int)
+        if (current["submittedAt"] == null) throw AssessmentNotFound()
+        if (current["revision"] != expectedRevision) throw AssessmentConflict(current["revision"] as Int)
         @Suppress("UNCHECKED_CAST")
-        val draft = current["feedbackDraft"] as? Map<String, Any?> ?: throw AcademicConflict(current["revision"] as Int)
-        if (!SubmissionPolicy.canPublishFeedback(draft["comment"] as String, (draft["grade"] as? Number)?.let { BigDecimal(it.toString()) })) throw AcademicConflict(current["revision"] as Int)
+        val draft = current["feedbackDraft"] as? Map<String, Any?> ?: throw AssessmentConflict(current["revision"] as Int)
+        if (!SubmissionPolicy.canPublishFeedback(draft["comment"] as String, (draft["grade"] as? Number)?.let { BigDecimal(it.toString()) })) throw AssessmentConflict(current["revision"] as Int)
         @Suppress("UNCHECKED_CAST")
         val history = current["feedbackHistory"] as List<Map<String, Any?>>
         val now = Timestamp.from(clock.instant().truncatedTo(ChronoUnit.MICROS))
@@ -260,8 +260,8 @@ class JdbcSubmissionStore(
         val active = jdbc.query("SELECT active FROM core.classes WHERE id=? FOR UPDATE", { rs, _ -> rs.getBoolean(1) }, scope.second).firstOrNull() ?: return null
         if (role == "teacher") jdbc.query("SELECT id FROM core.users WHERE id=? FOR UPDATE", { rs, _ -> rs.getString(1) }, actorId)
         requireSession(actorId, sessionHash, "admin", "teacher")
-        if (!active) throw AcademicConflict()
-        if (role == "teacher" && !canWriteSubject(scope.first, actorId)) throw AcademicNotFound()
+        if (!active) throw AssessmentConflict()
+        if (role == "teacher" && !canWriteSubject(scope.first, actorId)) throw AssessmentNotFound()
         return authorized(actorId, role, sessionHash, id, forUpdate = true)
     }
 
@@ -277,7 +277,7 @@ class JdbcSubmissionStore(
         if (ids.isEmpty()) return
         val placeholders = ids.joinToString(",") { "?" }
         val rows = jdbc.query("SELECT id,name FROM core.files WHERE id IN ($placeholders) AND owner_id=? AND purpose='work' AND parent_id=? AND status='staged' AND expires_at>?", { rs, _ -> rs.getString("id") to rs.getString("name") }, *(ids + listOf(actorId, assessmentId, Timestamp.from(clock.instant()))).toTypedArray()).toMap()
-        if (rows.keys != ids.toSet() || attachments.any { it.kind == "file" && rows[it.fileId]?.let { name -> name != it.name } != false }) throw AcademicConflict()
+        if (rows.keys != ids.toSet() || attachments.any { it.kind == "file" && rows[it.fileId]?.let { name -> name != it.name } != false }) throw AssessmentConflict()
     }
 
     private fun dto(row: Map<String, Any?>): Map<String, Any?> {
@@ -357,11 +357,11 @@ class JdbcSubmissionStore(
     private fun requireSession(actorId: String, hash: String, vararg roles: String) {
         val accepted = roles.toList().ifEmpty { listOf("admin", "teacher", "student") }
         val placeholders = accepted.joinToString(",") { "?" }
-        if (jdbc.query("SELECT 1 FROM core.users u JOIN core.sessions s ON s.user_id=u.id WHERE u.id=? AND u.active AND u.role IN ($placeholders) AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?", { rs, _ -> rs.getInt(1) }, *(listOf(actorId) + accepted + listOf(hash, Timestamp.from(clock.instant()))).toTypedArray()).isEmpty()) throw AcademicForbidden()
+        if (jdbc.query("SELECT 1 FROM core.users u JOIN core.sessions s ON s.user_id=u.id WHERE u.id=? AND u.active AND u.role IN ($placeholders) AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?", { rs, _ -> rs.getInt(1) }, *(listOf(actorId) + accepted + listOf(hash, Timestamp.from(clock.instant()))).toTypedArray()).isEmpty()) throw AssessmentForbidden()
     }
     @Suppress("UNCHECKED_CAST")
     private fun readReceipt(value: String): Map<String, Any?> = mapper.readValue(value, Map::class.java) as Map<String, Any?>
-    private fun replay(actorId: String, operation: String, target: String, key: String, hash: String): Map<String, Any?>? = try { idempotency.findEncoded(FindIdempotencyDto(actorId, operation, target, key, hash))?.let(::readReceipt) } catch (_: IdempotencyKeyReuse) { throw br.com.ajadigital.core.academic.domain.exceptions.AcademicIdempotencyConflict() }
+    private fun replay(actorId: String, operation: String, target: String, key: String, hash: String): Map<String, Any?>? = try { idempotency.findEncoded(FindIdempotencyDto(actorId, operation, target, key, hash))?.let(::readReceipt) } catch (_: IdempotencyKeyReuse) { throw br.com.ajadigital.core.assessment.domain.exceptions.AssessmentIdempotencyConflict() }
     private fun lockAuthInvariant() { jdbc.queryForObject("SELECT pg_advisory_xact_lock(812734) IS NULL", Boolean::class.java) }
     private fun audit(actorId: String, type: String, targetId: String) { jdbc.update("INSERT INTO core.audit_events(id,event_type,outcome,subject_user_id,actor_user_id) VALUES(?,?,'success',?,?)", UUID.randomUUID().toString(), type, targetId, actorId) }
 }

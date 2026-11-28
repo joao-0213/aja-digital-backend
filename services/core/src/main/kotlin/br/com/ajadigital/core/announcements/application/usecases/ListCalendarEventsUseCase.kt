@@ -15,7 +15,7 @@ class ListCalendarEventsUseCase(
 ) : ListCalendarEventsInputPort {
     override fun calendar(request: ListCalendarEventsQuery): Page<AnnouncementCalendarEvent> {
         val (actor, page, size, sort, from, to, subjectId) = request
-                AnnouncementsPolicy.requireReader(actor)
+                AnnouncementsPolicy.requireReader(actor.role, actor.active, actor.emailConfirmedAt != null)
         require(page > 0 && size in 1..100 && sort in setOf("date", "-date"))
         val start = from?.let(AnnouncementsPolicy::parseDate)
         val end = to?.let(AnnouncementsPolicy::parseDate)

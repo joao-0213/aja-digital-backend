@@ -5,8 +5,8 @@ import br.com.ajadigital.core.identity.application.ports.out.IdentityStoreOutput
 import br.com.ajadigital.core.identity.application.ports.out.PasswordHasherOutputPort
 import br.com.ajadigital.core.identity.domain.exceptions.InvalidCredentials
 import br.com.ajadigital.core.identity.application.models.AuthenticatedSession
+import br.com.ajadigital.core.identity.application.models.LoginCommand
 import br.com.ajadigital.core.identity.application.models.FindLoginIdentityDto
-import br.com.ajadigital.core.identity.application.models.LoginStudentDto
 import br.com.ajadigital.core.identity.application.models.RecordLoginFailureDto
 import br.com.ajadigital.core.identity.application.models.RotateIdentitySessionDto
 import br.com.ajadigital.core.identity.domain.models.SessionRecord
@@ -24,8 +24,8 @@ class LoginUseCase(
     private val passwordHasher: PasswordHasherOutputPort,
     private val clock: Clock,
 ) : LoginInputPort {
-    override fun login(request: LoginStudentDto): AuthenticatedSession {
-        val command = request.command
+    override fun login(request: LoginCommand): AuthenticatedSession {
+        val command = request
         val identity = store.findLoginIdentity(FindLoginIdentityDto(command.email.trim().lowercase()))
         if (identity == null || !passwordHasher.matches(VerifyPasswordDto(command.password, identity.passwordHash)) || !identity.user.active) {
             store.recordLoginFailure(RecordLoginFailureDto(command.previousSessionCookie?.takeIf(String::isNotBlank)?.let(::sha256)))

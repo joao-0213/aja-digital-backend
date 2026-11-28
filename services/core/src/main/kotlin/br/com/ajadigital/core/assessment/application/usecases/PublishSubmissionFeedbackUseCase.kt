@@ -8,13 +8,13 @@ import br.com.ajadigital.core.assessment.application.models.PublishSubmissionFee
 import br.com.ajadigital.core.assessment.domain.policies.SubmissionPolicy
 import br.com.ajadigital.core.assessment.application.ports.`in`.PublishSubmissionFeedbackInputPort
 import br.com.ajadigital.core.assessment.application.ports.out.SubmissionStoreOutputPort
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentNotFound
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 class PublishSubmissionFeedbackUseCase(private val store: SubmissionStoreOutputPort) : PublishSubmissionFeedbackInputPort {
     override fun publishFeedback(request: PublishSubmissionFeedbackCommand): br.com.ajadigital.core.assessment.domain.models.SubmissionView {
                 val (actor, id, key, body) = request
-        SubmissionPolicy.writer(actor)
+        SubmissionPolicy.writer(actor.role, actor.active, actor.emailConfirmedAt != null)
         SubmissionPolicy.id(id)
         SubmissionPolicy.validKey(key)
         require(body.fieldsValid)
@@ -24,6 +24,6 @@ class PublishSubmissionFeedbackUseCase(private val store: SubmissionStoreOutputP
             (body.expectedRevision ?: throw IllegalArgumentException()).also { require(it > 0) },
             key,
             request.requestHash,
-        )) ?: throw AcademicNotFound()
+        )) ?: throw AssessmentNotFound()
     }
 }

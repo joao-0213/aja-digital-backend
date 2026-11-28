@@ -1,8 +1,7 @@
 package br.com.ajadigital.core.outbox.adapters.out.security
 
 import br.com.ajadigital.core.outbox.domain.models.EncryptOutboxPayloadDto
-import br.com.ajadigital.core.outbox.domain.models.OutboxPayloadKeyDto
-import br.com.ajadigital.core.outbox.domain.models.EncryptIdentityNotificationDto
+import br.com.ajadigital.core.outbox.application.contracts.PrepareIdentityNotificationCommand
 import tools.jackson.databind.json.JsonMapper
 
 import org.junit.jupiter.api.Assertions.assertArrayEquals
@@ -23,7 +22,7 @@ class AesGcmOutboxPayloadProtectorTests {
 
         val encrypted = protector.encrypt(EncryptOutboxPayloadDto("evt-1", "identity.student.registered", 1, plaintext))
 
-        val keyId = protector.keyId(OutboxPayloadKeyDto)
+        val keyId = encrypted.keyId
         assertEquals(16, keyId.length)
         assertEquals(keyId, encrypted.keyId)
         assertEquals(12, encrypted.nonce.size)
@@ -39,7 +38,7 @@ class AesGcmOutboxPayloadProtectorTests {
         val rawKey = ByteArray(32) { it.toByte() }
         val mapper = JsonMapper.builder().build()
         val protector = AesGcmOutboxPayloadProtector(Base64.getEncoder().encodeToString(rawKey), mapper)
-        val encrypted = protector.encryptIdentityNotification(EncryptIdentityNotificationDto(
+        val encrypted = protector.encryptIdentityNotification(PrepareIdentityNotificationCommand(
             "evt-token", "identity.email-confirmation-requested", 1, "a@example.test", "secret-token", "user-1", "email_confirmation",
         ))
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")

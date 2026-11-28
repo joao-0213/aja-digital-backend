@@ -7,7 +7,7 @@ import br.com.ajadigital.core.identity.application.ports.`in`.ResolveAuthenticat
 import br.com.ajadigital.core.identity.application.usecases.LoginUseCase
 import br.com.ajadigital.core.identity.application.usecases.ResolveSessionUseCase
 import br.com.ajadigital.core.identity.application.usecases.ResolveAuthenticatedActorUseCase
-import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
+import br.com.ajadigital.core.identity.application.contracts.SessionRequired
 import br.com.ajadigital.core.identity.domain.models.*
 import br.com.ajadigital.core.identity.application.models.*
 import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
@@ -41,7 +41,7 @@ class IdentityApplicationUseCaseTests {
         }
 
         val result = LoginUseCase(store, hasher, Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC))
-            .login(LoginStudentDto(LoginCommand(" TEST@example.test ", "password", null)))
+            .login(LoginCommand(" TEST@example.test ", "password", null))
 
         assertNotNull(rotated)
         assertEquals(user, result.session.user)
@@ -54,7 +54,7 @@ class IdentityApplicationUseCaseTests {
         val store = proxy<IdentityStoreOutputPort> { method, _ -> error("Unexpected identity-store call: $method") }
         val useCase = ResolveSessionUseCase(store, Clock.systemUTC())
 
-        assertThrows(SessionRequired::class.java) { useCase.resolve(ResolveStudentSessionDto(null)) }
+        assertThrows(SessionRequired::class.java) { useCase.resolve(null) }
     }
 
     @Test
@@ -69,11 +69,11 @@ class IdentityApplicationUseCaseTests {
         val user = User("user-1", 1, Instant.EPOCH, Instant.EPOCH, "user-1", "Test", "test@example.test", "teacher")
         val session = SessionRecord("session-id", "opaque-token-hash", user, Instant.EPOCH, Instant.MAX)
         val sessionResolver = object : ResolveSessionInputPort {
-            override fun resolve(request: ResolveStudentSessionDto): SessionRecord = session
+            override fun resolve(sessionCookie: String?): SessionRecord = session
         }
         val actorPort: ResolveAuthenticatedActorInputPort = ResolveAuthenticatedActorUseCase(sessionResolver)
 
-        val actors = listOf(actorPort.resolve(ResolveStudentSessionDto("cookie")), actorPort.resolve("cookie"))
+        val actors = listOf(actorPort.resolve("cookie"), actorPort.resolve("cookie"))
         val declaredReturnTypes = ResolveAuthenticatedActorInputPort::class.java.methods
             .filter { it.name == "resolve" }.map { it.returnType }.toSet()
 

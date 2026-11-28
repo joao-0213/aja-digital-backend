@@ -19,8 +19,6 @@ import br.com.ajadigital.core.identity.application.ports.`in`.ResetPasswordInput
 import br.com.ajadigital.core.identity.application.models.PasswordResetCommand
 import br.com.ajadigital.core.identity.domain.models.User
 import br.com.ajadigital.core.identity.application.models.RegisterStudentDto
-import br.com.ajadigital.core.identity.application.models.LoginStudentDto
-import br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto
 import br.com.ajadigital.core.identity.application.models.LogoutStudentSessionDto
 import br.com.ajadigital.core.identity.application.models.RequestAuthTokenDto
 import br.com.ajadigital.core.identity.application.models.ConfirmEmailTokenDto
@@ -67,7 +65,7 @@ class AuthController(
     ): ResponseEntity<Any> {
         require(EmailAddress.isValid(request.email.trim()))
         return try {
-            val authenticated = login.login(LoginStudentDto(LoginCommand(request.email, request.password, previousCookie)))
+            val authenticated = login.login(LoginCommand(request.email, request.password, previousCookie))
             ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, sessionCookie(authenticated.cookieValue, Duration.ofHours(8), servletRequest.isSecure).toString())
                 .body(SessionResponseMapper.map(authenticated.session))
@@ -80,7 +78,7 @@ class AuthController(
 
     @GetMapping("/session")
     fun session(@CookieValue(name = "aja_session", required = false) cookie: String?) =
-        SessionResponseMapper.map(resolveSession.resolve(ResolveStudentSessionDto(cookie)))
+        SessionResponseMapper.map(resolveSession.resolve(cookie))
 
     @PostMapping("/logout")
     fun logout(@CookieValue(name = "aja_session", required = false) cookie: String?, servletRequest: HttpServletRequest): ResponseEntity<Void> {

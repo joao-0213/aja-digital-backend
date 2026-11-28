@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.attendance
 
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.attendance.domain.exceptions.AttendanceForbidden
 import br.com.ajadigital.core.attendance.application.models.*
 import br.com.ajadigital.core.attendance.application.ports.`in`.RecordAttendanceInputPort
 import br.com.ajadigital.core.attendance.application.ports.out.AttendanceReceiptStoreOutputPort
@@ -33,7 +33,7 @@ class AttendanceApplicationTests {
         val runner = object : TransactionRunnerOutputPort { override fun <T> run(block: () -> T): T = block() }
         val port: RecordAttendanceInputPort = RecordAttendanceUseCase(store, receipts, fingerprints, runner)
         val valid = AttendanceDraft("subject", LocalDate.parse("2026-11-12"), LocalTime.NOON, emptyMap())
-        assertThrows(AcademicForbidden::class.java) { port.create(RecordAttendanceCommand(student, valid, "attendance-key")) }
+        assertThrows(AttendanceForbidden::class.java) { port.create(RecordAttendanceCommand(student, valid, "attendance-key")) }
         assertThrows(IllegalArgumentException::class.java) {
             port.create(RecordAttendanceCommand(teacher, AttendanceDraft("subject", valid.date, valid.time, mapOf("bad id" to true)), "attendance-key"))
         }

@@ -13,7 +13,7 @@ class ListDashboardUpcomingEventsUseCase(
 ) : ListDashboardUpcomingEventsInputPort {
     override fun dashboardUpcoming(request: ListDashboardUpcomingEventsQuery): List<AnnouncementCalendarEvent> = request.let {
         val (actor, from, to, size) = request
-        AnnouncementsPolicy.requireReader(actor).let {
+        AnnouncementsPolicy.requireReader(actor.role, actor.active, actor.emailConfirmedAt != null).let {
             store.dashboardUpcoming(ListDashboardUpcomingStoreQuery(actor.id, actor.role, actor.sessionValidationReference, from.toString(), to.toString(), size))
         }
     }

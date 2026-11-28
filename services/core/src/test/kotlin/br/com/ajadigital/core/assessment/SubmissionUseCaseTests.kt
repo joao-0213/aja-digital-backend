@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.assessment
 
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentForbidden
 import br.com.ajadigital.core.assessment.application.models.*
 import br.com.ajadigital.core.assessment.application.models.SubmissionContracts
 import br.com.ajadigital.core.assessment.application.models.SubmitSubmissionCommand
@@ -8,7 +8,7 @@ import br.com.ajadigital.core.assessment.application.ports.out.SubmissionStoreOu
 import br.com.ajadigital.core.assessment.application.usecases.CreateSubmissionUseCase
 import br.com.ajadigital.core.assessment.application.usecases.SubmitSubmissionUseCase
 import br.com.ajadigital.core.assessment.domain.models.*
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -21,7 +21,7 @@ class SubmissionUseCaseTests {
     @Test
     fun `creation rejects staff before store call`() {
         val store = RecordingStore()
-        assertThrows(AcademicForbidden::class.java) {
+        assertThrows(AssessmentForbidden::class.java) {
             CreateSubmissionUseCase(store).create(CreateSubmissionCommand(actor("teacher"), "submission-key", SubmissionContracts.CreateBody(null, null, false), "hash"))
         }
         assertFalse(store.called)

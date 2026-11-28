@@ -4,7 +4,7 @@ import br.com.ajadigital.core.assessment.application.models.*
 import br.com.ajadigital.core.assessment.application.models.SaveAttemptAnswersCommand
 import br.com.ajadigital.core.assessment.domain.models.AttemptRecord
 
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 interface SaveAttemptAnswersInputPort {
     fun saveAnswers(request: SaveAttemptAnswersCommand): AttemptRecord

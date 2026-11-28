@@ -11,7 +11,7 @@ import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingFeed
 import br.com.ajadigital.core.assessment.application.ports.`in`.CountPendingStudentAssessmentsInputPort
 import br.com.ajadigital.core.assessment.application.ports.`in`.ListDashboardAssessmentsInputPort
 import br.com.ajadigital.core.dashboard.domain.exceptions.DashboardForbidden
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.academic.application.contracts.DashboardAcademicQuery
 import br.com.ajadigital.core.academic.application.ports.`in`.GetDashboardAcademicInputPort
 import br.com.ajadigital.core.curriculum.application.contracts.ListSubjectsQuery

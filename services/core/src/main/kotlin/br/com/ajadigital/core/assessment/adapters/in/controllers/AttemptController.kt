@@ -127,7 +127,7 @@ class AttemptController(
         return AttemptRepresentation.result(getAttemptResult.result(GetAttemptResultQuery(actor(cookie), id)))
     }
 
-    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
+    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(cookie)
 
     private fun requestHash(value: Any?) = MessageDigest.getInstance("SHA-256").digest(mapper.writeValueAsBytes(value)).joinToString("") { "%02x".format(it) }
     private fun integerValue(value: Any?): Int? = when (value) {

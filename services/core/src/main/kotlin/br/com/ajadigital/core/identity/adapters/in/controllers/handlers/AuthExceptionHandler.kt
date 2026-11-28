@@ -5,7 +5,7 @@ import br.com.ajadigital.core.identity.domain.exceptions.AuthTokenInvalid
 import br.com.ajadigital.core.identity.domain.exceptions.InvalidInternalServiceCredential
 import br.com.ajadigital.core.identity.domain.exceptions.ProfileRevisionConflict
 import br.com.ajadigital.core.identity.domain.exceptions.RegistrationConflict
-import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
+import br.com.ajadigital.core.identity.application.contracts.SessionRequired
 import br.com.ajadigital.core.shared.adapters.`in`.web.errors.errorBody
 import org.springframework.dao.DuplicateKeyException
 import org.springframework.http.HttpStatus

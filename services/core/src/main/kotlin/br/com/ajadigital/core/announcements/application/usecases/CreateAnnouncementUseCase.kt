@@ -12,7 +12,7 @@ import br.com.ajadigital.core.announcements.application.models.CreateAnnouncemen
 import br.com.ajadigital.core.announcements.application.ports.`in`.CreateAnnouncementInputPort
 import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementStoreOutputPort
 import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementReceiptCodecOutputPort
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicIdempotencyConflict
+import br.com.ajadigital.core.announcements.domain.exceptions.AnnouncementIdempotencyConflict
 import br.com.ajadigital.core.shared.domain.exceptions.IdempotencyKeyReuse
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
@@ -26,7 +26,7 @@ class CreateAnnouncementUseCase(
 ) : CreateAnnouncementInputPort {
     override fun create(request: CreateAnnouncementCommand): Announcement = transactionRunner.run {
         val (actor, draft, key) = request
-                AnnouncementsPolicy.requireWriter(actor)
+                AnnouncementsPolicy.requireWriter(actor.role, actor.active, actor.emailConfirmedAt != null)
         AnnouncementsPolicy.validate(draft)
         require(key.length in 8..128)
         store.authorizeCreate(AuthorizeAnnouncementCreate(actor.id, actor.role, actor.sessionValidationReference, draft))
@@ -35,7 +35,7 @@ class CreateAnnouncementUseCase(
         try {
             idempotency.findEncoded(receiptKey)?.let { return@run receiptCodec.decode(it) }
         } catch (_: IdempotencyKeyReuse) {
-            throw AcademicIdempotencyConflict()
+            throw AnnouncementIdempotencyConflict()
         }
         store.create(CreateAnnouncementRecord(actor.id, actor.role, actor.sessionValidationReference, draft, key, hash)).also {
             idempotency.saveEncoded(receiptKey, receiptCodec.encode(it))

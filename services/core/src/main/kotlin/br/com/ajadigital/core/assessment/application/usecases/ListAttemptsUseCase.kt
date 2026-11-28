@@ -10,12 +10,12 @@ import br.com.ajadigital.core.assessment.domain.models.AssessmentPage
 import br.com.ajadigital.core.assessment.domain.models.AttemptPage
 import br.com.ajadigital.core.assessment.application.ports.`in`.ListAttemptsInputPort
 import br.com.ajadigital.core.assessment.application.ports.out.AttemptStoreOutputPort
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 class ListAttemptsUseCase(private val store: AttemptStoreOutputPort) : ListAttemptsInputPort {
     override fun attempts(request: ListAttemptsQuery): AttemptPage {
                 val (actor, page, pageSize, sort, assessmentId, studentId) = request
-        AttemptPolicy.reader(actor)
+        AttemptPolicy.reader(actor.role, actor.active, actor.emailConfirmedAt != null)
         require(page > 0 && pageSize in 1..100 && sort in setOf("id", "-id"))
         require(assessmentId == null || AttemptPolicy.validId(assessmentId))
         require(studentId == null || AttemptPolicy.validId(studentId))

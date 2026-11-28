@@ -9,8 +9,8 @@ import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementSt
 import br.com.ajadigital.core.announcements.application.models.WithdrawAnnouncementCommand
 import br.com.ajadigital.core.announcements.application.models.WithdrawAnnouncementRecord
 import br.com.ajadigital.core.announcements.application.models.GetStoredAnnouncementQuery
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
+import br.com.ajadigital.core.announcements.domain.exceptions.AnnouncementConflict
+import br.com.ajadigital.core.announcements.domain.exceptions.AnnouncementNotFound
 import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 
 class WithdrawAnnouncementUseCase(
@@ -19,10 +19,10 @@ class WithdrawAnnouncementUseCase(
 ) : WithdrawAnnouncementInputPort {
     override fun withdraw(request: WithdrawAnnouncementCommand): Announcement = transactionRunner.run {
         val (actor, id, revision) = request
-                AnnouncementsPolicy.requireWriter(actor)
+                AnnouncementsPolicy.requireWriter(actor.role, actor.active, actor.emailConfirmedAt != null)
         require(revision > 0)
         store.withdraw(WithdrawAnnouncementRecord(actor.id, actor.role, actor.sessionValidationReference, id, revision))
-            ?: store.announcement(GetStoredAnnouncementQuery(actor.id, actor.role, actor.sessionValidationReference, id))?.let { throw AcademicConflict(it.revision) }
-            ?: throw AcademicNotFound()
+            ?: store.announcement(GetStoredAnnouncementQuery(actor.id, actor.role, actor.sessionValidationReference, id))?.let { throw AnnouncementConflict(it.revision) }
+            ?: throw AnnouncementNotFound()
     }
 }

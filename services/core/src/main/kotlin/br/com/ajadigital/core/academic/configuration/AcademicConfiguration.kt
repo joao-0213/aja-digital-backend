@@ -49,8 +49,8 @@ import br.com.ajadigital.core.academic.application.usecases.TransitionEnrollment
 import br.com.ajadigital.core.academic.application.usecases.UpdateClassUseCase
 import br.com.ajadigital.core.academic.application.usecases.UpdateUserUseCase
 import br.com.ajadigital.core.academic.application.usecases.WithdrawUserUseCase
-import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
-import br.com.ajadigital.core.identity.application.ports.out.PasswordHasherOutputPort
+import br.com.ajadigital.core.outbox.application.ports.`in`.OutboxEventProducerInputPort
+import br.com.ajadigital.core.identity.application.ports.`in`.HashPasswordInputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicRequestFingerprintOutputPort
 import br.com.ajadigital.core.shared.application.ports.out.EncodedIdempotencyStoreOutputPort
 import br.com.ajadigital.core.academic.application.ports.out.AcademicReceiptCodecOutputPort
@@ -79,8 +79,8 @@ class AcademicConfiguration {
         store: AcademicStoreOutputPort,
         fingerprints: AcademicRequestFingerprintOutputPort,
         clock: Clock,
-        encryption: OutboxPayloadProtectorOutputPort,
-        hasher: PasswordHasherOutputPort,
+        encryption: OutboxEventProducerInputPort,
+        hasher: HashPasswordInputPort,
         idempotency: EncodedIdempotencyStoreOutputPort,
         receiptCodec: AcademicReceiptCodecOutputPort,
         transactionRunner: TransactionRunnerOutputPort,

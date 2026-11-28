@@ -1,7 +1,7 @@
 package br.com.ajadigital.core.identity.application.usecases
 import br.com.ajadigital.core.identity.application.models.ProfileEditCommand
 import br.com.ajadigital.core.identity.domain.exceptions.ProfileRevisionConflict
-import br.com.ajadigital.core.identity.domain.exceptions.SessionRequired
+import br.com.ajadigital.core.identity.application.contracts.SessionRequired
 
 import br.com.ajadigital.core.identity.domain.models.User
 import br.com.ajadigital.core.identity.application.ports.`in`.UpdateOwnProfileInputPort

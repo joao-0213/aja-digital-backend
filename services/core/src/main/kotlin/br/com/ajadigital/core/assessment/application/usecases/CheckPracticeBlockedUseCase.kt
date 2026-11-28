@@ -8,7 +8,7 @@ import br.com.ajadigital.core.assessment.application.models.CheckPracticeBlocked
 import br.com.ajadigital.core.assessment.domain.policies.AttemptPolicy
 import br.com.ajadigital.core.assessment.application.ports.`in`.CheckPracticeBlockedInputPort
 import br.com.ajadigital.core.assessment.application.ports.out.AttemptStoreOutputPort
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 class CheckPracticeBlockedUseCase(private val store: AttemptStoreOutputPort) : CheckPracticeBlockedInputPort {
     override fun practiceBlocked(request: CheckPracticeBlockedQuery): Boolean {

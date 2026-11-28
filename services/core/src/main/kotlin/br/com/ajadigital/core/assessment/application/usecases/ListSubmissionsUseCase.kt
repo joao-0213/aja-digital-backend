@@ -9,12 +9,12 @@ import br.com.ajadigital.core.assessment.domain.policies.SubmissionPolicy
 import br.com.ajadigital.core.assessment.domain.models.SubmissionPage
 import br.com.ajadigital.core.assessment.application.ports.`in`.ListSubmissionsInputPort
 import br.com.ajadigital.core.assessment.application.ports.out.SubmissionStoreOutputPort
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 
 class ListSubmissionsUseCase(private val store: SubmissionStoreOutputPort) : ListSubmissionsInputPort {
     override fun submissions(request: ListSubmissionsQuery): SubmissionPage {
                 val (actor, page, pageSize, sort, assessmentId, studentId) = request
-        SubmissionPolicy.reader(actor)
+        SubmissionPolicy.reader(actor.role, actor.active, actor.emailConfirmedAt != null)
         require(page > 0 && pageSize in 1..100 && sort in setOf("id", "-id"))
         require(assessmentId == null || SubmissionPolicy.validId(assessmentId))
         require(studentId == null || SubmissionPolicy.validId(studentId))

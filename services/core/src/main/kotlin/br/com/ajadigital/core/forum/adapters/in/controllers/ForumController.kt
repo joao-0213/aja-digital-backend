@@ -76,5 +76,5 @@ class ForumController(
     @PostMapping("/api/v1/topics/{id}/replies/{replyId}/withdraw")
     fun withdrawReply(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String, @PathVariable replyId: String, @RequestBody body: TopicRevisionRequest) = withdrawTopicReply.withdrawReply(WithdrawTopicReplyCommand(actor(cookie), requestId(id), requestId(replyId), body.expectedRevision))
 
-    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
+    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(cookie)
 }

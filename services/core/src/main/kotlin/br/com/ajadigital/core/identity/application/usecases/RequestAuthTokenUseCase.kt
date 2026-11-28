@@ -1,7 +1,7 @@
 package br.com.ajadigital.core.identity.application.usecases
 import br.com.ajadigital.core.identity.application.models.AcceptedResponse
-import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
-import br.com.ajadigital.core.outbox.domain.models.EncryptIdentityNotificationDto
+import br.com.ajadigital.core.outbox.application.ports.`in`.OutboxEventProducerInputPort
+import br.com.ajadigital.core.outbox.application.contracts.PrepareIdentityNotificationCommand
 
 import br.com.ajadigital.core.identity.domain.models.User
 import br.com.ajadigital.core.identity.domain.exceptions.AuthTokenExpired
@@ -29,7 +29,7 @@ import java.util.UUID
 class RequestAuthTokenUseCase(
     private val store: IdentityStoreOutputPort,
     private val clock: Clock,
-    private val encryption: OutboxPayloadProtectorOutputPort,
+    private val encryption: OutboxEventProducerInputPort,
 ) : RequestAuthTokenInputPort {
     override fun request(request: RequestAuthTokenDto): AcceptedResponse {
         val (emailInput, purpose) = request
@@ -51,7 +51,7 @@ class RequestAuthTokenUseCase(
         val eventId = UUID.randomUUID().toString()
         val eventType = if (purpose == "email_confirmation") "identity.email-confirmation-requested" else "identity.password-reset-requested"
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also(SecureRandom()::nextBytes))
-        val encrypted = encryption.encryptIdentityNotification(EncryptIdentityNotificationDto(eventId, eventType, 1, identity.user.email, token, identity.user.id, purpose))
+        val encrypted = encryption.prepareIdentityNotification(PrepareIdentityNotificationCommand(eventId, eventType, 1, identity.user.email, token, identity.user.id, purpose))
         store.issueAuthToken(
             IssueAuthTokenDto(AuthTokenIssue(
                 id, identity.user.id, purpose, sha256(token), identity.user.email, now, now.plus(Duration.ofMinutes(30)),

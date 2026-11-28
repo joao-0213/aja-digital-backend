@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
 
-/** Intentionally diagnostic during migration: report every finding and fail while any remain. */
+/** Mandatory bytecode and source architecture checks over production Core classes. */
 @OptIn(K1Deprecation::class)
 class CoreProductionArchitectureAuditTest {
     @Test
@@ -27,30 +27,36 @@ class CoreProductionArchitectureAuditTest {
             findings += "Core target package academic is missing (D-02 classroom rename incomplete)"
         }
         check(imported.any { it.simpleName.endsWith("Controller") }) { "No controller classes selected" }
+        check(imported.any { it.packageName.contains(".application.") }) { "No application classes selected" }
+        check(imported.any { it.packageName.endsWith(".configuration") || it.packageName.contains(".configuration.") }) { "No configuration classes selected" }
         check(imported.any {
             it.simpleName == "GetDashboardUseCase" && (it.packageName.contains(".dashboard.domain.usecases") || it.packageName.contains(".dashboard.application.usecases"))
         }) { "No legacy/target GetDashboardUseCase selected" }
         listOf(
-            noClasses().that().resideInAPackage("..domain..").should().dependOnClassesThat()
-                .resideInAnyPackage("org.springframework..", "jakarta..", "java.sql..", "javax.sql..", "..adapters..", "..application..", "..configuration.."),
-            noClasses().that().resideInAPackage("..adapters.in..").should().dependOnClassesThat().haveSimpleNameEndingWith("UseCase"),
-            noClasses().that().resideInAPackage("..adapters.in..").should().dependOnClassesThat().resideInAPackage("..adapters.out.."),
-            noClasses().that().resideInAPackage("..adapters.out..").should().dependOnClassesThat().resideInAPackage("..adapters.in.."),
-            noClasses().that().haveSimpleNameEndingWith("Controller").should().dependOnClassesThat()
-                .haveSimpleName("ConnectionFactory"),
-            noClasses().that().haveSimpleNameEndingWith("GetDashboardUseCase")
-                .and().resideInAnyPackage("..dashboard.application.usecases..", "..dashboard.application.usecases..")
-                .should().dependOnClassesThat().haveSimpleNameEndingWith("UseCase"),
+            CoreBytecodeArchitectureRules.domainIsolation(),
+            CoreBytecodeArchitectureRules.applicationIsolation(),
+            CoreBytecodeArchitectureRules.inboundBoundary(),
+            CoreBytecodeArchitectureRules.inboundToOutboundDirection(),
+            CoreBytecodeArchitectureRules.outboundToInboundDirection(),
+            CoreBytecodeArchitectureRules.noControllerConnectionFactory(),
+            CoreBytecodeArchitectureRules.dashboardDoesNotCallConcreteUseCases(),
             noClasses().that().resideInAPackage("..shared..").should().dependOnClassesThat().resideInAnyPackage(
                 "..identity..", "..classroom..", "..academic..", "..curriculum..", "..materials..", "..assessment..", "..announcements..", "..forum..", "..attendance..", "..dashboard..", "..outbox..",
             ),
             noClasses().that().resideInAPackage("..domain.policies..").should().dependOnClassesThat()
                 .resideInAnyPackage("..application..", "..adapters..", "..configuration..", "org.springframework..", "java.sql..", "javax.sql.."),
         ).forEach { rule -> findings += rule.evaluate(imported).failureReport.details }
+        findings += CoreBytecodeArchitectureRules.policyEffectFindings(imported.toList())
+        findings += CoreBytecodeArchitectureRules.configurationFindings(imported.toList())
         val cycles = com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices()
             .matching("br.com.ajadigital.core.(*)..").should().beFreeOfCycles()
         findings += cycles.evaluate(imported).failureReport.details
         findings += CoreContractTypeAnalyzer.analyze(imported)
+        findings += CoreFeatureDependencyRules.analyze(imported.toList())
+        val coreApplication = imported.singleOrNull { it.simpleName == "CoreApplication" }
+        check(coreApplication != null && coreApplication.methods.none { it.isAnnotatedWith(org.springframework.context.annotation.Bean::class.java) }) {
+            "CoreApplication must delegate bean wiring to feature configuration"
+        }
 
         val disposable = Disposer.newDisposable()
         try {

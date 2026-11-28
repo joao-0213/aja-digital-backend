@@ -4,26 +4,19 @@ import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicIdempotencyConflict
 import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
-import br.com.ajadigital.core.shared.adapters.`in`.web.errors.errorBody
-import org.springframework.http.HttpStatus
-import org.springframework.http.ResponseEntity
+import br.com.ajadigital.core.shared.adapters.`in`.web.errors.FeatureHttpErrors
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
-import java.util.UUID
 
 
 @RestControllerAdvice
 class AcademicExceptionHandler {
     @ExceptionHandler(AcademicForbidden::class)
-    fun forbidden() = ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorBody("FORBIDDEN", "This action is not allowed"))
+    fun forbidden() = FeatureHttpErrors.forbidden()
     @ExceptionHandler(AcademicNotFound::class)
-    fun notFound() = ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorBody("NOT_FOUND", "Resource was not found"))
+    fun notFound() = FeatureHttpErrors.notFound()
     @ExceptionHandler(AcademicConflict::class)
-    fun conflict(exception: AcademicConflict): ResponseEntity<Any> {
-        val body = mutableMapOf<String, Any?>("code" to "REVISION_CONFLICT", "message" to "Resource changed or conflicts with current state", "requestId" to UUID.randomUUID().toString())
-        exception.currentRevision?.let { body["details"] = mapOf("currentRevision" to it) }
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("error" to body))
-    }
+    fun conflict(exception: AcademicConflict) = FeatureHttpErrors.conflict(exception.currentRevision)
     @ExceptionHandler(AcademicIdempotencyConflict::class)
-    fun idempotencyConflict() = ResponseEntity.status(HttpStatus.CONFLICT).body(errorBody("IDEMPOTENCY_CONFLICT", "Idempotency key was reused with a different request"))
+    fun idempotencyConflict() = FeatureHttpErrors.idempotencyConflict()
 }

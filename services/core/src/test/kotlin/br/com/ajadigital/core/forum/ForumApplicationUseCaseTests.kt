@@ -2,7 +2,7 @@ package br.com.ajadigital.core.forum
 import br.com.ajadigital.core.forum.application.models.*
 import br.com.ajadigital.core.forum.application.contracts.ForumDashboardTopic
 
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.forum.domain.exceptions.ForumForbidden
 import br.com.ajadigital.core.forum.application.models.*
 import br.com.ajadigital.core.forum.application.ports.out.ForumQuestionSnapshotProviderOutputPort
 import br.com.ajadigital.core.forum.application.ports.out.TopicStoreOutputPort
@@ -37,7 +37,7 @@ class ForumApplicationUseCaseTests {
         }
         val denied = CreateTopicUseCase(store, snapshots, fingerprints)
 
-        assertThrows(AcademicForbidden::class.java) {
+        assertThrows(ForumForbidden::class.java) {
             denied.create(request.copy(actor = AuthenticatedActor("student-1", "student", false, actor.emailConfirmedAt, "session-hash")))
         }
         assertEquals(0, storeCalls)

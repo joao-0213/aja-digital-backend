@@ -5,7 +5,7 @@ import br.com.ajadigital.core.forum.domain.policies.ForumPolicy
 import br.com.ajadigital.core.forum.application.ports.out.ForumQuestionSnapshotProviderOutputPort
 import br.com.ajadigital.core.forum.application.models.ForumQuestionSnapshotQuery
 import br.com.ajadigital.core.forum.application.models.ForumTopicView
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import br.com.ajadigital.core.forum.domain.exceptions.InvalidTopicReference
 import br.com.ajadigital.core.forum.application.ports.`in`.CreateTopicInputPort
 import br.com.ajadigital.core.forum.application.ports.out.TopicStoreOutputPort
@@ -19,7 +19,7 @@ class CreateTopicUseCase(
 ) : CreateTopicInputPort {
     override fun create(request: CreateTopicCommand): ForumTopicView {
         val (actor, draft, key) = request
-                ForumPolicy.writable(actor)
+                ForumPolicy.writable(actor.role, actor.active, actor.emailConfirmedAt != null)
         require(key.length in 8..128 && ForumPolicy.validId(draft.classId) && ForumPolicy.validId(draft.subjectId))
         require(draft.title.isNotBlank() && draft.title.length <= 160 && draft.body.isNotBlank() && draft.body.length <= 10000)
         require(draft.tags.size <= 20 && draft.tags.all { it.isNotBlank() && it.length <= 40 } && draft.tags.distinct().size == draft.tags.size)

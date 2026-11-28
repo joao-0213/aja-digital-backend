@@ -1,7 +1,7 @@
 package br.com.ajadigital.core.announcements.adapters.out.persistence
 
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
+import br.com.ajadigital.core.announcements.domain.exceptions.AnnouncementForbidden
+import br.com.ajadigital.core.announcements.domain.exceptions.AnnouncementNotFound
 import br.com.ajadigital.core.outbox.application.ports.`in`.OutboxEventProducerInputPort
 import br.com.ajadigital.core.outbox.application.contracts.PrepareOutboxEventCommand
 import br.com.ajadigital.core.outbox.application.contracts.AppendPreparedOutboxEventCommand
@@ -63,7 +63,7 @@ class JdbcAnnouncementStore(
             VALUES(?,1,?,?,?,?,?,?,?,?,?,?::jsonb)""", id, now, now, actorId, actorId, draft.classId, draft.subjectId, draft.title.trim(), draft.body, draft.notify, draft.occurrence?.let(mapper::writeValueAsString))
         if (draft.notify) notify(id, 1, draft)
         audit(actorId, "academic.announcement_created", id)
-        return announcement(GetStoredAnnouncementQuery(actorId, role, sessionHash, id)) ?: throw AcademicNotFound()
+        return announcement(GetStoredAnnouncementQuery(actorId, role, sessionHash, id)) ?: throw AnnouncementNotFound()
     }
 
     @Transactional
@@ -243,26 +243,26 @@ class JdbcAnnouncementStore(
     }
 
     private fun lockAudience(classId: String, subjectId: String?, actorId: String, role: String) {
-        val active = jdbc.query("SELECT active FROM core.classes WHERE id=? FOR UPDATE", { rs, _ -> rs.getBoolean(1) }, classId).firstOrNull() ?: throw AcademicNotFound()
-        if (!active) throw AcademicForbidden()
+        val active = jdbc.query("SELECT active FROM core.classes WHERE id=? FOR UPDATE", { rs, _ -> rs.getBoolean(1) }, classId).firstOrNull() ?: throw AnnouncementNotFound()
+        if (!active) throw AnnouncementForbidden()
         if (subjectId != null) {
-            val subjectClass = jdbc.query("SELECT class_id FROM core.subjects WHERE id=? FOR UPDATE", { rs, _ -> rs.getString(1) }, subjectId).firstOrNull() ?: throw AcademicNotFound()
-            if (subjectClass != classId) throw AcademicNotFound()
+            val subjectClass = jdbc.query("SELECT class_id FROM core.subjects WHERE id=? FOR UPDATE", { rs, _ -> rs.getString(1) }, subjectId).firstOrNull() ?: throw AnnouncementNotFound()
+            if (subjectClass != classId) throw AnnouncementNotFound()
         }
         if (role == "teacher") {
             val assigned = if (subjectId != null) jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM core.subject_teachers st JOIN core.users u ON u.id=st.teacher_id WHERE st.subject_id=? AND st.teacher_id=? AND u.active AND u.role='teacher')", Boolean::class.java, subjectId, actorId)
             else jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM core.subject_teachers st JOIN core.subjects s ON s.id=st.subject_id JOIN core.users u ON u.id=st.teacher_id WHERE s.class_id=? AND st.teacher_id=? AND u.active AND u.role='teacher')", Boolean::class.java, classId, actorId)
-            if (assigned != true) throw AcademicForbidden()
+            if (assigned != true) throw AnnouncementForbidden()
         }
     }
 
     private fun requireWriterSession(actorId: String, role: String, hash: String) = requireSession(actorId, role, hash, "teacher", "admin")
     private fun requireReaderSession(actorId: String, role: String, hash: String) = requireSession(actorId, role, hash, "student", "teacher", "admin")
     private fun requireSession(actorId: String, role: String, hash: String, vararg allowed: String) {
-        if (role !in allowed) throw AcademicForbidden()
+        if (role !in allowed) throw AnnouncementForbidden()
         val exists = jdbc.queryForObject("""SELECT EXISTS(SELECT 1 FROM core.users u JOIN core.sessions s ON s.user_id=u.id
             WHERE u.id=? AND u.active AND u.role=? AND s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?)""", Boolean::class.java, actorId, role, hash, Timestamp.from(clock.instant()))
-        if (exists != true) throw AcademicForbidden()
+        if (exists != true) throw AnnouncementForbidden()
     }
 
     private fun access(alias: String, role: String) = when (role) {

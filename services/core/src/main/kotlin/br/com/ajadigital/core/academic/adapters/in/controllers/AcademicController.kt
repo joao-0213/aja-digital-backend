@@ -166,7 +166,7 @@ class AcademicController(
     @GetMapping("/api/v1/students/{id}")
     fun student(@CookieValue(name = "aja_session", required = false) cookie: String?, @PathVariable id: String) = studentBody(getStudent.student(GetStudentDto(actor(cookie), requestId(id))))
 
-    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
+    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(cookie)
     private fun <T> pagedBody(result: Page<T>, render: (T) -> Any? = { it }): Map<String, Any?> = mapOf("items" to result.items.map(render), "page" to result.page, "pageSize" to result.pageSize, "total" to result.total)
     private fun classBody(value: AcademicClassView): Map<String, Any?> = buildMap {
         put("id", value.id)

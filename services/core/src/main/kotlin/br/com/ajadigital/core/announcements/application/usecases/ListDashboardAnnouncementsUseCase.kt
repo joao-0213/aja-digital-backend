@@ -13,7 +13,7 @@ class ListDashboardAnnouncementsUseCase(
 ) : ListDashboardAnnouncementsInputPort {
     override fun dashboardAnnouncements(request: ListDashboardAnnouncementsQuery): List<Announcement> = request.let {
         val (actor, size) = request
-        AnnouncementsPolicy.requireReader(actor).let {
+        AnnouncementsPolicy.requireReader(actor.role, actor.active, actor.emailConfirmedAt != null).let {
             store.dashboardAnnouncements(ListDashboardAnnouncementStoreQuery(actor.id, actor.role, actor.sessionValidationReference, size))
         }
     }

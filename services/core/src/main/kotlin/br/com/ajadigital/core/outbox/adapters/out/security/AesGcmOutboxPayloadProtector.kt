@@ -1,9 +1,8 @@
 package br.com.ajadigital.core.outbox.adapters.out.security
 
 import br.com.ajadigital.core.outbox.application.contracts.EncryptedOutboxPayload
+import br.com.ajadigital.core.outbox.application.contracts.PrepareIdentityNotificationCommand
 import br.com.ajadigital.core.outbox.domain.models.EncryptOutboxPayloadDto
-import br.com.ajadigital.core.outbox.domain.models.OutboxPayloadKeyDto
-import br.com.ajadigital.core.outbox.domain.models.EncryptIdentityNotificationDto
 import tools.jackson.databind.ObjectMapper
 import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
 import java.security.MessageDigest
@@ -17,16 +16,15 @@ class AesGcmOutboxPayloadProtector(keyBase64: String, private val mapper: Object
     private val key = Base64.getDecoder().decode(keyBase64).also { require(it.size == 32) }
     private val keyId: String = MessageDigest.getInstance("SHA-256").digest(key).take(8).joinToString("") { "%02x".format(it) }
 
-    override fun encryptIdentityNotification(request: EncryptIdentityNotificationDto): EncryptedOutboxPayload = encrypt(
+    override fun encryptIdentityNotification(request: PrepareIdentityNotificationCommand): EncryptedOutboxPayload = encrypt(
         EncryptOutboxPayloadDto(
             request.eventId,
             request.eventType,
-            request.version,
-            mapper.writeValueAsBytes(mapOf("recipient" to request.recipient, "token" to request.token, "userId" to request.userId, "purpose" to request.purpose)),
+            request.eventVersion,
+            mapper.writeValueAsBytes(mapOf("recipient" to request.email, "token" to request.token, "userId" to request.userId, "purpose" to request.purpose)),
         ),
     )
 
-    override fun keyId(request: OutboxPayloadKeyDto): String = keyId
 
     override fun encrypt(request: EncryptOutboxPayloadDto): EncryptedOutboxPayload {
         val nonce = ByteArray(12).also { SecureRandom().nextBytes(it) }

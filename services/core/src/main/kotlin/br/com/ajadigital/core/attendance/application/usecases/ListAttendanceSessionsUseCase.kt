@@ -9,7 +9,7 @@ import br.com.ajadigital.core.attendance.application.ports.out.AttendanceStoreOu
 
 class ListAttendanceSessionsUseCase(private val store: AttendanceStoreOutputPort) : ListAttendanceSessionsInputPort {
     override fun list(query: ListAttendanceSessionsQuery): AttendanceSessionPage {
-        AttendancePolicy.readable(query.actor)
+        AttendancePolicy.readable(query.actor.role, query.actor.active, query.actor.emailConfirmedAt != null)
         require(query.page > 0 && query.size in 1..100 && query.sort in setOf("date", "-date"))
         require(query.subjectId == null || AttendancePolicy.validId(query.subjectId))
         require(query.studentId == null || AttendancePolicy.validId(query.studentId))

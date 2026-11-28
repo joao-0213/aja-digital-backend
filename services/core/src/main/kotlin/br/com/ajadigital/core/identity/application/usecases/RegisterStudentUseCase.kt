@@ -1,7 +1,7 @@
 package br.com.ajadigital.core.identity.application.usecases
 import br.com.ajadigital.core.identity.application.models.RegistrationRecords
-import br.com.ajadigital.core.outbox.application.ports.out.OutboxPayloadProtectorOutputPort
-import br.com.ajadigital.core.outbox.domain.models.EncryptIdentityNotificationDto
+import br.com.ajadigital.core.outbox.application.ports.`in`.OutboxEventProducerInputPort
+import br.com.ajadigital.core.outbox.application.contracts.PrepareIdentityNotificationCommand
 import br.com.ajadigital.core.identity.application.models.RegistrationCommand
 import br.com.ajadigital.core.identity.domain.exceptions.RegistrationConflict
 import br.com.ajadigital.core.identity.application.models.RegistrationResult
@@ -29,7 +29,7 @@ class RegisterStudentUseCase(
     private val store: IdentityStoreOutputPort,
     private val passwordHasher: PasswordHasherOutputPort,
     private val clock: Clock,
-    private val encryption: OutboxPayloadProtectorOutputPort,
+    private val encryption: OutboxEventProducerInputPort,
 ) : RegisterStudentInputPort {
     override fun register(request: RegisterStudentDto): RegistrationResult {
         val (command) = request
@@ -50,7 +50,7 @@ class RegisterStudentUseCase(
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) })
         val user = User(id, 1, now, now, id, command.name.trim(), email)
         val expires = now.plus(Duration.ofMinutes(30))
-        val encrypted = encryption.encryptIdentityNotification(EncryptIdentityNotificationDto(eventId, "identity.email-confirmation-requested", 1, email, token, id, "email_confirmation"))
+        val encrypted = encryption.prepareIdentityNotification(PrepareIdentityNotificationCommand(eventId, "identity.email-confirmation-requested", 1, email, token, id, "email_confirmation"))
         val passwordHash = passwordHasher.hash(HashPasswordDto(command.password))
         store.createRegistration(
             CreateRegistrationDto(br.com.ajadigital.core.identity.application.models.RegistrationRecords(

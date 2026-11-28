@@ -105,7 +105,7 @@ class SubmissionController(
         return publishSubmissionFeedback.publishFeedback(PublishSubmissionFeedbackCommand(actor(cookie), id, key ?: throw IllegalArgumentException(), publishFeedbackBody(body), requestHash(body))).toWireMap()
     }
 
-    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(br.com.ajadigital.core.identity.application.models.ResolveStudentSessionDto(cookie))
+    private fun actor(cookie: String?): AuthenticatedActor = auth.resolve(cookie)
     private fun requestHash(body: JsonNode) = MessageDigest.getInstance("SHA-256").digest(mapper.writeValueAsBytes(body.toRequestValue())).joinToString("") { "%02x".format(it) }
 
     private fun createBody(node: JsonNode): SubmissionContracts.CreateBody {

@@ -10,8 +10,8 @@ import br.com.ajadigital.core.announcements.application.models.UpdateAnnouncemen
 import br.com.ajadigital.core.announcements.application.models.GetStoredAnnouncementQuery
 import br.com.ajadigital.core.announcements.application.ports.`in`.UpdateAnnouncementInputPort
 import br.com.ajadigital.core.announcements.application.ports.out.AnnouncementStoreOutputPort
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicConflict
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicNotFound
+import br.com.ajadigital.core.announcements.domain.exceptions.AnnouncementConflict
+import br.com.ajadigital.core.announcements.domain.exceptions.AnnouncementNotFound
 import br.com.ajadigital.core.shared.application.ports.out.TransactionRunnerOutputPort
 
 class UpdateAnnouncementUseCase(
@@ -20,11 +20,11 @@ class UpdateAnnouncementUseCase(
 ) : UpdateAnnouncementInputPort {
     override fun update(request: UpdateAnnouncementCommand): Announcement = transactionRunner.run {
         val (actor, id, revision, draft) = request
-                AnnouncementsPolicy.requireWriter(actor)
+                AnnouncementsPolicy.requireWriter(actor.role, actor.active, actor.emailConfirmedAt != null)
         require(revision > 0)
         AnnouncementsPolicy.validate(draft)
         store.update(UpdateAnnouncementRecord(actor.id, actor.role, actor.sessionValidationReference, id, revision, draft))
-            ?: store.announcement(GetStoredAnnouncementQuery(actor.id, actor.role, actor.sessionValidationReference, id))?.let { throw AcademicConflict(it.revision) }
-            ?: throw AcademicNotFound()
+            ?: store.announcement(GetStoredAnnouncementQuery(actor.id, actor.role, actor.sessionValidationReference, id))?.let { throw AnnouncementConflict(it.revision) }
+            ?: throw AnnouncementNotFound()
     }
 }

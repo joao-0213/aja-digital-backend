@@ -1,6 +1,6 @@
 package br.com.ajadigital.core.assessment
 
-import br.com.ajadigital.core.academic.domain.exceptions.AcademicForbidden
+import br.com.ajadigital.core.assessment.domain.exceptions.AssessmentForbidden
 import br.com.ajadigital.core.assessment.application.models.AttemptAnswerSaveCommand
 import br.com.ajadigital.core.assessment.application.models.AttemptGetQuery
 import br.com.ajadigital.core.assessment.application.models.AttemptListQuery
@@ -16,7 +16,7 @@ import br.com.ajadigital.core.assessment.domain.models.AttemptPage
 import br.com.ajadigital.core.assessment.domain.models.AttemptRecord
 import br.com.ajadigital.core.assessment.domain.models.AttemptResult
 import br.com.ajadigital.core.assessment.domain.models.AttemptState
-import br.com.ajadigital.core.identity.domain.contracts.AuthenticatedActor
+import br.com.ajadigital.core.identity.application.contracts.AuthenticatedActor
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
@@ -28,7 +28,7 @@ class SaveAttemptAnswersUseCaseTests {
         val store = RecordingStore()
         val request = SaveAttemptAnswersCommand(actor("teacher"), "bad id", null)
 
-        assertThrows(AcademicForbidden::class.java) { SaveAttemptAnswersUseCase(store).saveAnswers(request) }
+        assertThrows(AssessmentForbidden::class.java) { SaveAttemptAnswersUseCase(store).saveAnswers(request) }
         assertFalse(store.called)
     }
 
